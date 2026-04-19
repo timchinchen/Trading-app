@@ -45,6 +45,33 @@ class AgentScheduler:
             return None
         return self._job.next_run_time
 
+    def reschedule(self, cron_minutes: int, *, enabled: bool = True) -> None:
+        """Apply a new cron interval (or fully start/stop) at runtime.
+
+        Called from the Settings UI when AGENT_ENABLED or AGENT_CRON_MINUTES
+        is changed via the /agent/settings endpoint."""
+        if not enabled:
+            self.shutdown()
+            self.sched = None
+            self._job = None
+            print("[agent] scheduler disabled via runtime setting")
+            return
+        if self.sched is None:
+            self.sched = AsyncIOScheduler(timezone="America/New_York")
+            self.sched.start()
+        minute_expr = f"*/{max(1, int(cron_minutes))}"
+        trigger = CronTrigger(
+            day_of_week="mon-fri",
+            hour="9-15",
+            minute=minute_expr,
+            timezone="America/New_York",
+        )
+        if self._job:
+            self._job.reschedule(trigger=trigger)
+        else:
+            self._job = self.sched.add_job(self._runner, trigger=trigger, id="agent_main")
+        print(f"[agent] scheduler rescheduled every {cron_minutes}m; next: {self._job.next_run_time}")
+
     def shutdown(self) -> None:
         if self.sched:
             self.sched.shutdown(wait=False)

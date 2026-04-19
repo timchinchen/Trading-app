@@ -97,6 +97,19 @@ class AgentTrade(Base):
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
 
+class AppSetting(Base):
+    """Runtime-editable key/value overrides on top of .env defaults.
+
+    Anything stored here wins over the corresponding env var. Used by the
+    Settings page so the user can switch LLM provider, edit X handles, tune
+    budgets, etc. without restarting uvicorn.
+    """
+    __tablename__ = "app_settings"
+    key = Column(String, primary_key=True)
+    value = Column(String, nullable=False, default="")
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+
 class TwitterUserCache(Base):
     __tablename__ = "twitter_user_cache"
     handle = Column(String, primary_key=True)          # lowercase

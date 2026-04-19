@@ -4,6 +4,8 @@ import type {
   Account,
   AgentAccountCache,
   AgentRun,
+  AgentSettings,
+  AgentSettingsUpdate,
   AgentSignal,
   AgentStatus,
   AgentTrade,
@@ -191,6 +193,24 @@ export const useLLMModels = () =>
     queryKey: ['llm', 'models'],
     queryFn: async () => (await api.get<LLMModels>('/llm/models')).data,
   })
+
+export const useAgentSettings = () =>
+  useQuery({
+    queryKey: ['agent', 'settings'],
+    queryFn: async () => (await api.get<AgentSettings>('/agent/settings')).data,
+  })
+
+export const useUpdateAgentSettings = () => {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (body: AgentSettingsUpdate) =>
+      (await api.put<AgentSettings>('/agent/settings', body)).data,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['agent'] })
+      qc.invalidateQueries({ queryKey: ['llm'] })
+    },
+  })
+}
 
 export const useChat = () =>
   useMutation({

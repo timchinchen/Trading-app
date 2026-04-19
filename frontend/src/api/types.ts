@@ -146,9 +146,52 @@ export interface ChatResponse {
 }
 
 export interface LLMInfo {
+  provider: 'ollama' | 'openai'
   host: string
   default_model: string
 }
+
+export interface AgentSettings {
+  llm_provider: 'ollama' | 'openai'
+  ollama_host: string
+  ollama_model: string
+  openai_model: string
+  openai_base_url: string
+  openai_api_key_set: boolean
+  openai_api_key_preview: string
+  agent_enabled: boolean
+  agent_auto_execute_live: boolean
+  agent_budget_usd: number
+  agent_weekly_budget_usd: number
+  agent_min_position_usd: number
+  agent_max_position_usd: number
+  agent_daily_loss_cap_usd: number
+  agent_max_open_positions: number
+  agent_cron_minutes: number
+  agent_intel_boost: number
+  twitter_accounts: string
+  overridden: string[]
+}
+
+export type AgentSettingsUpdate = Partial<{
+  LLM_PROVIDER: 'ollama' | 'openai'
+  OLLAMA_HOST: string
+  OLLAMA_MODEL: string
+  OPENAI_API_KEY: string
+  OPENAI_MODEL: string
+  OPENAI_BASE_URL: string
+  AGENT_ENABLED: boolean
+  AGENT_AUTO_EXECUTE_LIVE: boolean
+  AGENT_BUDGET_USD: number
+  AGENT_WEEKLY_BUDGET_USD: number
+  AGENT_MIN_POSITION_USD: number
+  AGENT_MAX_POSITION_USD: number
+  AGENT_DAILY_LOSS_CAP_USD: number
+  AGENT_MAX_OPEN_POSITIONS: number
+  AGENT_CRON_MINUTES: number
+  AGENT_INTEL_BOOST: number
+  TWITTER_ACCOUNTS: string
+}>
 
 export interface LLMModels {
   models: string[]

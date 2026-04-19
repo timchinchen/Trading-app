@@ -11,6 +11,7 @@ from ...config import settings
 from ...db import SessionLocal
 from ...models import AgentRun, AgentSignal, AgentTrade, AgentTweetAnalysis, Order, Trade
 from ..broker import AlpacaBroker
+from ..settings_store import get_runtime_settings
 from . import analyzer, allocator, llm, playwright_client, twitter_client
 from .intel import collect_intel
 
@@ -173,15 +174,19 @@ async def run_once(broker: AlpacaBroker) -> int:
     db.refresh(run)
     run_id = run.id
     log = RunLog()
-    log.add(f"run #{run_id} starting | mode={settings.APP_MODE} | "
-            f"budget=${settings.AGENT_BUDGET_USD} max/pos=${settings.AGENT_MAX_POSITION_USD}")
+    rs = get_runtime_settings(db)
+    log.add(
+        f"run #{run_id} starting | mode={settings.APP_MODE} | "
+        f"budget=${rs.agent_budget_usd} max/pos=${rs.agent_max_position_usd} | "
+        f"llm={rs.llm_provider}:{rs.llm_model}"
+    )
 
     def _save_logs():
         run.logs = log.render()[:60000]
         db.commit()
 
     try:
-        handles = settings.twitter_accounts_list
+        handles = rs.twitter_accounts_list
         log.add(f"configured handles: {len(handles)} -> {', '.join(handles) or '(none)'}")
         if not handles:
             run.status = "skipped"
@@ -192,8 +197,8 @@ async def run_once(broker: AlpacaBroker) -> int:
 
         # Daily-loss cap check
         pl = _today_realized_pl(db, settings.APP_MODE)
-        log.add(f"today realized P/L: ${pl:.2f} (cap -${settings.AGENT_DAILY_LOSS_CAP_USD})")
-        if pl <= -abs(settings.AGENT_DAILY_LOSS_CAP_USD):
+        log.add(f"today realized P/L: ${pl:.2f} (cap -${rs.agent_daily_loss_cap_usd})")
+        if pl <= -abs(rs.agent_daily_loss_cap_usd):
             run.status = "skipped"
             run.summary = f"daily loss cap hit (P/L={pl:.2f})"
             run.finished_at = datetime.utcnow()
@@ -288,14 +293,15 @@ async def run_once(broker: AlpacaBroker) -> int:
         _save_logs()
 
         # 2. LLM analyze each tweet (limited concurrency)
-        log.add(f"analysing tweets via ollama ({settings.OLLAMA_MODEL}) ...")
+        log.add(f"analysing tweets via {rs.llm_provider} ({rs.llm_model}) ...")
         sem = asyncio.Semaphore(3)
         analyses: list[dict[str, Any]] = []
 
         async def analyze(tw):
             async with sem:
                 a = await llm.analyze_tweet(
-                    tw["text"], tw["handle"], settings.OLLAMA_HOST, settings.OLLAMA_MODEL
+                    tw["text"], tw["handle"], rs.llm_host, rs.llm_model,
+                    provider=rs.llm_provider, api_key=rs.openai_api_key,
                 )
             analyses.append({"tweet": tw, "analysis": a})
 
@@ -343,7 +349,7 @@ async def run_once(broker: AlpacaBroker) -> int:
             signals,
             corroborating_symbols=intel.corroborating_symbols(),
             avoid_symbols=intel.symbols_to_avoid(),
-            boost=settings.AGENT_INTEL_BOOST,
+            boost=rs.agent_intel_boost,
         )
         boosted = [s for s, d in signals.items() if d.get("corroborated_by")]
         if boosted:
@@ -363,13 +369,13 @@ async def run_once(broker: AlpacaBroker) -> int:
         open_positions = {p["symbol"] for p in broker.positions()} if broker.configured else set()
         daily_budget = _remaining_budget(db, settings.APP_MODE)
         weekly_used = _weekly_deployed(db, settings.APP_MODE)
-        weekly_remaining = max(0.0, settings.AGENT_WEEKLY_BUDGET_USD - weekly_used)
+        weekly_remaining = max(0.0, rs.agent_weekly_budget_usd - weekly_used)
         log.add(
             f"budget: daily_remaining=${daily_budget:.2f} | "
-            f"weekly_used=${weekly_used:.2f}/${settings.AGENT_WEEKLY_BUDGET_USD:.2f} "
+            f"weekly_used=${weekly_used:.2f}/${rs.agent_weekly_budget_usd:.2f} "
             f"(remaining=${weekly_remaining:.2f}) | "
-            f"open={len(open_positions)}/{settings.AGENT_MAX_OPEN_POSITIONS} "
-            f"slot=${settings.AGENT_MIN_POSITION_USD:.0f}-${settings.AGENT_MAX_POSITION_USD:.0f}"
+            f"open={len(open_positions)}/{rs.agent_max_open_positions} "
+            f"slot=${rs.agent_min_position_usd:.0f}-${rs.agent_max_position_usd:.0f}"
         )
         log.add(f"open positions: {sorted(open_positions) or 'flat'}")
 
@@ -382,9 +388,9 @@ async def run_once(broker: AlpacaBroker) -> int:
             open_symbols=open_positions,
             budget_remaining=daily_budget,
             weekly_remaining=weekly_remaining,
-            min_position_usd=settings.AGENT_MIN_POSITION_USD,
-            max_position_usd=settings.AGENT_MAX_POSITION_USD,
-            max_open_positions=settings.AGENT_MAX_OPEN_POSITIONS,
+            min_position_usd=rs.agent_min_position_usd,
+            max_position_usd=rs.agent_max_position_usd,
+            max_open_positions=rs.agent_max_open_positions,
             get_price=_price,
         )
         for p in proposals:
@@ -394,10 +400,10 @@ async def run_once(broker: AlpacaBroker) -> int:
         # 5. Decide auto-execute
         auto_execute = (
             settings.APP_MODE == "paper"
-            or (settings.APP_MODE == "live" and settings.AGENT_AUTO_EXECUTE_LIVE)
+            or (settings.APP_MODE == "live" and rs.agent_auto_execute_live)
         )
         log.add(f"auto_execute={auto_execute} (app_mode={settings.APP_MODE}, "
-                f"auto_exec_live={settings.AGENT_AUTO_EXECUTE_LIVE})")
+                f"auto_exec_live={rs.agent_auto_execute_live})")
 
         proposed_count = 0
         executed_count = 0
@@ -458,12 +464,13 @@ async def run_once(broker: AlpacaBroker) -> int:
             daily_budget_remaining=daily_budget,
             weekly_remaining=weekly_remaining,
             open_positions=open_positions,
-            max_positions=settings.AGENT_MAX_OPEN_POSITIONS,
+            max_positions=rs.agent_max_open_positions,
         )
-        log.add("advisor: generating portfolio recommendation ...")
+        log.add(f"advisor: generating portfolio recommendation via {rs.llm_provider} ({rs.llm_model}) ...")
         _save_logs()
         advice = await llm.advise_portfolio(
-            advisor_context, settings.OLLAMA_HOST, settings.OLLAMA_MODEL
+            advisor_context, rs.llm_host, rs.llm_model,
+            provider=rs.llm_provider, api_key=rs.openai_api_key,
         )
         run.advice = advice[:6000]
 

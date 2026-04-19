@@ -1,9 +1,13 @@
+import { useEffect, useMemo, useState } from 'react'
 import {
   useAccount,
   useAgentAccountsCache,
+  useAgentSettings,
   useAgentStatus,
   useMode,
+  useUpdateAgentSettings,
 } from '../api/hooks'
+import type { AgentSettings, AgentSettingsUpdate } from '../api/types'
 
 function Row({
   label,
@@ -38,11 +42,434 @@ function Card({ title, children }: { title: string; children: React.ReactNode })
   )
 }
 
+function OverrideBadge({
+  k,
+  overridden,
+}: {
+  k: string
+  overridden: string[]
+}) {
+  const isOverridden = overridden.includes(k)
+  return (
+    <span
+      className={`inline-block ml-2 px-1.5 py-0.5 text-[10px] rounded border ${
+        isOverridden
+          ? 'border-primary/40 text-primary bg-primary/10'
+          : 'border-border text-muted-foreground'
+      }`}
+      title={
+        isOverridden
+          ? 'Saved in DB - overrides .env'
+          : 'Using .env default - not yet customised'
+      }
+    >
+      {isOverridden ? 'override' : '.env default'}
+    </span>
+  )
+}
+
+// ----- LLM provider section (editable) -----
+function LLMProviderCard({ s }: { s: AgentSettings }) {
+  const upd = useUpdateAgentSettings()
+  const [provider, setProvider] = useState(s.llm_provider)
+  const [ollamaHost, setOllamaHost] = useState(s.ollama_host)
+  const [ollamaModel, setOllamaModel] = useState(s.ollama_model)
+  const [openaiKey, setOpenaiKey] = useState('') // empty = leave existing
+  const [clearOpenaiKey, setClearOpenaiKey] = useState(false)
+  const [openaiModel, setOpenaiModel] = useState(s.openai_model)
+  const [openaiBaseUrl, setOpenaiBaseUrl] = useState(s.openai_base_url)
+  const [savedAt, setSavedAt] = useState<number | null>(null)
+
+  // Re-sync when server data changes (e.g. after another tab saved).
+  useEffect(() => {
+    setProvider(s.llm_provider)
+    setOllamaHost(s.ollama_host)
+    setOllamaModel(s.ollama_model)
+    setOpenaiModel(s.openai_model)
+    setOpenaiBaseUrl(s.openai_base_url)
+  }, [s])
+
+  const save = () => {
+    const body: AgentSettingsUpdate = {
+      LLM_PROVIDER: provider,
+      OLLAMA_HOST: ollamaHost,
+      OLLAMA_MODEL: ollamaModel,
+      OPENAI_MODEL: openaiModel,
+      OPENAI_BASE_URL: openaiBaseUrl,
+    }
+    if (clearOpenaiKey) {
+      body.OPENAI_API_KEY = ''
+    } else if (openaiKey.trim()) {
+      body.OPENAI_API_KEY = openaiKey.trim()
+    }
+    upd.mutate(body, {
+      onSuccess: () => {
+        setOpenaiKey('')
+        setClearOpenaiKey(false)
+        setSavedAt(Date.now())
+      },
+    })
+  }
+
+  return (
+    <Card title="LLM provider (editable)">
+      <p className="text-xs text-muted-foreground mb-4">
+        Switch between local Ollama and hosted OpenAI. Saved here, persisted in the
+        SQLite DB, used by the next agent run and the Chat page immediately - no
+        restart needed.
+      </p>
+
+      <div className="grid grid-cols-[220px_1fr] gap-3 py-2 border-b border-border">
+        <div className="text-xs text-muted-foreground uppercase tracking-wider">
+          PROVIDER
+          <OverrideBadge k="LLM_PROVIDER" overridden={s.overridden} />
+        </div>
+        <div className="flex items-center gap-2">
+          <select
+            value={provider}
+            onChange={(e) => setProvider(e.target.value as 'ollama' | 'openai')}
+            className="px-3 py-2 rounded-md text-sm w-48"
+          >
+            <option value="ollama">Ollama (local)</option>
+            <option value="openai">OpenAI (hosted)</option>
+          </select>
+          <span className="text-xs text-muted-foreground">
+            currently active: <code className="text-primary">{s.llm_provider}</code>
+          </span>
+        </div>
+      </div>
+
+      {provider === 'ollama' && (
+        <>
+          <div className="grid grid-cols-[220px_1fr] gap-3 py-2 border-b border-border">
+            <div className="text-xs text-muted-foreground uppercase tracking-wider">
+              OLLAMA_HOST
+              <OverrideBadge k="OLLAMA_HOST" overridden={s.overridden} />
+            </div>
+            <input
+              value={ollamaHost}
+              onChange={(e) => setOllamaHost(e.target.value)}
+              placeholder="http://localhost:11434"
+              className="px-3 py-2 rounded-md text-sm w-full max-w-md"
+            />
+          </div>
+          <div className="grid grid-cols-[220px_1fr] gap-3 py-2 border-b border-border">
+            <div className="text-xs text-muted-foreground uppercase tracking-wider">
+              OLLAMA_MODEL
+              <OverrideBadge k="OLLAMA_MODEL" overridden={s.overridden} />
+            </div>
+            <input
+              value={ollamaModel}
+              onChange={(e) => setOllamaModel(e.target.value)}
+              placeholder="llama3.1:8b"
+              className="px-3 py-2 rounded-md text-sm w-full max-w-md"
+            />
+          </div>
+        </>
+      )}
+
+      {provider === 'openai' && (
+        <>
+          <div className="grid grid-cols-[220px_1fr] gap-3 py-2 border-b border-border">
+            <div className="text-xs text-muted-foreground uppercase tracking-wider">
+              OPENAI_API_KEY
+              <OverrideBadge k="OPENAI_API_KEY" overridden={s.overridden} />
+            </div>
+            <div className="space-y-1">
+              <input
+                type="password"
+                value={openaiKey}
+                onChange={(e) => setOpenaiKey(e.target.value)}
+                placeholder={
+                  s.openai_api_key_set
+                    ? `current: ${s.openai_api_key_preview} (leave blank to keep)`
+                    : 'sk-...'
+                }
+                className="px-3 py-2 rounded-md text-sm w-full max-w-md font-mono"
+              />
+              <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                <input
+                  type="checkbox"
+                  checked={clearOpenaiKey}
+                  onChange={(e) => setClearOpenaiKey(e.target.checked)}
+                />
+                clear stored key (revert to .env / disable OpenAI)
+              </label>
+              <div className="text-[11px] text-muted-foreground">
+                Stored encrypted-at-rest in your local SQLite DB. Never sent anywhere
+                except the chosen API endpoint.
+              </div>
+            </div>
+          </div>
+          <div className="grid grid-cols-[220px_1fr] gap-3 py-2 border-b border-border">
+            <div className="text-xs text-muted-foreground uppercase tracking-wider">
+              OPENAI_MODEL
+              <OverrideBadge k="OPENAI_MODEL" overridden={s.overridden} />
+            </div>
+            <input
+              value={openaiModel}
+              onChange={(e) => setOpenaiModel(e.target.value)}
+              placeholder="gpt-4o-mini"
+              className="px-3 py-2 rounded-md text-sm w-full max-w-md"
+            />
+          </div>
+          <div className="grid grid-cols-[220px_1fr] gap-3 py-2 border-b border-border">
+            <div className="text-xs text-muted-foreground uppercase tracking-wider">
+              OPENAI_BASE_URL
+              <OverrideBadge k="OPENAI_BASE_URL" overridden={s.overridden} />
+            </div>
+            <input
+              value={openaiBaseUrl}
+              onChange={(e) => setOpenaiBaseUrl(e.target.value)}
+              placeholder="https://api.openai.com/v1"
+              className="px-3 py-2 rounded-md text-sm w-full max-w-md"
+            />
+          </div>
+        </>
+      )}
+
+      <div className="flex items-center gap-3 pt-3">
+        <button
+          onClick={save}
+          disabled={upd.isPending}
+          className="btn-primary px-4 py-2 rounded-lg"
+        >
+          {upd.isPending ? 'Saving...' : 'Save LLM settings'}
+        </button>
+        {savedAt && !upd.isPending && (
+          <span className="text-xs text-success">saved</span>
+        )}
+        {upd.isError && (
+          <span className="text-xs text-destructive">
+            failed: {(upd.error as any)?.message ?? 'see console'}
+          </span>
+        )}
+      </div>
+    </Card>
+  )
+}
+
+// ----- Twitter accounts (editable) -----
+function TwitterAccountsCard({ s }: { s: AgentSettings }) {
+  const upd = useUpdateAgentSettings()
+  const [text, setText] = useState(s.twitter_accounts)
+  useEffect(() => setText(s.twitter_accounts), [s.twitter_accounts])
+
+  const handles = useMemo(
+    () =>
+      text
+        .split(/[\s,]+/)
+        .map((h) => h.trim().replace(/^@/, ''))
+        .filter(Boolean),
+    [text],
+  )
+
+  const save = () => {
+    upd.mutate({ TWITTER_ACCOUNTS: handles.join(',') })
+  }
+
+  return (
+    <Card title={`Followed X accounts (${handles.length})`}>
+      <div className="text-xs text-muted-foreground mb-2">
+        Comma- or whitespace-separated list of X handles (no <code>@</code>). Saved
+        live - the next agent run picks up the new list.
+        <OverrideBadge k="TWITTER_ACCOUNTS" overridden={s.overridden} />
+      </div>
+      <textarea
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        rows={4}
+        placeholder="PeterLBrandt, LindaRaschke, MarkMinervini"
+        className="w-full px-3 py-2 rounded-md text-sm font-mono"
+      />
+      <div className="flex items-center gap-3 pt-3">
+        <button
+          onClick={save}
+          disabled={upd.isPending}
+          className="btn-primary px-4 py-2 rounded-lg"
+        >
+          {upd.isPending ? 'Saving...' : 'Save handles'}
+        </button>
+        {upd.isSuccess && !upd.isPending && (
+          <span className="text-xs text-success">saved</span>
+        )}
+      </div>
+    </Card>
+  )
+}
+
+// ----- Agent budget / cadence (editable) -----
+function AgentBudgetCard({ s }: { s: AgentSettings }) {
+  const upd = useUpdateAgentSettings()
+  const [enabled, setEnabled] = useState(s.agent_enabled)
+  const [autoLive, setAutoLive] = useState(s.agent_auto_execute_live)
+  const [budget, setBudget] = useState(s.agent_budget_usd)
+  const [weekly, setWeekly] = useState(s.agent_weekly_budget_usd)
+  const [minPos, setMinPos] = useState(s.agent_min_position_usd)
+  const [maxPos, setMaxPos] = useState(s.agent_max_position_usd)
+  const [dailyLoss, setDailyLoss] = useState(s.agent_daily_loss_cap_usd)
+  const [maxOpen, setMaxOpen] = useState(s.agent_max_open_positions)
+  const [cron, setCron] = useState(s.agent_cron_minutes)
+  const [intelBoost, setIntelBoost] = useState(s.agent_intel_boost)
+
+  useEffect(() => {
+    setEnabled(s.agent_enabled)
+    setAutoLive(s.agent_auto_execute_live)
+    setBudget(s.agent_budget_usd)
+    setWeekly(s.agent_weekly_budget_usd)
+    setMinPos(s.agent_min_position_usd)
+    setMaxPos(s.agent_max_position_usd)
+    setDailyLoss(s.agent_daily_loss_cap_usd)
+    setMaxOpen(s.agent_max_open_positions)
+    setCron(s.agent_cron_minutes)
+    setIntelBoost(s.agent_intel_boost)
+  }, [s])
+
+  const save = () => {
+    upd.mutate({
+      AGENT_ENABLED: enabled,
+      AGENT_AUTO_EXECUTE_LIVE: autoLive,
+      AGENT_BUDGET_USD: Number(budget),
+      AGENT_WEEKLY_BUDGET_USD: Number(weekly),
+      AGENT_MIN_POSITION_USD: Number(minPos),
+      AGENT_MAX_POSITION_USD: Number(maxPos),
+      AGENT_DAILY_LOSS_CAP_USD: Number(dailyLoss),
+      AGENT_MAX_OPEN_POSITIONS: Number(maxOpen),
+      AGENT_CRON_MINUTES: Number(cron),
+      AGENT_INTEL_BOOST: Number(intelBoost),
+    })
+  }
+
+  const NumInput = ({
+    value,
+    onChange,
+    step = '1',
+  }: {
+    value: number
+    onChange: (n: number) => void
+    step?: string
+  }) => (
+    <input
+      type="number"
+      step={step}
+      value={value}
+      onChange={(e) => onChange(Number(e.target.value))}
+      className="px-3 py-2 rounded-md text-sm w-32"
+    />
+  )
+
+  return (
+    <Card title="Agent budget & cadence (editable)">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6">
+        <div className="grid grid-cols-[180px_1fr] gap-2 py-2 border-b border-border">
+          <div className="text-xs text-muted-foreground uppercase tracking-wider self-center">
+            AGENT_ENABLED
+            <OverrideBadge k="AGENT_ENABLED" overridden={s.overridden} />
+          </div>
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={enabled}
+              onChange={(e) => setEnabled(e.target.checked)}
+            />
+            scheduler runs every cron interval
+          </label>
+        </div>
+        <div className="grid grid-cols-[180px_1fr] gap-2 py-2 border-b border-border">
+          <div className="text-xs text-muted-foreground uppercase tracking-wider self-center">
+            AUTO_EXECUTE_LIVE
+            <OverrideBadge k="AGENT_AUTO_EXECUTE_LIVE" overridden={s.overridden} />
+          </div>
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={autoLive}
+              onChange={(e) => setAutoLive(e.target.checked)}
+            />
+            <span className={autoLive ? 'text-destructive font-semibold' : ''}>
+              auto-execute in LIVE mode (real money!)
+            </span>
+          </label>
+        </div>
+        <div className="grid grid-cols-[180px_1fr] gap-2 py-2 border-b border-border">
+          <div className="text-xs text-muted-foreground uppercase tracking-wider self-center">
+            BUDGET_USD
+            <OverrideBadge k="AGENT_BUDGET_USD" overridden={s.overridden} />
+          </div>
+          <NumInput value={budget} onChange={setBudget} step="10" />
+        </div>
+        <div className="grid grid-cols-[180px_1fr] gap-2 py-2 border-b border-border">
+          <div className="text-xs text-muted-foreground uppercase tracking-wider self-center">
+            WEEKLY_BUDGET_USD
+            <OverrideBadge k="AGENT_WEEKLY_BUDGET_USD" overridden={s.overridden} />
+          </div>
+          <NumInput value={weekly} onChange={setWeekly} step="10" />
+        </div>
+        <div className="grid grid-cols-[180px_1fr] gap-2 py-2 border-b border-border">
+          <div className="text-xs text-muted-foreground uppercase tracking-wider self-center">
+            MIN_POSITION_USD
+            <OverrideBadge k="AGENT_MIN_POSITION_USD" overridden={s.overridden} />
+          </div>
+          <NumInput value={minPos} onChange={setMinPos} step="1" />
+        </div>
+        <div className="grid grid-cols-[180px_1fr] gap-2 py-2 border-b border-border">
+          <div className="text-xs text-muted-foreground uppercase tracking-wider self-center">
+            MAX_POSITION_USD
+            <OverrideBadge k="AGENT_MAX_POSITION_USD" overridden={s.overridden} />
+          </div>
+          <NumInput value={maxPos} onChange={setMaxPos} step="1" />
+        </div>
+        <div className="grid grid-cols-[180px_1fr] gap-2 py-2 border-b border-border">
+          <div className="text-xs text-muted-foreground uppercase tracking-wider self-center">
+            DAILY_LOSS_CAP
+            <OverrideBadge k="AGENT_DAILY_LOSS_CAP_USD" overridden={s.overridden} />
+          </div>
+          <NumInput value={dailyLoss} onChange={setDailyLoss} step="1" />
+        </div>
+        <div className="grid grid-cols-[180px_1fr] gap-2 py-2 border-b border-border">
+          <div className="text-xs text-muted-foreground uppercase tracking-wider self-center">
+            MAX_OPEN_POSITIONS
+            <OverrideBadge k="AGENT_MAX_OPEN_POSITIONS" overridden={s.overridden} />
+          </div>
+          <NumInput value={maxOpen} onChange={setMaxOpen} step="1" />
+        </div>
+        <div className="grid grid-cols-[180px_1fr] gap-2 py-2 border-b border-border">
+          <div className="text-xs text-muted-foreground uppercase tracking-wider self-center">
+            CRON_MINUTES
+            <OverrideBadge k="AGENT_CRON_MINUTES" overridden={s.overridden} />
+          </div>
+          <NumInput value={cron} onChange={setCron} step="1" />
+        </div>
+        <div className="grid grid-cols-[180px_1fr] gap-2 py-2 border-b border-border">
+          <div className="text-xs text-muted-foreground uppercase tracking-wider self-center">
+            INTEL_BOOST
+            <OverrideBadge k="AGENT_INTEL_BOOST" overridden={s.overridden} />
+          </div>
+          <NumInput value={intelBoost} onChange={setIntelBoost} step="0.05" />
+        </div>
+      </div>
+      <div className="flex items-center gap-3 pt-4">
+        <button
+          onClick={save}
+          disabled={upd.isPending}
+          className="btn-primary px-4 py-2 rounded-lg"
+        >
+          {upd.isPending ? 'Saving...' : 'Save agent settings'}
+        </button>
+        {upd.isSuccess && !upd.isPending && (
+          <span className="text-xs text-success">saved (rescheduler refreshed)</span>
+        )}
+      </div>
+    </Card>
+  )
+}
+
 export function SettingsPage() {
   const { data: mode } = useMode()
   const { data: account } = useAccount()
   const { data: agent } = useAgentStatus()
   const { data: cache } = useAgentAccountsCache()
+  const { data: agentSettings } = useAgentSettings()
 
   const fmtDt = (s?: string | null) => (s ? new Date(s).toLocaleString() : '-')
   const isLive = mode?.mode === 'live'
@@ -57,9 +484,11 @@ export function SettingsPage() {
       <div>
         <h1 className="text-2xl font-semibold">Settings & Configuration</h1>
         <p className="text-xs text-muted-foreground mt-1">
-          These values are read from <code className="text-primary">backend/.env</code> at
-          startup. Edit that file and restart{' '}
-          <code className="text-primary">uvicorn</code> to change them.
+          Defaults come from <code className="text-primary">backend/.env</code> at
+          startup. Anything you change in the editable cards below is persisted in
+          the SQLite database and overrides the env file - no restart required.
+          Broker keys and <code className="text-primary">APP_MODE</code> still live in{' '}
+          <code className="text-primary">.env</code> for safety.
         </p>
       </div>
 
@@ -115,54 +544,19 @@ export function SettingsPage() {
         )}
       </Card>
 
-      <Card title="Agent">
-        <Row
-          label="AGENT_ENABLED"
-          value={
-            <span className={agent?.enabled ? 'text-success' : 'text-muted-foreground'}>
-              {agent?.enabled ? 'enabled' : 'disabled'}
-            </span>
-          }
-          hint="Whether the scheduled background agent is running."
-        />
-        <Row
-          label="AGENT_AUTO_EXECUTE_LIVE"
-          value={
-            <span
-              className={
-                agent?.auto_execute_live
-                  ? 'text-destructive font-semibold'
-                  : 'text-foreground'
-              }
-            >
-              {agent?.auto_execute_live ? 'true (CAUTION)' : 'false'}
-            </span>
-          }
-          hint={
-            agent?.auto_execute_live
-              ? 'Agent will auto-execute in LIVE mode. Real money.'
-              : 'In live mode the agent only PROPOSES trades; you place them manually.'
-          }
-        />
-        <Row
-          label="AGENT_BUDGET_USD"
-          value={`$${agent?.budget_usd ?? '-'}`}
-          hint="Total capital the agent is allowed to deploy per day."
-        />
-        <Row
-          label="AGENT_MAX_POSITION_USD"
-          value={`$${agent?.max_position_usd ?? '-'}`}
-          hint="Max notional per individual agent trade."
-        />
-        <Row
-          label="AGENT_DAILY_LOSS_CAP_USD"
-          value={`$${agent?.daily_loss_cap_usd ?? '-'}`}
-          hint="If realized P/L today drops below -this, the agent stops for the day."
-        />
-        <Row
-          label="AGENT_CRON_MINUTES"
-          value={`every ${agent?.cron_minutes ?? '-'} min (Mon-Fri, 09:00-15:59 ET)`}
-        />
+      {agentSettings ? (
+        <>
+          <LLMProviderCard s={agentSettings} />
+          <AgentBudgetCard s={agentSettings} />
+          <TwitterAccountsCard s={agentSettings} />
+        </>
+      ) : (
+        <Card title="LLM + agent settings">
+          <p className="text-sm text-muted-foreground">Loading editable settings...</p>
+        </Card>
+      )}
+
+      <Card title="Agent status">
         <Row
           label="Last run"
           value={
@@ -183,26 +577,21 @@ export function SettingsPage() {
           }
         />
         <Row label="Next run" value={fmtDt(agent?.next_run_at)} />
-      </Card>
-
-      <Card title="LLM (Ollama)">
         <Row
-          label="OLLAMA_HOST"
-          value={<code className="text-primary">{agent?.ollama_host ?? '-'}</code>}
-          hint="Ollama must be running locally. Start with: ollama serve"
-        />
-        <Row
-          label="OLLAMA_MODEL"
-          value={<code className="text-primary">{agent?.ollama_model ?? '-'}</code>}
-          hint="Pull with: ollama pull <model>"
+          label="Active LLM"
+          value={
+            <code className="text-primary">
+              {agent?.ollama_model} @ {agent?.ollama_host}
+            </code>
+          }
+          hint="Resolved from your provider override above."
         />
       </Card>
 
-      <Card title={`Followed X accounts (${agent?.accounts.length ?? 0})`}>
+      <Card title={`Resolution status (${agent?.accounts.length ?? 0} handles)`}>
         <p className="text-xs text-muted-foreground mb-3">
-          These handles (from <code className="text-primary">TWITTER_ACCOUNTS</code> in{' '}
-          <code className="text-primary">.env</code>) are scraped every run. Handles
-          resolved once are cached forever; unresolved ones are retried monthly.
+          Cached resolution status for the handles above. Resolved IDs persist
+          forever; unresolved handles are retried monthly.
         </p>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-2">
@@ -289,13 +678,6 @@ export function SettingsPage() {
           </div>
         </div>
       </Card>
-
-      <p className="text-xs text-muted-foreground">
-        To change any of the values above, edit{' '}
-        <code className="text-primary">backend/.env</code> and restart uvicorn. Followed
-        accounts are set via the{' '}
-        <code className="text-primary">TWITTER_ACCOUNTS</code> comma-separated list.
-      </p>
     </div>
   )
 }

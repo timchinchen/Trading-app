@@ -48,8 +48,18 @@ class Settings(BaseSettings):
     # the intel sources independently flag it (movers list, TradingView news).
     AGENT_INTEL_BOOST: float = 0.15
 
+    # ---- LLM provider ----
+    # "ollama" (default, local) or "openai" (hosted, requires OPENAI_API_KEY).
+    # This is the default; the user can override it at runtime from the
+    # Settings page (persisted in the AppSetting table).
+    LLM_PROVIDER: Literal["ollama", "openai"] = "ollama"
+
     OLLAMA_HOST: str = "http://localhost:11434"
     OLLAMA_MODEL: str = "llama3.1:8b"
+
+    OPENAI_API_KEY: str = ""
+    OPENAI_MODEL: str = "gpt-4o-mini"
+    OPENAI_BASE_URL: str = "https://api.openai.com/v1"
 
     TWSCRAPE_DB: str = "./twscrape.db"
     TWITTER_ACCOUNTS: str = ""
