@@ -45,7 +45,9 @@ def propose_trades(
     max_position_usd: float,
     max_open_positions: int,
     get_price: Callable[[str], Optional[float]],
+    recently_bought: Optional[dict[str, Any]] = None,
 ) -> list[dict[str, Any]]:
+    recently_bought = recently_bought or {}
     candidates = [
         (sym, s)
         for sym, s in signals.items()
@@ -64,6 +66,20 @@ def propose_trades(
                 "symbol": sym, "side": "buy", "qty": 0.0,
                 "est_price": None, "notional": 0.0,
                 "action": "skipped", "reason": f"already holding {sym}",
+            })
+            continue
+
+        if sym in recently_bought:
+            info = recently_bought[sym]
+            when = info.get("created_at")
+            proposals.append({
+                "symbol": sym, "side": "buy", "qty": 0.0,
+                "est_price": None, "notional": 0.0,
+                "action": "skipped",
+                "reason": (
+                    f"bought recently{' on ' + when.strftime('%Y-%m-%d %H:%M') if when else ''} "
+                    f"- looking for new options"
+                ),
             })
             continue
 

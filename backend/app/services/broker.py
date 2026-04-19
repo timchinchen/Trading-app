@@ -56,12 +56,19 @@ class AlpacaBroker:
             return []
         out = []
         for p in self._client.get_all_positions():
+            # Alpaca exposes unrealized_plpc as a decimal string ("0.123" = +12.3%).
+            plpc = getattr(p, "unrealized_plpc", None)
+            try:
+                plpc_f = float(plpc) if plpc is not None else None
+            except Exception:
+                plpc_f = None
             out.append({
                 "symbol": p.symbol,
                 "qty": float(p.qty),
                 "avg_entry_price": float(p.avg_entry_price),
                 "market_value": float(p.market_value),
                 "unrealized_pl": float(p.unrealized_pl),
+                "unrealized_plpc": plpc_f,
                 "current_price": float(p.current_price),
             })
         return out

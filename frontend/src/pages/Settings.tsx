@@ -311,6 +311,8 @@ function AgentBudgetCard({ s }: { s: AgentSettings }) {
   const [maxOpen, setMaxOpen] = useState(s.agent_max_open_positions)
   const [cron, setCron] = useState(s.agent_cron_minutes)
   const [intelBoost, setIntelBoost] = useState(s.agent_intel_boost)
+  const [takeProfit, setTakeProfit] = useState(s.agent_take_profit_pct)
+  const [recentWindow, setRecentWindow] = useState(s.agent_recent_trade_window_hours)
 
   useEffect(() => {
     setEnabled(s.agent_enabled)
@@ -323,6 +325,8 @@ function AgentBudgetCard({ s }: { s: AgentSettings }) {
     setMaxOpen(s.agent_max_open_positions)
     setCron(s.agent_cron_minutes)
     setIntelBoost(s.agent_intel_boost)
+    setTakeProfit(s.agent_take_profit_pct)
+    setRecentWindow(s.agent_recent_trade_window_hours)
   }, [s])
 
   const save = () => {
@@ -337,6 +341,8 @@ function AgentBudgetCard({ s }: { s: AgentSettings }) {
       AGENT_MAX_OPEN_POSITIONS: Number(maxOpen),
       AGENT_CRON_MINUTES: Number(cron),
       AGENT_INTEL_BOOST: Number(intelBoost),
+      AGENT_TAKE_PROFIT_PCT: Number(takeProfit),
+      AGENT_RECENT_TRADE_WINDOW_HOURS: Number(recentWindow),
     })
   }
 
@@ -446,6 +452,30 @@ function AgentBudgetCard({ s }: { s: AgentSettings }) {
             <OverrideBadge k="AGENT_INTEL_BOOST" overridden={s.overridden} />
           </div>
           <NumInput value={intelBoost} onChange={setIntelBoost} step="0.05" />
+        </div>
+        <div className="grid grid-cols-[180px_1fr] gap-2 py-2 border-b border-border">
+          <div className="text-xs text-muted-foreground uppercase tracking-wider self-center">
+            TAKE_PROFIT_PCT
+            <OverrideBadge k="AGENT_TAKE_PROFIT_PCT" overridden={s.overridden} />
+          </div>
+          <div className="flex items-center gap-2">
+            <NumInput value={takeProfit} onChange={setTakeProfit} step="0.01" />
+            <span className="text-xs text-muted-foreground">
+              = {(Number(takeProfit) * 100).toFixed(1)}% (auto-sell when up this much vs entry; 0 disables)
+            </span>
+          </div>
+        </div>
+        <div className="grid grid-cols-[180px_1fr] gap-2 py-2 border-b border-border">
+          <div className="text-xs text-muted-foreground uppercase tracking-wider self-center">
+            RECENT_TRADE_WINDOW
+            <OverrideBadge k="AGENT_RECENT_TRADE_WINDOW_HOURS" overridden={s.overridden} />
+          </div>
+          <div className="flex items-center gap-2">
+            <NumInput value={recentWindow} onChange={setRecentWindow} step="1" />
+            <span className="text-xs text-muted-foreground">
+              hours - skip re-buying any symbol bought within this window
+            </span>
+          </div>
         </div>
       </div>
       <div className="flex items-center gap-3 pt-4">

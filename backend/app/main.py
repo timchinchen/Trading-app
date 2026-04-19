@@ -41,6 +41,29 @@ async def lifespan(app: FastAPI):
     md = get_market_data()
     await md.start()
     print(f"[startup] APP_MODE={settings.APP_MODE}  MARKET_DATA_MODE={settings.MARKET_DATA_MODE}")
+
+    # Re-subscribe every persisted watchlist row so the Dashboard shows live
+    # prices immediately when the user loads the app - including any symbols
+    # that the agent added during previous runs.
+    try:
+        from .db import SessionLocal
+        from .models import WatchlistItem
+
+        _db = SessionLocal()
+        try:
+            rows = _db.query(WatchlistItem).all()
+            for r in rows:
+                try:
+                    await md.subscribe(r.symbol, r.feed or "ws")
+                except Exception as e:
+                    print(f"[startup] watchlist resubscribe failed for {r.symbol}: {e}")
+            if rows:
+                print(f"[startup] resubscribed {len(rows)} watchlist symbols")
+        finally:
+            _db.close()
+    except Exception as e:
+        print(f"[startup] watchlist resubscribe error: {e}")
+
     if settings.AGENT_ENABLED:
         agent_scheduler = AgentScheduler(get_broker())
         agent_scheduler.start()

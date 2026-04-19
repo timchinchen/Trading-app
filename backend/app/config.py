@@ -47,6 +47,12 @@ class Settings(BaseSettings):
     # Market-intel corroboration: boost applied to a ticker's confidence when
     # the intel sources independently flag it (movers list, TradingView news).
     AGENT_INTEL_BOOST: float = 0.15
+    # Take-profit: if a held position is up at least this fraction vs entry,
+    # emit a SELL-to-close proposal (e.g. 0.10 = +10%). 0 disables.
+    AGENT_TAKE_PROFIT_PCT: float = 0.10
+    # Don't re-buy a symbol that was BOUGHT within the last N hours - we're
+    # hunting for fresh ideas, not doubling down on the same tickets.
+    AGENT_RECENT_TRADE_WINDOW_HOURS: int = 24
 
     # ---- LLM provider ----
     # "ollama" (default, local) or "openai" (hosted, requires OPENAI_API_KEY).

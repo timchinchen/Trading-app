@@ -9,7 +9,16 @@ from sqlalchemy.orm import Session
 
 from ...config import settings
 from ...db import SessionLocal
-from ...models import AgentRun, AgentSignal, AgentTrade, AgentTweetAnalysis, Order, Trade
+from ...models import (
+    AgentRun,
+    AgentSignal,
+    AgentTrade,
+    AgentTweetAnalysis,
+    Order,
+    Trade,
+    User,
+    WatchlistItem,
+)
 from ..broker import AlpacaBroker
 from ..settings_store import get_runtime_settings
 from . import analyzer, allocator, llm, playwright_client, twitter_client
@@ -163,6 +172,135 @@ def _build_advisor_context(
     parts.append("Market intel:")
     parts.append(intel_brief)
     return "\n".join(parts)
+
+
+def _recently_bought_symbols(db: Session, mode: str, hours: int) -> dict[str, dict[str, Any]]:
+    """Return {symbol -> {'price': float|None, 'created_at': datetime}} for any
+    symbol that the agent executed a BUY on within the last `hours`. Used to
+    stop us chasing the same ticker run-after-run."""
+    if hours <= 0:
+        return {}
+    since = datetime.utcnow() - timedelta(hours=int(hours))
+    rows = (
+        db.query(AgentTrade)
+        .filter(
+            AgentTrade.mode == mode,
+            AgentTrade.side == "buy",
+            AgentTrade.action == "executed",
+            AgentTrade.created_at >= since,
+        )
+        .order_by(AgentTrade.created_at.desc())
+        .all()
+    )
+    out: dict[str, dict[str, Any]] = {}
+    for r in rows:
+        sym = (r.symbol or "").upper()
+        if sym and sym not in out:
+            out[sym] = {"price": r.est_price, "created_at": r.created_at}
+    return out
+
+
+def _take_profit_proposals(
+    broker: AlpacaBroker,
+    *,
+    db: Session,
+    mode: str,
+    take_profit_pct: float,
+    already_in_proposals: set[str],
+) -> list[dict[str, Any]]:
+    """Emit SELL-to-close proposals for any held position that is up at least
+    `take_profit_pct` vs entry. Uses Alpaca's avg_entry_price as the canonical
+    entry, with a fallback to the latest executed AgentTrade.est_price."""
+    if take_profit_pct <= 0 or not broker.configured:
+        return []
+
+    proposals: list[dict[str, Any]] = []
+    try:
+        positions = broker.positions()
+    except Exception as e:
+        print(f"[take-profit] could not fetch positions: {e}")
+        return []
+
+    for p in positions:
+        sym = (p.get("symbol") or "").upper()
+        if not sym or sym in already_in_proposals:
+            continue
+        qty = float(p.get("qty") or 0.0)
+        if qty <= 0:
+            continue
+
+        entry = p.get("avg_entry_price")
+        current = p.get("current_price")
+        plpc = p.get("unrealized_plpc")
+
+        # Fallback entry price: most recent agent BUY for this symbol.
+        if not entry:
+            row = (
+                db.query(AgentTrade)
+                .filter(
+                    AgentTrade.mode == mode,
+                    AgentTrade.symbol == sym,
+                    AgentTrade.side == "buy",
+                    AgentTrade.action == "executed",
+                )
+                .order_by(AgentTrade.created_at.desc())
+                .first()
+            )
+            entry = (row.est_price if row else None)
+
+        # Compute gain fraction.
+        if plpc is None and entry and current:
+            try:
+                plpc = (float(current) - float(entry)) / float(entry)
+            except Exception:
+                plpc = None
+        if plpc is None:
+            continue
+
+        if plpc >= take_profit_pct:
+            notional = round(qty * float(current or entry or 0.0), 2)
+            proposals.append({
+                "symbol": sym,
+                "side": "sell",
+                "qty": qty,
+                "est_price": float(current) if current else None,
+                "notional": notional,
+                "action": "proposed",
+                "reason": (
+                    f"take-profit hit: {plpc * 100:+.2f}% "
+                    f"(entry=${float(entry):.2f} -> last=${float(current or 0):.2f}) "
+                    f"closing {qty} shares"
+                ),
+            })
+    return proposals
+
+
+def _ensure_watchlisted(db: Session, symbols: list[str]) -> list[str]:
+    """Make sure every symbol the agent is interested in lives in the primary
+    user's watchlist. Returns the list of symbols newly added."""
+    if not symbols:
+        return []
+    # Single-user app: the first registered user owns the dashboard.
+    user = db.query(User).order_by(User.id.asc()).first()
+    if not user:
+        return []
+    added: list[str] = []
+    for raw in symbols:
+        sym = (raw or "").upper().strip()
+        if not sym:
+            continue
+        existing = (
+            db.query(WatchlistItem)
+            .filter(WatchlistItem.user_id == user.id, WatchlistItem.symbol == sym)
+            .first()
+        )
+        if existing:
+            continue
+        db.add(WatchlistItem(user_id=user.id, symbol=sym, feed="ws"))
+        added.append(sym)
+    if added:
+        db.commit()
+    return added
 
 
 async def run_once(broker: AlpacaBroker) -> int:
@@ -383,6 +521,17 @@ async def run_once(broker: AlpacaBroker) -> int:
             q = broker.latest_quote(sym)
             return q.get("ask") or q.get("last")
 
+        # Block names we already bought in the last N hours so we rotate into
+        # fresh ideas each run instead of stacking the same ticker.
+        recently_bought = _recently_bought_symbols(
+            db, settings.APP_MODE, rs.agent_recent_trade_window_hours
+        )
+        if recently_bought:
+            log.add(
+                f"recent BUY exclusion ({rs.agent_recent_trade_window_hours}h): "
+                + ", ".join(sorted(recently_bought.keys()))
+            )
+
         proposals = allocator.propose_trades(
             signals=signals,
             open_symbols=open_positions,
@@ -392,7 +541,30 @@ async def run_once(broker: AlpacaBroker) -> int:
             max_position_usd=rs.agent_max_position_usd,
             max_open_positions=rs.agent_max_open_positions,
             get_price=_price,
+            recently_bought=recently_bought,
         )
+
+        # Take-profit: after deciding on BUYs, sweep held positions for anything
+        # that has gained >= TAKE_PROFIT_PCT since entry and emit a SELL proposal.
+        tp_in_hand = {
+            (p["symbol"] or "").upper()
+            for p in proposals
+            if p.get("side") == "sell"
+        }
+        tp_proposals = _take_profit_proposals(
+            broker,
+            db=db,
+            mode=settings.APP_MODE,
+            take_profit_pct=rs.agent_take_profit_pct,
+            already_in_proposals=tp_in_hand,
+        )
+        if tp_proposals:
+            log.add(
+                f"take-profit ({rs.agent_take_profit_pct * 100:.1f}%): "
+                + ", ".join(f"{p['symbol']} ({p['reason']})" for p in tp_proposals)
+            )
+        proposals = proposals + tp_proposals
+
         for p in proposals:
             log.add(f"  candidate {p['symbol']} {p['side']} qty={p['qty']} "
                     f"notional=${p['notional']} -> {p['action']} ({p.get('reason','')})")
@@ -453,6 +625,35 @@ async def run_once(broker: AlpacaBroker) -> int:
         run.trades_executed = executed_count
         db.commit()
         _save_logs()
+
+        # 5b. Auto-watchlist: every symbol we took an interest in this run
+        # (executed, proposed, or even skipped-due-to-budget) is added to the
+        # primary user's dashboard watchlist so they show up in "Watchlist
+        # (live)" for ongoing monitoring.
+        interested = sorted({
+            (p["symbol"] or "").upper()
+            for p in proposals
+            if p.get("symbol") and p.get("side") == "buy" and p.get("action") in ("executed", "proposed")
+        })
+        # Also include anything we're now holding and anything flagged for sale
+        # (user should see those live).
+        for p in proposals:
+            if p.get("side") == "sell" and p.get("symbol"):
+                interested.append(p["symbol"].upper())
+        interested = sorted(set(interested))
+        if interested:
+            added = _ensure_watchlisted(db, interested)
+            if added:
+                log.add(f"watchlist: added {len(added)} new symbols -> {', '.join(added)}")
+                # Kick the market-data service so these stream live on the dashboard.
+                try:
+                    from ...deps import get_market_data
+                    _md = get_market_data()
+                    if _md:
+                        for sym in added:
+                            await _md.subscribe(sym, "ws")
+                except Exception as e:
+                    log.add(f"watchlist: stream subscribe failed ({e})")
 
         # 6. Portfolio advisor: structured recommendation fed to the UI.
         portfolio_text, _ = _portfolio_brief(broker)

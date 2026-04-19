@@ -169,6 +169,8 @@ export interface AgentSettings {
   agent_max_open_positions: number
   agent_cron_minutes: number
   agent_intel_boost: number
+  agent_take_profit_pct: number
+  agent_recent_trade_window_hours: number
   twitter_accounts: string
   overridden: string[]
 }
@@ -190,6 +192,8 @@ export type AgentSettingsUpdate = Partial<{
   AGENT_MAX_OPEN_POSITIONS: number
   AGENT_CRON_MINUTES: number
   AGENT_INTEL_BOOST: number
+  AGENT_TAKE_PROFIT_PCT: number
+  AGENT_RECENT_TRADE_WINDOW_HOURS: number
   TWITTER_ACCOUNTS: string
 }>
 

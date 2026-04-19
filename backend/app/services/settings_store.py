@@ -42,6 +42,8 @@ EDITABLE_KEYS: dict[str, type] = {
     "AGENT_MAX_OPEN_POSITIONS": int,
     "AGENT_CRON_MINUTES": int,
     "AGENT_INTEL_BOOST": float,
+    "AGENT_TAKE_PROFIT_PCT": float,
+    "AGENT_RECENT_TRADE_WINDOW_HOURS": int,
     # Twitter
     "TWITTER_ACCOUNTS": str,
 }
@@ -85,6 +87,8 @@ class RuntimeSettings:
     agent_max_open_positions: int = 0
     agent_cron_minutes: int = 0
     agent_intel_boost: float = 0.0
+    agent_take_profit_pct: float = 0.0
+    agent_recent_trade_window_hours: int = 0
     # Twitter
     twitter_accounts: str = ""
     # Bookkeeping: which keys are overridden in the DB (vs env default)
@@ -139,6 +143,8 @@ def get_runtime_settings(db: Session | None = None) -> RuntimeSettings:
         agent_max_open_positions=int(pick("AGENT_MAX_OPEN_POSITIONS", int)),
         agent_cron_minutes=int(pick("AGENT_CRON_MINUTES", int)),
         agent_intel_boost=float(pick("AGENT_INTEL_BOOST", float)),
+        agent_take_profit_pct=float(pick("AGENT_TAKE_PROFIT_PCT", float)),
+        agent_recent_trade_window_hours=int(pick("AGENT_RECENT_TRADE_WINDOW_HOURS", int)),
         twitter_accounts=str(pick("TWITTER_ACCOUNTS", str)),
         overridden={k for k, v in overrides.items() if v != ""},
     )
@@ -196,6 +202,8 @@ def public_view(rs: RuntimeSettings) -> dict[str, Any]:
         "agent_max_open_positions": rs.agent_max_open_positions,
         "agent_cron_minutes": rs.agent_cron_minutes,
         "agent_intel_boost": rs.agent_intel_boost,
+        "agent_take_profit_pct": rs.agent_take_profit_pct,
+        "agent_recent_trade_window_hours": rs.agent_recent_trade_window_hours,
         "twitter_accounts": rs.twitter_accounts,
         "overridden": sorted(rs.overridden),
     }
