@@ -80,6 +80,21 @@ class Settings(BaseSettings):
     OPENAI_MODEL: str = "gpt-4o-mini"
     OPENAI_BASE_URL: str = "https://api.openai.com/v1"
 
+    # ---- Deep Analysis LLM (advisor / portfolio recommender) ----
+    # When enabled, the end-of-run advisor call uses a second, independent LLM
+    # slot instead of the Agent LLM above. This is cheap (~1 call per agent run)
+    # and lets you pair a free local model for tweet-level analysis with a
+    # stronger hosted model for the big-picture summary. When disabled, every
+    # DEEP_LLM_* value falls back to the corresponding Agent LLM setting, so
+    # nothing changes.
+    DEEP_LLM_ENABLED: bool = False
+    DEEP_LLM_PROVIDER: Literal["ollama", "openai"] = "openai"
+    DEEP_LLM_OLLAMA_HOST: str = ""          # empty => reuse OLLAMA_HOST
+    DEEP_LLM_OLLAMA_MODEL: str = ""         # empty => reuse OLLAMA_MODEL
+    DEEP_LLM_OPENAI_API_KEY: str = ""       # empty => reuse OPENAI_API_KEY
+    DEEP_LLM_OPENAI_MODEL: str = "gpt-4o-mini"
+    DEEP_LLM_OPENAI_BASE_URL: str = ""      # empty => reuse OPENAI_BASE_URL
+
     # ---- Per-ticker enrichment sources ----
     # Financial Modeling Prep (fundamentals: quote, profile, ratios).
     # Free tier is 250 calls/day. Leave empty to disable.

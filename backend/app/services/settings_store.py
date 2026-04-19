@@ -24,13 +24,21 @@ from ..models import AppSetting
 
 # Keys that the Settings UI is allowed to read/write. Anything else is rejected.
 EDITABLE_KEYS: dict[str, type] = {
-    # LLM
+    # LLM (agent / tweet-level)
     "LLM_PROVIDER": str,
     "OLLAMA_HOST": str,
     "OLLAMA_MODEL": str,
     "OPENAI_API_KEY": str,
     "OPENAI_MODEL": str,
     "OPENAI_BASE_URL": str,
+    # Deep Analysis LLM (advisor). Empty string = fall back to Agent LLM.
+    "DEEP_LLM_ENABLED": bool,
+    "DEEP_LLM_PROVIDER": str,
+    "DEEP_LLM_OLLAMA_HOST": str,
+    "DEEP_LLM_OLLAMA_MODEL": str,
+    "DEEP_LLM_OPENAI_API_KEY": str,
+    "DEEP_LLM_OPENAI_MODEL": str,
+    "DEEP_LLM_OPENAI_BASE_URL": str,
     # Per-ticker enrichment
     "FMP_API_KEY": str,
     "FMP_BASE_URL": str,
@@ -66,7 +74,12 @@ EDITABLE_KEYS: dict[str, type] = {
 }
 
 # Keys whose value should be masked when the API returns the current settings.
-SECRET_KEYS = {"OPENAI_API_KEY", "FMP_API_KEY", "STOCKTWITS_COOKIES"}
+SECRET_KEYS = {
+    "OPENAI_API_KEY",
+    "FMP_API_KEY",
+    "STOCKTWITS_COOKIES",
+    "DEEP_LLM_OPENAI_API_KEY",
+}
 
 
 def _coerce(raw: str, target: type) -> Any:
@@ -93,6 +106,15 @@ class RuntimeSettings:
     openai_api_key: str = ""
     openai_model: str = ""
     openai_base_url: str = ""
+    # Deep Analysis LLM (advisor). Empty-string slots fall back to the
+    # matching Agent LLM value via the deep_llm_* resolver properties.
+    deep_llm_enabled: bool = False
+    deep_llm_provider: str = ""
+    deep_llm_ollama_host: str = ""
+    deep_llm_ollama_model: str = ""
+    deep_llm_openai_api_key: str = ""
+    deep_llm_openai_model: str = ""
+    deep_llm_openai_base_url: str = ""
     # Enrichment
     fmp_api_key: str = ""
     fmp_base_url: str = ""
@@ -140,6 +162,45 @@ class RuntimeSettings:
     def llm_host(self) -> str:
         return self.openai_base_url if self.llm_provider == "openai" else self.ollama_host
 
+    # -- Deep Analysis LLM resolvers --------------------------------------- #
+    # Each returns the effective value used for the advisor call. When
+    # DEEP_LLM_ENABLED is false OR any deep_* slot is blank, we fall back to
+    # the corresponding Agent LLM setting so users can override only what
+    # they care about (e.g. flip provider=openai while reusing the agent's
+    # OPENAI_API_KEY).
+    @property
+    def advisor_provider(self) -> str:
+        if not self.deep_llm_enabled:
+            return self.llm_provider
+        return (self.deep_llm_provider or self.llm_provider).lower()
+
+    @property
+    def advisor_model(self) -> str:
+        if not self.deep_llm_enabled:
+            return self.llm_model
+        prov = self.advisor_provider
+        if prov == "openai":
+            return self.deep_llm_openai_model or self.openai_model
+        return self.deep_llm_ollama_model or self.ollama_model
+
+    @property
+    def advisor_host(self) -> str:
+        if not self.deep_llm_enabled:
+            return self.llm_host
+        prov = self.advisor_provider
+        if prov == "openai":
+            return self.deep_llm_openai_base_url or self.openai_base_url
+        return self.deep_llm_ollama_host or self.ollama_host
+
+    @property
+    def advisor_api_key(self) -> str:
+        if not self.deep_llm_enabled:
+            return self.openai_api_key
+        prov = self.advisor_provider
+        if prov == "openai":
+            return self.deep_llm_openai_api_key or self.openai_api_key
+        return ""
+
 
 def get_runtime_settings(db: Session | None = None) -> RuntimeSettings:
     """Resolve the effective runtime settings = env defaults + DB overrides."""
@@ -167,6 +228,13 @@ def get_runtime_settings(db: Session | None = None) -> RuntimeSettings:
         openai_api_key=str(pick("OPENAI_API_KEY", str)),
         openai_model=str(pick("OPENAI_MODEL", str)),
         openai_base_url=str(pick("OPENAI_BASE_URL", str)),
+        deep_llm_enabled=bool(pick("DEEP_LLM_ENABLED", bool)),
+        deep_llm_provider=str(pick("DEEP_LLM_PROVIDER", str)),
+        deep_llm_ollama_host=str(pick("DEEP_LLM_OLLAMA_HOST", str)),
+        deep_llm_ollama_model=str(pick("DEEP_LLM_OLLAMA_MODEL", str)),
+        deep_llm_openai_api_key=str(pick("DEEP_LLM_OPENAI_API_KEY", str)),
+        deep_llm_openai_model=str(pick("DEEP_LLM_OPENAI_MODEL", str)),
+        deep_llm_openai_base_url=str(pick("DEEP_LLM_OPENAI_BASE_URL", str)),
         fmp_api_key=str(pick("FMP_API_KEY", str)),
         fmp_base_url=str(pick("FMP_BASE_URL", str)),
         sec_user_agent=str(pick("SEC_USER_AGENT", str)),
@@ -239,6 +307,22 @@ def public_view(rs: RuntimeSettings) -> dict[str, Any]:
             if len(rs.openai_api_key) >= 12
             else ("set" if rs.openai_api_key else "")
         ),
+        "deep_llm_enabled": rs.deep_llm_enabled,
+        "deep_llm_provider": rs.deep_llm_provider,
+        "deep_llm_ollama_host": rs.deep_llm_ollama_host,
+        "deep_llm_ollama_model": rs.deep_llm_ollama_model,
+        "deep_llm_openai_model": rs.deep_llm_openai_model,
+        "deep_llm_openai_base_url": rs.deep_llm_openai_base_url,
+        "deep_llm_openai_api_key_set": bool(rs.deep_llm_openai_api_key),
+        "deep_llm_openai_api_key_preview": (
+            (rs.deep_llm_openai_api_key[:6] + "..." + rs.deep_llm_openai_api_key[-4:])
+            if len(rs.deep_llm_openai_api_key) >= 12
+            else ("set" if rs.deep_llm_openai_api_key else "")
+        ),
+        # What the advisor will actually use on the next run (post-fallback).
+        "advisor_effective_provider": rs.advisor_provider,
+        "advisor_effective_model": rs.advisor_model,
+        "advisor_effective_host": rs.advisor_host,
         "fmp_base_url": rs.fmp_base_url,
         "fmp_api_key_set": bool(rs.fmp_api_key),
         "fmp_api_key_preview": (

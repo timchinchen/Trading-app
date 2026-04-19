@@ -163,6 +163,17 @@ export interface AgentSettings {
   openai_base_url: string
   openai_api_key_set: boolean
   openai_api_key_preview: string
+  deep_llm_enabled: boolean
+  deep_llm_provider: 'ollama' | 'openai' | ''
+  deep_llm_ollama_host: string
+  deep_llm_ollama_model: string
+  deep_llm_openai_model: string
+  deep_llm_openai_base_url: string
+  deep_llm_openai_api_key_set: boolean
+  deep_llm_openai_api_key_preview: string
+  advisor_effective_provider: string
+  advisor_effective_model: string
+  advisor_effective_host: string
   fmp_base_url: string
   fmp_api_key_set: boolean
   fmp_api_key_preview: string
@@ -201,6 +212,13 @@ export type AgentSettingsUpdate = Partial<{
   OPENAI_API_KEY: string
   OPENAI_MODEL: string
   OPENAI_BASE_URL: string
+  DEEP_LLM_ENABLED: boolean
+  DEEP_LLM_PROVIDER: 'ollama' | 'openai'
+  DEEP_LLM_OLLAMA_HOST: string
+  DEEP_LLM_OLLAMA_MODEL: string
+  DEEP_LLM_OPENAI_API_KEY: string
+  DEEP_LLM_OPENAI_MODEL: string
+  DEEP_LLM_OPENAI_BASE_URL: string
   FMP_API_KEY: string
   FMP_BASE_URL: string
   SEC_USER_AGENT: string

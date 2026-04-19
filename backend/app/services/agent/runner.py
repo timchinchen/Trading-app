@@ -697,11 +697,18 @@ async def run_once(broker: AlpacaBroker) -> int:
             open_positions=open_positions,
             max_positions=rs.agent_max_open_positions,
         )
-        log.add(f"advisor: generating portfolio recommendation via {rs.llm_provider} ({rs.llm_model}) ...")
+        log.add(
+            f"advisor: generating portfolio recommendation via "
+            f"{rs.advisor_provider} ({rs.advisor_model}) "
+            f"[deep_llm_enabled={rs.deep_llm_enabled}] ..."
+        )
         _save_logs()
         advice = await llm.advise_portfolio(
-            advisor_context, rs.llm_host, rs.llm_model,
-            provider=rs.llm_provider, api_key=rs.openai_api_key,
+            advisor_context,
+            rs.advisor_host,
+            rs.advisor_model,
+            provider=rs.advisor_provider,
+            api_key=rs.advisor_api_key,
         )
         run.advice = advice[:6000]
 

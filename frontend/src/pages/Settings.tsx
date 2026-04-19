@@ -249,6 +249,229 @@ function LLMProviderCard({ s }: { s: AgentSettings }) {
   )
 }
 
+// ----- Deep Analysis LLM (advisor / portfolio recommender) -----
+function DeepAnalysisLLMCard({ s }: { s: AgentSettings }) {
+  const upd = useUpdateAgentSettings()
+  const [enabled, setEnabled] = useState(s.deep_llm_enabled)
+  const [provider, setProvider] = useState<'ollama' | 'openai'>(
+    (s.deep_llm_provider || 'openai') as 'ollama' | 'openai',
+  )
+  const [ollamaHost, setOllamaHost] = useState(s.deep_llm_ollama_host)
+  const [ollamaModel, setOllamaModel] = useState(s.deep_llm_ollama_model)
+  const [openaiModel, setOpenaiModel] = useState(s.deep_llm_openai_model)
+  const [openaiBaseUrl, setOpenaiBaseUrl] = useState(s.deep_llm_openai_base_url)
+  const [openaiKey, setOpenaiKey] = useState('')
+  const [clearOpenaiKey, setClearOpenaiKey] = useState(false)
+
+  useEffect(() => {
+    setEnabled(s.deep_llm_enabled)
+    setProvider((s.deep_llm_provider || 'openai') as 'ollama' | 'openai')
+    setOllamaHost(s.deep_llm_ollama_host)
+    setOllamaModel(s.deep_llm_ollama_model)
+    setOpenaiModel(s.deep_llm_openai_model)
+    setOpenaiBaseUrl(s.deep_llm_openai_base_url)
+  }, [s])
+
+  const save = () => {
+    const body: AgentSettingsUpdate = {
+      DEEP_LLM_ENABLED: enabled,
+      DEEP_LLM_PROVIDER: provider,
+      DEEP_LLM_OLLAMA_HOST: ollamaHost,
+      DEEP_LLM_OLLAMA_MODEL: ollamaModel,
+      DEEP_LLM_OPENAI_MODEL: openaiModel,
+      DEEP_LLM_OPENAI_BASE_URL: openaiBaseUrl,
+    }
+    if (clearOpenaiKey) {
+      body.DEEP_LLM_OPENAI_API_KEY = ''
+    } else if (openaiKey.trim()) {
+      body.DEEP_LLM_OPENAI_API_KEY = openaiKey.trim()
+    }
+    upd.mutate(body, {
+      onSuccess: () => {
+        setOpenaiKey('')
+        setClearOpenaiKey(false)
+      },
+    })
+  }
+
+  return (
+    <Card title="Deep Analysis LLM (advisor)">
+      <p className="text-xs text-muted-foreground mb-4">
+        The advisor is called <strong>once per agent run</strong> to write the
+        portfolio recommendation (Portfolio Today / New Ideas / Watchlist / Risk
+        notes). You can point it at a different LLM than the one that analyses
+        individual tweets — e.g. run Ollama locally for the ~20-60 tweet calls
+        per run, then flip this to OpenAI <code className="text-primary">gpt-4o-mini</code>{' '}
+        for the big-picture summary. At ~13 runs / trading day that's roughly{' '}
+        <strong>$3/year</strong>. Any field left blank inherits from the Agent LLM above.
+      </p>
+
+      <div className="grid grid-cols-[220px_1fr] gap-3 py-2 border-b border-border">
+        <div className="text-xs text-muted-foreground uppercase tracking-wider">
+          ENABLED
+          <OverrideBadge k="DEEP_LLM_ENABLED" overridden={s.overridden} />
+        </div>
+        <label className="flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={enabled}
+            onChange={(e) => setEnabled(e.target.checked)}
+          />
+          Use a different LLM for the advisor / deep analysis
+        </label>
+      </div>
+
+      <div className="grid grid-cols-[220px_1fr] gap-3 py-2 border-b border-border">
+        <div className="text-xs text-muted-foreground uppercase tracking-wider">
+          EFFECTIVE
+        </div>
+        <div className="text-xs text-muted-foreground">
+          The next advisor call will use{' '}
+          <code className="text-primary">{s.advisor_effective_provider}</code> /{' '}
+          <code className="text-primary">{s.advisor_effective_model}</code>
+          {!s.deep_llm_enabled && (
+            <span> (inherited from Agent LLM — deep LLM disabled).</span>
+          )}
+        </div>
+      </div>
+
+      {enabled && (
+        <>
+          <div className="grid grid-cols-[220px_1fr] gap-3 py-2 border-b border-border">
+            <div className="text-xs text-muted-foreground uppercase tracking-wider">
+              PROVIDER
+              <OverrideBadge k="DEEP_LLM_PROVIDER" overridden={s.overridden} />
+            </div>
+            <select
+              value={provider}
+              onChange={(e) => setProvider(e.target.value as 'ollama' | 'openai')}
+              className="px-3 py-2 rounded-md text-sm w-48"
+            >
+              <option value="ollama">Ollama (local)</option>
+              <option value="openai">OpenAI (hosted)</option>
+            </select>
+          </div>
+
+          {provider === 'ollama' && (
+            <>
+              <div className="grid grid-cols-[220px_1fr] gap-3 py-2 border-b border-border">
+                <div className="text-xs text-muted-foreground uppercase tracking-wider">
+                  OLLAMA_HOST
+                  <OverrideBadge
+                    k="DEEP_LLM_OLLAMA_HOST"
+                    overridden={s.overridden}
+                  />
+                </div>
+                <input
+                  value={ollamaHost}
+                  onChange={(e) => setOllamaHost(e.target.value)}
+                  placeholder={`leave blank to reuse Agent host (${s.ollama_host})`}
+                  className="px-3 py-2 rounded-md text-sm w-full max-w-md"
+                />
+              </div>
+              <div className="grid grid-cols-[220px_1fr] gap-3 py-2 border-b border-border">
+                <div className="text-xs text-muted-foreground uppercase tracking-wider">
+                  OLLAMA_MODEL
+                  <OverrideBadge
+                    k="DEEP_LLM_OLLAMA_MODEL"
+                    overridden={s.overridden}
+                  />
+                </div>
+                <input
+                  value={ollamaModel}
+                  onChange={(e) => setOllamaModel(e.target.value)}
+                  placeholder={`leave blank to reuse Agent model (${s.ollama_model})`}
+                  className="px-3 py-2 rounded-md text-sm w-full max-w-md"
+                />
+              </div>
+            </>
+          )}
+
+          {provider === 'openai' && (
+            <>
+              <div className="grid grid-cols-[220px_1fr] gap-3 py-2 border-b border-border">
+                <div className="text-xs text-muted-foreground uppercase tracking-wider">
+                  OPENAI_API_KEY
+                  <OverrideBadge
+                    k="DEEP_LLM_OPENAI_API_KEY"
+                    overridden={s.overridden}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <input
+                    type="password"
+                    value={openaiKey}
+                    onChange={(e) => setOpenaiKey(e.target.value)}
+                    placeholder={
+                      s.deep_llm_openai_api_key_set
+                        ? `current: ${s.deep_llm_openai_api_key_preview} (leave blank to keep)`
+                        : s.openai_api_key_set
+                          ? `blank = reuse Agent key (${s.openai_api_key_preview})`
+                          : 'sk-...'
+                    }
+                    className="px-3 py-2 rounded-md text-sm w-full max-w-md font-mono"
+                  />
+                  <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <input
+                      type="checkbox"
+                      checked={clearOpenaiKey}
+                      onChange={(e) => setClearOpenaiKey(e.target.checked)}
+                    />
+                    clear stored key (revert to Agent LLM key)
+                  </label>
+                </div>
+              </div>
+              <div className="grid grid-cols-[220px_1fr] gap-3 py-2 border-b border-border">
+                <div className="text-xs text-muted-foreground uppercase tracking-wider">
+                  OPENAI_MODEL
+                  <OverrideBadge
+                    k="DEEP_LLM_OPENAI_MODEL"
+                    overridden={s.overridden}
+                  />
+                </div>
+                <input
+                  value={openaiModel}
+                  onChange={(e) => setOpenaiModel(e.target.value)}
+                  placeholder="gpt-4o-mini"
+                  className="px-3 py-2 rounded-md text-sm w-full max-w-md"
+                />
+              </div>
+              <div className="grid grid-cols-[220px_1fr] gap-3 py-2 border-b border-border">
+                <div className="text-xs text-muted-foreground uppercase tracking-wider">
+                  OPENAI_BASE_URL
+                  <OverrideBadge
+                    k="DEEP_LLM_OPENAI_BASE_URL"
+                    overridden={s.overridden}
+                  />
+                </div>
+                <input
+                  value={openaiBaseUrl}
+                  onChange={(e) => setOpenaiBaseUrl(e.target.value)}
+                  placeholder={`leave blank to reuse Agent base (${s.openai_base_url})`}
+                  className="px-3 py-2 rounded-md text-sm w-full max-w-md"
+                />
+              </div>
+            </>
+          )}
+        </>
+      )}
+
+      <div className="flex items-center gap-3 pt-3">
+        <button
+          onClick={save}
+          disabled={upd.isPending}
+          className="btn-primary px-4 py-2 rounded-lg"
+        >
+          {upd.isPending ? 'Saving...' : 'Save deep-analysis settings'}
+        </button>
+        {upd.isSuccess && !upd.isPending && (
+          <span className="text-xs text-success">saved</span>
+        )}
+      </div>
+    </Card>
+  )
+}
+
 // ----- Data enrichment APIs (FMP + SEC EDGAR) -----
 function DataEnrichmentCard({ s }: { s: AgentSettings }) {
   const upd = useUpdateAgentSettings()
@@ -1030,6 +1253,7 @@ export function SettingsPage() {
       {agentSettings ? (
         <>
           <LLMProviderCard s={agentSettings} />
+          <DeepAnalysisLLMCard s={agentSettings} />
           <DataEnrichmentCard s={agentSettings} />
           <StocktwitsCard s={agentSettings} />
           <AgentBudgetCard s={agentSettings} />
