@@ -181,10 +181,7 @@ export function AgentPage() {
           <Pill tone={status?.enabled ? 'success' : 'muted'}>
             {status?.enabled ? 'enabled' : 'disabled'}
           </Pill>
-          <span className="text-xs text-muted-foreground">
-            mode: {status?.mode} | budget: ${status?.budget_usd} | max/pos: $
-            {status?.max_position_usd} | daily loss cap: ${status?.daily_loss_cap_usd}
-          </span>
+          <Pill tone="secondary">mode: {status?.mode}</Pill>
           <button
             onClick={() => runNow.mutate()}
             disabled={runNow.isPending}
@@ -194,6 +191,36 @@ export function AgentPage() {
           </button>
         </div>
         {status && (
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mt-4">
+            <div className="bg-background-soft border border-border rounded-lg px-3 py-2">
+              <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Seed</div>
+              <div className="text-sm font-medium text-foreground">${status.budget_usd}</div>
+            </div>
+            <div className="bg-background-soft border border-border rounded-lg px-3 py-2">
+              <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Weekly cap</div>
+              <div className="text-sm font-medium text-foreground">${status.weekly_budget_usd}</div>
+            </div>
+            <div className="bg-background-soft border border-border rounded-lg px-3 py-2">
+              <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Slot</div>
+              <div className="text-sm font-medium text-foreground">
+                ${status.min_position_usd}–${status.max_position_usd}
+              </div>
+            </div>
+            <div className="bg-background-soft border border-border rounded-lg px-3 py-2">
+              <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Max open</div>
+              <div className="text-sm font-medium text-foreground">{status.max_open_positions}</div>
+            </div>
+            <div className="bg-background-soft border border-border rounded-lg px-3 py-2">
+              <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Daily loss cap</div>
+              <div className="text-sm font-medium text-foreground">${status.daily_loss_cap_usd}</div>
+            </div>
+            <div className="bg-background-soft border border-border rounded-lg px-3 py-2">
+              <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Cron</div>
+              <div className="text-sm font-medium text-foreground">{status.cron_minutes}m</div>
+            </div>
+          </div>
+        )}
+        {status && (
           <div className="text-xs text-muted-foreground mt-3">
             Next run: {fmtDt(status.next_run_at)} · Last run status:{' '}
             {status.last_run_status ?? '-'} · Accounts: {status.accounts.length} · LLM:{' '}
@@ -201,6 +228,29 @@ export function AgentPage() {
           </div>
         )}
       </section>
+
+      {activeRun?.advice && (
+        <section className="panel p-6 shadow-[inset_0_0_0_1px_rgba(230,106,138,0.45),0_0_24px_rgba(230,106,138,0.08)]">
+          <div className="flex items-center gap-3 mb-3">
+            <h3 className="text-sm uppercase tracking-wider text-primary">Portfolio recommendation</h3>
+            <Pill tone="primary">Run #{activeRun.id}</Pill>
+            <span className="text-xs text-muted-foreground">{fmtDt(activeRun.finished_at ?? activeRun.started_at)}</span>
+          </div>
+          <pre className="text-sm text-foreground whitespace-pre-wrap font-sans leading-relaxed">
+            {activeRun.advice}
+          </pre>
+          {activeRun.intel_brief && (
+            <details className="mt-4">
+              <summary className="text-xs text-muted-foreground cursor-pointer hover:text-foreground">
+                market intel snapshot
+              </summary>
+              <pre className="text-[11px] text-muted-foreground whitespace-pre-wrap mt-2 bg-card-elevated border border-border rounded-md p-3 font-mono">
+                {activeRun.intel_brief}
+              </pre>
+            </details>
+          )}
+        </section>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <section className="panel p-6 space-y-3">

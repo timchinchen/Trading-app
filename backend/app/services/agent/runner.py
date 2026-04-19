@@ -12,6 +12,7 @@ from ...db import SessionLocal
 from ...models import AgentRun, AgentSignal, AgentTrade, AgentTweetAnalysis, Order, Trade
 from ..broker import AlpacaBroker
 from . import analyzer, allocator, llm, playwright_client, twitter_client
+from .intel import collect_intel
 
 
 def _ts() -> str:
@@ -63,6 +64,104 @@ def _remaining_budget(db: Session, mode: str) -> float:
     for r in rows:
         used += (r.notional or 0.0)
     return max(0.0, settings.AGENT_BUDGET_USD - used)
+
+
+def _week_start_utc(now: datetime | None = None) -> datetime:
+    """Monday 00:00 UTC of the current week."""
+    now = now or datetime.utcnow()
+    monday = now - timedelta(days=now.weekday())
+    return monday.replace(hour=0, minute=0, second=0, microsecond=0)
+
+
+def _weekly_deployed(db: Session, mode: str) -> float:
+    """Gross notional of agent BUY trades executed since Monday 00:00 UTC."""
+    start = _week_start_utc()
+    used = 0.0
+    rows = (
+        db.query(AgentTrade)
+        .filter(
+            AgentTrade.mode == mode,
+            AgentTrade.action == "executed",
+            AgentTrade.side == "buy",
+            AgentTrade.created_at >= start,
+        )
+        .all()
+    )
+    for r in rows:
+        used += (r.notional or 0.0)
+    return used
+
+
+def _portfolio_brief(broker: AlpacaBroker) -> tuple[str, list[dict[str, Any]]]:
+    """Return (human-readable brief, raw positions) for advisor prompts."""
+    positions: list[dict[str, Any]] = []
+    if not broker.configured:
+        return "Positions: broker not configured", positions
+    try:
+        positions = broker.positions()
+    except Exception as e:
+        return f"Positions: error ({e})", positions
+    if not positions:
+        return "Positions: flat (no open positions)", positions
+    lines = ["Positions:"]
+    for p in positions:
+        mv = p.get("market_value")
+        pl = p.get("unrealized_pl")
+        plp = p.get("unrealized_plpc")
+        lines.append(
+            f"  - {p.get('symbol')}: qty={p.get('qty')} "
+            f"mv=${float(mv) if mv is not None else 0.0:.2f} "
+            f"pl=${float(pl) if pl is not None else 0.0:+.2f} "
+            f"({float(plp) * 100 if plp is not None else 0.0:+.2f}%)"
+        )
+    return "\n".join(lines), positions
+
+
+def _build_advisor_context(
+    *,
+    signals: dict[str, dict[str, Any]],
+    proposals: list[dict[str, Any]],
+    portfolio_brief: str,
+    intel_brief: str,
+    daily_budget_remaining: float,
+    weekly_remaining: float,
+    open_positions: set[str],
+    max_positions: int,
+) -> str:
+    parts: list[str] = []
+    parts.append(portfolio_brief)
+    parts.append(
+        f"Budget: daily_remaining=${daily_budget_remaining:.2f} "
+        f"weekly_remaining=${weekly_remaining:.2f} "
+        f"open_positions={len(open_positions)}/{max_positions}"
+    )
+    parts.append("Signals (score/conf/mentions):")
+    if signals:
+        for sym, s in sorted(
+            signals.items(),
+            key=lambda kv: kv[1]["score"] * kv[1]["confidence"],
+            reverse=True,
+        )[:15]:
+            parts.append(
+                f"  - {sym}: score={s['score']:+.2f} conf={s['confidence']:.2f} "
+                f"mentions={s['mentions']} :: {s.get('rationale', '')[:200]}"
+            )
+    else:
+        parts.append("  (none)")
+
+    parts.append("Trade proposals this run:")
+    if proposals:
+        for p in proposals:
+            parts.append(
+                f"  - {p['action'].upper()} {p['side']} {p['symbol']} "
+                f"qty={p['qty']} ~${p.get('notional', 0):.2f} :: {p.get('reason', '')[:200]}"
+            )
+    else:
+        parts.append("  (none)")
+
+    parts.append("Market intel:")
+    parts.append(intel_brief)
+    return "\n".join(parts)
 
 
 async def run_once(broker: AlpacaBroker) -> int:
@@ -226,6 +325,29 @@ async def run_once(broker: AlpacaBroker) -> int:
 
         # 3. Aggregate
         signals = analyzer.aggregate(analyses)
+
+        # 3a. Collect market intelligence (stockanalysis movers + TradingView news)
+        # in parallel-ish - best-effort, never blocks the run on failures.
+        try:
+            intel = await collect_intel(log=_tw_log)
+        except Exception as e:
+            log.add(f"intel: unexpected error ({e}); continuing without corroboration")
+            from .intel import MarketIntel
+            intel = MarketIntel()
+
+        intel_brief_text = intel.brief()
+        run.intel_brief = intel_brief_text[:4000]
+
+        # 3b. Apply corroboration boost where ticker also appears in movers/news.
+        analyzer.apply_intel_boost(
+            signals,
+            corroborating_symbols=intel.corroborating_symbols(),
+            avoid_symbols=intel.symbols_to_avoid(),
+            boost=settings.AGENT_INTEL_BOOST,
+        )
+        boosted = [s for s, d in signals.items() if d.get("corroborated_by")]
+        if boosted:
+            log.add(f"intel boost applied to: {', '.join(boosted)}")
         log.add(f"aggregated into {len(signals)} tickers: " +
                 ", ".join(f"{s}({d['score']:+.2f}/{d['mentions']})" for s, d in signals.items()))
         for sym, s in signals.items():
@@ -239,8 +361,17 @@ async def run_once(broker: AlpacaBroker) -> int:
 
         # 4. Allocate
         open_positions = {p["symbol"] for p in broker.positions()} if broker.configured else set()
-        budget = _remaining_budget(db, settings.APP_MODE)
-        log.add(f"open positions: {sorted(open_positions)} | remaining budget today: ${budget:.2f}")
+        daily_budget = _remaining_budget(db, settings.APP_MODE)
+        weekly_used = _weekly_deployed(db, settings.APP_MODE)
+        weekly_remaining = max(0.0, settings.AGENT_WEEKLY_BUDGET_USD - weekly_used)
+        log.add(
+            f"budget: daily_remaining=${daily_budget:.2f} | "
+            f"weekly_used=${weekly_used:.2f}/${settings.AGENT_WEEKLY_BUDGET_USD:.2f} "
+            f"(remaining=${weekly_remaining:.2f}) | "
+            f"open={len(open_positions)}/{settings.AGENT_MAX_OPEN_POSITIONS} "
+            f"slot=${settings.AGENT_MIN_POSITION_USD:.0f}-${settings.AGENT_MAX_POSITION_USD:.0f}"
+        )
+        log.add(f"open positions: {sorted(open_positions) or 'flat'}")
 
         def _price(sym: str) -> float | None:
             q = broker.latest_quote(sym)
@@ -249,8 +380,11 @@ async def run_once(broker: AlpacaBroker) -> int:
         proposals = allocator.propose_trades(
             signals=signals,
             open_symbols=open_positions,
-            budget_remaining=budget,
+            budget_remaining=daily_budget,
+            weekly_remaining=weekly_remaining,
+            min_position_usd=settings.AGENT_MIN_POSITION_USD,
             max_position_usd=settings.AGENT_MAX_POSITION_USD,
+            max_open_positions=settings.AGENT_MAX_OPEN_POSITIONS,
             get_price=_price,
         )
         for p in proposals:
@@ -314,16 +448,31 @@ async def run_once(broker: AlpacaBroker) -> int:
         db.commit()
         _save_logs()
 
-        # 6. Summary via LLM (optional / best-effort)
-        summary_blob_lines = []
-        for sym, s in signals.items():
-            summary_blob_lines.append(
-                f"{sym}: score={s['score']} conf={s['confidence']} "
-                f"mentions={s['mentions']} :: {s['rationale']}"
-            )
-        blob = "\n".join(summary_blob_lines) or "no tradable signals"
-        summary = await llm.summarize_run(blob, settings.OLLAMA_HOST, settings.OLLAMA_MODEL)
-        run.summary = summary[:4000]
+        # 6. Portfolio advisor: structured recommendation fed to the UI.
+        portfolio_text, _ = _portfolio_brief(broker)
+        advisor_context = _build_advisor_context(
+            signals=signals,
+            proposals=proposals,
+            portfolio_brief=portfolio_text,
+            intel_brief=intel_brief_text,
+            daily_budget_remaining=daily_budget,
+            weekly_remaining=weekly_remaining,
+            open_positions=open_positions,
+            max_positions=settings.AGENT_MAX_OPEN_POSITIONS,
+        )
+        log.add("advisor: generating portfolio recommendation ...")
+        _save_logs()
+        advice = await llm.advise_portfolio(
+            advisor_context, settings.OLLAMA_HOST, settings.OLLAMA_MODEL
+        )
+        run.advice = advice[:6000]
+
+        # Short single-line summary for list views (first non-empty line of advice).
+        first_line = next(
+            (ln.strip() for ln in advice.splitlines() if ln.strip()),
+            "(no advice generated)",
+        )
+        run.summary = first_line[:500]
         run.status = "ok"
         run.finished_at = datetime.utcnow()
         log.add(f"DONE status=ok proposed={proposed_count} executed={executed_count}")

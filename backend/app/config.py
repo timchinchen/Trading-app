@@ -27,13 +27,26 @@ class Settings(BaseSettings):
     # ---- Agent ----
     AGENT_ENABLED: bool = False
     AGENT_AUTO_EXECUTE_LIVE: bool = False
-    AGENT_BUDGET_USD: float = 50.0
-    AGENT_MAX_POSITION_USD: float = 10.0
-    AGENT_DAILY_LOSS_CAP_USD: float = 10.0
+    # Seed capital the agent is allowed to deploy in total (treated as a rolling
+    # ceiling on the sum of new BUY notional across a calendar week).
+    AGENT_BUDGET_USD: float = 200.0
+    AGENT_WEEKLY_BUDGET_USD: float = 200.0
+    # Per-position sizing band. Signals stronger than the baseline get sized
+    # linearly up toward MAX; weaker signals stay at MIN. Anything below MIN
+    # is skipped entirely.
+    AGENT_MIN_POSITION_USD: float = 20.0
+    AGENT_MAX_POSITION_USD: float = 40.0
+    # Circuit breakers.
+    AGENT_DAILY_LOSS_CAP_USD: float = 20.0
+    AGENT_MAX_OPEN_POSITIONS: int = 6
+    # Cadence / fetch windows.
     AGENT_CRON_MINUTES: int = 30
     AGENT_MAX_TWEETS_PER_ACCOUNT: int = 20
     AGENT_LOOKBACK_HOURS: int = 24
     AGENT_PER_ACCOUNT_TIMEOUT_S: int = 45
+    # Market-intel corroboration: boost applied to a ticker's confidence when
+    # the intel sources independently flag it (movers list, TradingView news).
+    AGENT_INTEL_BOOST: float = 0.15
 
     OLLAMA_HOST: str = "http://localhost:11434"
     OLLAMA_MODEL: str = "llama3.1:8b"

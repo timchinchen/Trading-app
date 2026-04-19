@@ -98,8 +98,11 @@ class AgentStatusOut(BaseModel):
     mode: str
     auto_execute_live: bool
     budget_usd: float
+    weekly_budget_usd: float
+    min_position_usd: float
     max_position_usd: float
     daily_loss_cap_usd: float
+    max_open_positions: int
     cron_minutes: int
     accounts: list[str]
     ollama_host: str
@@ -122,6 +125,8 @@ class AgentRunOut(BaseModel):
     trades_executed: int
     summary: Optional[str]
     logs: Optional[str] = None
+    advice: Optional[str] = None
+    intel_brief: Optional[str] = None
     class Config:
         from_attributes = True
 

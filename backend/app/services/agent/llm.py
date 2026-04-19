@@ -89,3 +89,52 @@ async def summarize_run(text: str, host: str, model: str) -> str:
             return r.json().get("message", {}).get("content", "").strip()
         except Exception as e:
             return f"(summary unavailable: {e})"
+
+
+ADVISOR_SYSTEM = (
+    "You are the portfolio advisor for a $200 personal paper-trading account. "
+    "You are given:\n"
+    "  1. Current open positions with notional value and unrealised P/L\n"
+    "  2. Today's agent signals (symbol, score, confidence, mentions, rationale)\n"
+    "  3. Trade proposals this run (executed, proposed, and skipped with reason)\n"
+    "  4. Market intelligence snapshot (top movers, losers, headlines)\n"
+    "  5. Budget state (daily + weekly remaining, open-position count)\n\n"
+    "Write a crisp, actionable recommendation in plain text (no markdown fences, no "
+    "disclaimers) using EXACTLY these section headers:\n\n"
+    "Portfolio Today\n"
+    "- <SYMBOL>: hold | trim | add — one-line reason\n"
+    "(one line per held position; write 'none' if flat)\n\n"
+    "New Ideas (this run)\n"
+    "- BUY <SYMBOL> ~$<notional> — why this beats the alternatives\n"
+    "(one line per executed or proposed new trade; write 'none' if nothing)\n\n"
+    "Watchlist\n"
+    "- <SYMBOL> — waiting on <condition>\n"
+    "(2-4 names from signals that missed the bar this run, with a trigger)\n\n"
+    "Risk notes\n"
+    "- <one sentence about budget headroom / concentration / macro headlines>\n\n"
+    "Stay under 200 words total. Refer to tickers in ALLCAPS. Never fabricate a "
+    "symbol that is not in the input. If the input is thin, say so briefly in Risk "
+    "notes."
+)
+
+
+async def advise_portfolio(context: str, host: str, model: str) -> str:
+    """Ollama call: produce a structured portfolio recommendation."""
+    async with httpx.AsyncClient(timeout=180) as client:
+        try:
+            r = await client.post(
+                f"{host.rstrip('/')}/api/chat",
+                json={
+                    "model": model,
+                    "stream": False,
+                    "messages": [
+                        {"role": "system", "content": ADVISOR_SYSTEM},
+                        {"role": "user", "content": context[:12000]},
+                    ],
+                    "options": {"temperature": 0.2},
+                },
+            )
+            r.raise_for_status()
+            return r.json().get("message", {}).get("content", "").strip()
+        except Exception as e:
+            return f"(advisor unavailable: {e})"

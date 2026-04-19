@@ -1,7 +1,7 @@
 """Aggregate per-tweet LLM outputs into per-ticker signals."""
 
 from collections import defaultdict
-from typing import Any
+from typing import Any, Iterable
 
 
 def aggregate(per_tweet: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
@@ -58,5 +58,33 @@ def aggregate(per_tweet: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
             "mentions": b["mentions"],
             "rationale": " | ".join(b["rationales"][:5]),
             "sources": b["sources"][:10],
+            "corroborated_by": [],
         }
     return out
+
+
+def apply_intel_boost(
+    signals: dict[str, dict[str, Any]],
+    corroborating_symbols: Iterable[str],
+    avoid_symbols: Iterable[str] = (),
+    boost: float = 0.15,
+) -> dict[str, dict[str, Any]]:
+    """Nudge confidences up when a ticker is independently flagged by the
+    market-intel sources, and nudge score slightly down for symbols appearing
+    in the top-losers list (contextual drag). Returns the same dict mutated
+    in place for convenience.
+    """
+    corr = {s.upper() for s in corroborating_symbols}
+    avoid = {s.upper() for s in avoid_symbols}
+
+    for sym, s in signals.items():
+        if sym in corr:
+            new_conf = min(1.0, s["confidence"] + boost)
+            s["corroborated_by"].append("market-intel")
+            s["confidence"] = round(new_conf, 3)
+        if sym in avoid:
+            # Don't invert; just dampen a bullish score.
+            if s["score"] > 0:
+                s["score"] = round(max(0.0, s["score"] - boost), 3)
+                s["corroborated_by"].append("top-loser-drag")
+    return signals

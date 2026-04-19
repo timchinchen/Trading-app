@@ -10,6 +10,7 @@ Self-hosted trading app with **Paper** (preview) and **Live** modes, backed by A
 - Mode toggle: `APP_MODE` env variable, resolved at startup
 - Market data: pluggable, can mix WebSocket streaming and REST polling per symbol
 - Agent: curated X timelines + local LLM -> paper trades with hard budget caps
+- Market intelligence: scrapes stockanalysis.com (gainers/losers/most-active/screener) and TradingView news headlines to corroborate Twitter signals before sizing
 
 ## Quick start
 
@@ -95,9 +96,13 @@ live mode, unless `AGENT_AUTO_EXECUTE_LIVE=true`).
 4. **Enable the agent** in `backend/.env`:
    ```
    AGENT_ENABLED=true
-   AGENT_BUDGET_USD=50
-   AGENT_MAX_POSITION_USD=10
-   AGENT_DAILY_LOSS_CAP_USD=10
+   AGENT_BUDGET_USD=200
+   AGENT_WEEKLY_BUDGET_USD=200
+   AGENT_MIN_POSITION_USD=20
+   AGENT_MAX_POSITION_USD=40
+   AGENT_DAILY_LOSS_CAP_USD=20
+   AGENT_MAX_OPEN_POSITIONS=6
+   AGENT_INTEL_BOOST=0.15
    AGENT_CRON_MINUTES=30
    OLLAMA_HOST=http://localhost:11434
    OLLAMA_MODEL=llama3.1:8b
@@ -117,10 +122,18 @@ every 30m (mon-fri, 09:00-15:59 ET)
      (falls back to twscrape API if Playwright is unavailable)
   -> Ollama chat (format=json): extract tickers + sentiment + confidence per tweet
   -> aggregate across all tweets -> per-ticker score, confidence, mentions
-  -> allocator: top 3 bullish signals, size each at min($10, remaining budget)
-  -> risk gates: daily loss cap, remaining budget, skip already-held
+  -> market intel: stockanalysis.com gainers/losers/active/screener +
+     tradingview.com news headlines, merged into a MarketIntel snapshot
+  -> intel boost: corroborated tickers get +0.15 confidence; top losers drag
+     bullish scores down to discourage chasing
+  -> allocator: strength-weighted sizing in the $20-$40 band, clamped by
+     remaining weekly + daily budget and AGENT_MAX_OPEN_POSITIONS
+  -> risk gates: daily loss cap, weekly cap, skip already-held
   -> paper: auto-execute market orders
      live:  propose-only (unless AGENT_AUTO_EXECUTE_LIVE=true)
+  -> portfolio advisor: a separate Ollama call returns a structured
+     "Portfolio Today / New Ideas / Watchlist / Risk notes" recommendation
+     stored on the run and rendered prominently in the UI
 ```
 
 ### Safety

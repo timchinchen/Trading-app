@@ -53,8 +53,11 @@ export interface AgentStatus {
   mode: string
   auto_execute_live: boolean
   budget_usd: number
+  weekly_budget_usd: number
+  min_position_usd: number
   max_position_usd: number
   daily_loss_cap_usd: number
+  max_open_positions: number
   cron_minutes: number
   accounts: string[]
   ollama_host: string
@@ -77,6 +80,8 @@ export interface AgentRun {
   trades_executed: number
   summary?: string | null
   logs?: string | null
+  advice?: string | null
+  intel_brief?: string | null
 }
 
 export interface AgentSignal {

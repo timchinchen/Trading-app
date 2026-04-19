@@ -65,6 +65,8 @@ class AgentRun(Base):
     trades_executed = Column(Integer, default=0)
     summary = Column(String)                               # LLM summary / error msg
     logs = Column(String)                                  # freeform newline-delimited debug log
+    advice = Column(String)                                # structured portfolio recommendation (advisor LLM)
+    intel_brief = Column(String)                           # compact market-intel snapshot captured this run
 
 
 class AgentSignal(Base):
