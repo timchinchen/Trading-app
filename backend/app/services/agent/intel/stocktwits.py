@@ -8,11 +8,10 @@ session cookies (copied out of their logged-in browser).
 
 Public entry points:
     parse_cookie_blob(blob)   -> list[playwright cookie dicts]
-    fetch_sentiment(symbols, cookies) -> {SYM: {"bull_pct": int, "bear_pct": int, ...}}
-    fetch_news_articles(limit, cookies) -> [{"title","url","symbols","published_at"}]
-    fetch_all(symbols, cookies, ...) -> {"sentiment": {...}, "news": [...]}
-    brief_line(sym, entry)    -> one-line string for prompts
-    brief_news_line(item)     -> one-line string for prompts
+    fetch_all(symbols, cookies, ...) -> _ScrapeResult(sentiment, news, watchers, errors)
+    brief_line(sym, entry)    -> one-line string for per-symbol sentiment
+    brief_news_line(item)     -> one-line string for a news article
+    brief_watcher_line(item)  -> one-line string for a /sentiment/watchers row
 
 Every function is best-effort: on any error (cookies missing, Cloudflare
 still challenging, Playwright not installed, etc.) it returns an empty
@@ -178,6 +177,7 @@ def _parse_netscape(body: str) -> list[dict[str, Any]]:
 class _ScrapeResult:
     sentiment: dict[str, dict[str, Any]]
     news: list[dict[str, Any]]
+    watchers: list[dict[str, Any]]
     errors: dict[str, str]
 
 
@@ -384,11 +384,128 @@ async def _grab_news_articles(ctx, limit: int, timeout_s: int, log: Optional[Log
     return cleaned[:limit]
 
 
+async def _grab_watchers_leaderboard(
+    ctx,
+    limit: int,
+    timeout_s: int,
+    log: Optional[LogFn],
+) -> list[dict[str, Any]]:
+    """Scrape the /sentiment/watchers leaderboard — ranked list of the
+    tickers with the most watchers on Stocktwits right now. Useful as a
+    crowd-flow signal separate from per-symbol sentiment.
+
+    Returns a list of {"rank","symbol","name","watchers","change_pct","url"}.
+    Any row where we can't find a ticker symbol is dropped."""
+    url = "https://stocktwits.com/sentiment/watchers"
+    page = await ctx.new_page()
+    await page.route("**/*", _block_heavy)
+    try:
+        async def _do():
+            await page.goto(url, wait_until="domcontentloaded", timeout=25_000)
+            await page.wait_for_timeout(2500)
+
+            # The leaderboard is rendered as a table/list of rows; scroll a
+            # bit to trigger any virtualization hydration.
+            for _ in range(2):
+                await page.mouse.wheel(0, 1500)
+                await page.wait_for_timeout(500)
+
+            rows = await page.evaluate(
+                """
+                () => {
+                  const out = [];
+                  const seen = new Set();
+                  // Prefer anchors into /symbol/<TICKER> - they're always
+                  // present for every row on the leaderboard.
+                  const anchors = Array.from(
+                    document.querySelectorAll('a[href*="/symbol/"]')
+                  );
+                  for (const a of anchors) {
+                    const href = a.getAttribute('href') || '';
+                    const m = href.match(/\\/symbol\\/([A-Z.\\-]{1,10})/);
+                    if (!m) continue;
+                    const sym = m[1];
+                    if (seen.has(sym)) continue;
+
+                    // Row container: walk up until we find something that
+                    // looks like a whole table row / list item.
+                    let row = a.closest('tr, li, [role="row"]');
+                    if (!row) row = a.parentElement;
+                    if (!row) continue;
+
+                    const text = (row.innerText || '').replace(/\\s+/g, ' ').trim();
+                    if (!text) continue;
+
+                    // Pull the biggest integer on the row as the watcher
+                    // count (Stocktwits renders "12,345" style counts).
+                    let watchers = null;
+                    const nums = (text.match(/\\b\\d[\\d,]*\\b/g) || [])
+                      .map((x) => parseInt(x.replace(/,/g, ''), 10))
+                      .filter((n) => !isNaN(n));
+                    if (nums.length) watchers = Math.max(...nums);
+
+                    // Extract a signed % change if present.
+                    let change_pct = null;
+                    const pm = text.match(/([+\\-]?\\d+(?:\\.\\d+)?)\\s*%/);
+                    if (pm) {
+                      const v = parseFloat(pm[1]);
+                      if (!isNaN(v)) change_pct = v;
+                    }
+
+                    // Company name: grab the longest word-chunk on the row
+                    // that isn't the ticker itself.
+                    let name = '';
+                    const chunks = text.split(/\\s{2,}|\\|/);
+                    for (const c of chunks) {
+                      const t = c.trim();
+                      if (!t) continue;
+                      if (t === sym) continue;
+                      if (/^[\\d,+\\-.%$\\s]+$/.test(t)) continue;
+                      if (t.length > name.length) name = t;
+                    }
+
+                    seen.add(sym);
+                    out.push({
+                      symbol: sym,
+                      name: name.slice(0, 80),
+                      watchers: watchers,
+                      change_pct: change_pct,
+                      url: 'https://stocktwits.com' + href,
+                    });
+                  }
+                  return out;
+                }
+                """
+            )
+            return rows or []
+
+        rows = await asyncio.wait_for(_do(), timeout=timeout_s)
+    except asyncio.TimeoutError:
+        _log(log, f"watchers TIMEOUT after {timeout_s}s")
+        rows = []
+    except Exception as e:
+        _log(log, f"watchers error: {e}")
+        rows = []
+    finally:
+        try:
+            await page.close()
+        except Exception:
+            pass
+
+    # Sort by watcher count desc and rank.
+    rows = [r for r in rows if r.get("symbol")]
+    rows.sort(key=lambda r: (r.get("watchers") or 0), reverse=True)
+    for i, r in enumerate(rows, start=1):
+        r["rank"] = i
+    return rows[:limit]
+
+
 async def fetch_all(
     symbols: list[str],
     cookies_blob: str,
     *,
     news_limit: int = 20,
+    watchers_limit: int = 25,
     per_request_timeout_s: int = 30,
     log: Optional[LogFn] = None,
     headless: bool = True,
@@ -401,21 +518,22 @@ async def fetch_all(
     errors: dict[str, str] = {}
     sentiment: dict[str, dict[str, Any]] = {}
     news: list[dict[str, Any]] = []
+    watchers: list[dict[str, Any]] = []
 
     if not cookies_blob or not cookies_blob.strip():
         errors["stocktwits"] = "cookies_not_configured"
-        return _ScrapeResult(sentiment=sentiment, news=news, errors=errors)
+        return _ScrapeResult(sentiment=sentiment, news=news, watchers=watchers, errors=errors)
 
     cookies = parse_cookie_blob(cookies_blob)
     if not cookies:
         errors["stocktwits"] = "cookies_unparseable"
-        return _ScrapeResult(sentiment=sentiment, news=news, errors=errors)
+        return _ScrapeResult(sentiment=sentiment, news=news, watchers=watchers, errors=errors)
 
     try:
         from playwright.async_api import async_playwright
     except Exception as e:
         errors["stocktwits"] = f"playwright_missing: {e}"
-        return _ScrapeResult(sentiment=sentiment, news=news, errors=errors)
+        return _ScrapeResult(sentiment=sentiment, news=news, watchers=watchers, errors=errors)
 
     _log(log, f"launching chromium with {len(cookies)} cookies; symbols={symbols} news_limit={news_limit}")
 
@@ -424,7 +542,7 @@ async def fetch_all(
             browser = await pw.chromium.launch(headless=headless)
         except Exception as e:
             errors["stocktwits"] = f"chromium_launch_failed: {e}"
-            return _ScrapeResult(sentiment=sentiment, news=news, errors=errors)
+            return _ScrapeResult(sentiment=sentiment, news=news, watchers=watchers, errors=errors)
 
         try:
             ctx = await browser.new_context(
@@ -436,13 +554,16 @@ async def fetch_all(
                 await ctx.add_cookies(cookies)
             except Exception as e:
                 errors["stocktwits"] = f"cookie_inject_failed: {e}"
-                return _ScrapeResult(sentiment=sentiment, news=news, errors=errors)
+                return _ScrapeResult(sentiment=sentiment, news=news, watchers=watchers, errors=errors)
 
             syms_clean = [s.upper().strip() for s in (symbols or []) if s and s.strip()]
 
-            # Run news + per-symbol sentiment in parallel.
+            # Run news + watchers leaderboard + per-symbol sentiment in parallel.
             news_task = asyncio.create_task(
                 _grab_news_articles(ctx, news_limit, per_request_timeout_s, log)
+            )
+            watchers_task = asyncio.create_task(
+                _grab_watchers_leaderboard(ctx, watchers_limit, per_request_timeout_s, log)
             )
             sent_tasks = [
                 asyncio.create_task(
@@ -452,6 +573,7 @@ async def fetch_all(
             ]
             results = await asyncio.gather(*sent_tasks, return_exceptions=True)
             news = await news_task
+            watchers = await watchers_task
 
             for res in results:
                 if isinstance(res, Exception):
@@ -465,7 +587,7 @@ async def fetch_all(
             except Exception:
                 pass
 
-    return _ScrapeResult(sentiment=sentiment, news=news, errors=errors)
+    return _ScrapeResult(sentiment=sentiment, news=news, watchers=watchers, errors=errors)
 
 
 # --------------------------------------------------------------------------- #
@@ -495,3 +617,19 @@ def brief_news_line(item: dict[str, Any]) -> str:
     if syms:
         return f"[{syms}] {title[:110]}"
     return title[:110]
+
+
+def brief_watcher_line(item: dict[str, Any]) -> str:
+    sym = item.get("symbol") or "?"
+    rank = item.get("rank")
+    watchers = item.get("watchers")
+    chg = item.get("change_pct")
+    bits: list[str] = []
+    if rank is not None:
+        bits.append(f"#{rank}")
+    bits.append(sym)
+    if watchers:
+        bits.append(f"{watchers:,} watchers")
+    if chg is not None:
+        bits.append(f"{chg:+.2f}%")
+    return " ".join(bits)

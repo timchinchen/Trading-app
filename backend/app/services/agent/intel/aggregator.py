@@ -30,6 +30,8 @@ class MarketIntel:
     # Stocktwits-wide news headlines (not per-symbol). Merged in alongside
     # tradingview headlines for advisor context.
     stocktwits_news: list[dict[str, Any]] = field(default_factory=list)
+    # Stocktwits /sentiment/watchers leaderboard — crowd-flow signal.
+    stocktwits_watchers: list[dict[str, Any]] = field(default_factory=list)
     errors: dict[str, str] = field(default_factory=dict)
 
     def corroborating_symbols(self) -> set[str]:
@@ -43,6 +45,9 @@ class MarketIntel:
                 out.add(s.upper())
         for item in self.stocktwits_news:
             for s in item.get("symbols") or []:
+                out.add(s.upper())
+        for row in self.stocktwits_watchers:
+            if s := row.get("symbol"):
                 out.add(s.upper())
         return out
 
@@ -79,6 +84,11 @@ class MarketIntel:
             lines.append("Stocktwits news:")
             for h in self.stocktwits_news[:max_items]:
                 lines.append("  - " + stocktwits.brief_news_line(h))
+
+        if self.stocktwits_watchers:
+            lines.append("Stocktwits most-watched:")
+            for w in self.stocktwits_watchers[:max_items]:
+                lines.append("  - " + stocktwits.brief_watcher_line(w))
 
         if self.enrichment:
             lines.append("Per-ticker enrichment:")
@@ -162,6 +172,10 @@ class MarketIntel:
             # Merge any news headlines from stocktwits into the top-level list.
             if st_result.news:
                 self.stocktwits_news.extend(st_result.news)
+            if st_result.watchers:
+                # Replace rather than append: the leaderboard is always a
+                # full, freshly-ranked snapshot.
+                self.stocktwits_watchers = st_result.watchers
             for k, v in st_result.errors.items():
                 self.errors[k] = v
 
@@ -180,7 +194,9 @@ class MarketIntel:
         )
         _log(
             f"enrichment: fmp_ok={fmp_ok}/{len(syms)} sec_ok={sec_ok}/{len(syms)} "
-            f"stocktwits_ok={st_ok}/{len(syms)} news={len(st_result.news) if st_result else 0} "
+            f"stocktwits_ok={st_ok}/{len(syms)} "
+            f"news={len(st_result.news) if st_result else 0} "
+            f"watchers={len(st_result.watchers) if st_result else 0} "
             f"(symbols: {', '.join(syms)})"
         )
         if fmp_api_key == "":
