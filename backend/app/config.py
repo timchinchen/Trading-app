@@ -67,6 +67,15 @@ class Settings(BaseSettings):
     OPENAI_MODEL: str = "gpt-4o-mini"
     OPENAI_BASE_URL: str = "https://api.openai.com/v1"
 
+    # ---- Per-ticker enrichment sources ----
+    # Financial Modeling Prep (fundamentals: quote, profile, ratios).
+    # Free tier is 250 calls/day. Leave empty to disable.
+    FMP_API_KEY: str = ""
+    FMP_BASE_URL: str = "https://financialmodelingprep.com/api/v3"
+    # SEC EDGAR full-text search (free). The SEC requires a User-Agent
+    # identifying the caller - put a contact email here.
+    SEC_USER_AGENT: str = "TradingApp (personal use) noreply@example.com"
+
     TWSCRAPE_DB: str = "./twscrape.db"
     TWITTER_ACCOUNTS: str = ""
 

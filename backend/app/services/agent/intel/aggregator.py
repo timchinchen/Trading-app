@@ -12,7 +12,7 @@ import asyncio
 from dataclasses import dataclass, field
 from typing import Any, Callable, Optional
 
-from . import stockanalysis, tradingview
+from . import fmp, sec_edgar, stockanalysis, tradingview
 
 LogFn = Callable[[str], None]
 
@@ -24,6 +24,9 @@ class MarketIntel:
     active: list[dict[str, Any]] = field(default_factory=list)
     screener: list[dict[str, Any]] = field(default_factory=list)
     headlines: list[dict[str, Any]] = field(default_factory=list)
+    # Per-ticker enrichment populated lazily when runner calls enrich_symbols().
+    # Shape: {SYM: {"fmp": {...}, "sec": {...}}}
+    enrichment: dict[str, dict[str, Any]] = field(default_factory=dict)
     errors: dict[str, str] = field(default_factory=dict)
 
     def corroborating_symbols(self) -> set[str]:
@@ -66,12 +69,77 @@ class MarketIntel:
                 syms = ",".join(h.get("symbols") or [])
                 lines.append(f"  - [{syms}] {h.get('title','')[:110]}")
 
+        if self.enrichment:
+            lines.append("Per-ticker enrichment:")
+            for sym, payload in self.enrichment.items():
+                parts: list[str] = []
+                fmp_line = fmp.brief_line(payload.get("fmp") or {})
+                if fmp_line:
+                    parts.append(f"FMP: {fmp_line}")
+                sec_line = sec_edgar.brief_line(payload.get("sec") or {})
+                if sec_line:
+                    parts.append(f"SEC: {sec_line}")
+                entity = (payload.get("sec") or {}).get("entity_name")
+                if entity:
+                    lines.append(f"  - {sym} ({entity}): " + " | ".join(parts))
+                else:
+                    lines.append(f"  - {sym}: " + " | ".join(parts))
+
         if self.errors:
             lines.append(
                 "(sources unavailable: " + ", ".join(self.errors.keys()) + ")"
             )
 
         return "\n".join(lines) or "(no market-intel data)"
+
+    async def enrich_symbols(
+        self,
+        symbols: list[str],
+        *,
+        fmp_api_key: str,
+        fmp_base_url: str,
+        sec_user_agent: str,
+        log: Optional[LogFn] = None,
+    ) -> None:
+        """Pull FMP + SEC EDGAR data for a small list of tickers and stash it
+        on `self.enrichment`. Idempotent - re-calling with new symbols only
+        enriches the new ones. Best-effort; failures are tracked in `errors`."""
+        syms = sorted({s.upper().strip() for s in symbols if s and s.strip()})
+        if not syms:
+            return
+
+        def _log(msg: str):
+            if log:
+                try:
+                    log(msg)
+                except Exception:
+                    pass
+
+        # Parallel FMP + SEC
+        fmp_task = asyncio.create_task(
+            fmp.fetch_many(syms, api_key=fmp_api_key, base_url=fmp_base_url)
+        )
+        sec_task = asyncio.create_task(
+            sec_edgar.fetch_many(syms, user_agent=sec_user_agent)
+        )
+        fmp_map = await fmp_task
+        sec_map = await sec_task
+
+        for sym in syms:
+            slot = self.enrichment.setdefault(sym, {})
+            if fmp_map.get(sym):
+                slot["fmp"] = fmp_map[sym]
+            if sec_map.get(sym):
+                slot["sec"] = sec_map[sym]
+
+        fmp_ok = sum(1 for s in syms if fmp_map.get(s) and not fmp_map[s].get("error"))
+        sec_ok = sum(1 for s in syms if sec_map.get(s) and not sec_map[s].get("error"))
+        _log(
+            f"enrichment: fmp_ok={fmp_ok}/{len(syms)} sec_ok={sec_ok}/{len(syms)} "
+            f"(symbols: {', '.join(syms)})"
+        )
+        if fmp_api_key == "":
+            self.errors["fmp"] = "FMP_API_KEY not set"
 
 
 async def collect_intel(log: Optional[LogFn] = None) -> MarketIntel:

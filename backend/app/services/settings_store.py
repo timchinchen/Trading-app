@@ -31,6 +31,10 @@ EDITABLE_KEYS: dict[str, type] = {
     "OPENAI_API_KEY": str,
     "OPENAI_MODEL": str,
     "OPENAI_BASE_URL": str,
+    # Per-ticker enrichment
+    "FMP_API_KEY": str,
+    "FMP_BASE_URL": str,
+    "SEC_USER_AGENT": str,
     # Agent budget / cadence
     "AGENT_ENABLED": bool,
     "AGENT_AUTO_EXECUTE_LIVE": bool,
@@ -49,7 +53,7 @@ EDITABLE_KEYS: dict[str, type] = {
 }
 
 # Keys whose value should be masked when the API returns the current settings.
-SECRET_KEYS = {"OPENAI_API_KEY"}
+SECRET_KEYS = {"OPENAI_API_KEY", "FMP_API_KEY"}
 
 
 def _coerce(raw: str, target: type) -> Any:
@@ -76,6 +80,10 @@ class RuntimeSettings:
     openai_api_key: str = ""
     openai_model: str = ""
     openai_base_url: str = ""
+    # Enrichment
+    fmp_api_key: str = ""
+    fmp_base_url: str = ""
+    sec_user_agent: str = ""
     # Agent
     agent_enabled: bool = False
     agent_auto_execute_live: bool = False
@@ -133,6 +141,9 @@ def get_runtime_settings(db: Session | None = None) -> RuntimeSettings:
         openai_api_key=str(pick("OPENAI_API_KEY", str)),
         openai_model=str(pick("OPENAI_MODEL", str)),
         openai_base_url=str(pick("OPENAI_BASE_URL", str)),
+        fmp_api_key=str(pick("FMP_API_KEY", str)),
+        fmp_base_url=str(pick("FMP_BASE_URL", str)),
+        sec_user_agent=str(pick("SEC_USER_AGENT", str)),
         agent_enabled=bool(pick("AGENT_ENABLED", bool)),
         agent_auto_execute_live=bool(pick("AGENT_AUTO_EXECUTE_LIVE", bool)),
         agent_budget_usd=float(pick("AGENT_BUDGET_USD", float)),
@@ -192,6 +203,14 @@ def public_view(rs: RuntimeSettings) -> dict[str, Any]:
             if len(rs.openai_api_key) >= 12
             else ("set" if rs.openai_api_key else "")
         ),
+        "fmp_base_url": rs.fmp_base_url,
+        "fmp_api_key_set": bool(rs.fmp_api_key),
+        "fmp_api_key_preview": (
+            (rs.fmp_api_key[:6] + "..." + rs.fmp_api_key[-4:])
+            if len(rs.fmp_api_key) >= 12
+            else ("set" if rs.fmp_api_key else "")
+        ),
+        "sec_user_agent": rs.sec_user_agent,
         "agent_enabled": rs.agent_enabled,
         "agent_auto_execute_live": rs.agent_auto_execute_live,
         "agent_budget_usd": rs.agent_budget_usd,

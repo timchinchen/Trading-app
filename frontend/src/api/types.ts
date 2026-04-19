@@ -159,6 +159,10 @@ export interface AgentSettings {
   openai_base_url: string
   openai_api_key_set: boolean
   openai_api_key_preview: string
+  fmp_base_url: string
+  fmp_api_key_set: boolean
+  fmp_api_key_preview: string
+  sec_user_agent: string
   agent_enabled: boolean
   agent_auto_execute_live: boolean
   agent_budget_usd: number
@@ -182,6 +186,9 @@ export type AgentSettingsUpdate = Partial<{
   OPENAI_API_KEY: string
   OPENAI_MODEL: string
   OPENAI_BASE_URL: string
+  FMP_API_KEY: string
+  FMP_BASE_URL: string
+  SEC_USER_AGENT: string
   AGENT_ENABLED: boolean
   AGENT_AUTO_EXECUTE_LIVE: boolean
   AGENT_BUDGET_USD: number

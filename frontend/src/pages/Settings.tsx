@@ -249,6 +249,133 @@ function LLMProviderCard({ s }: { s: AgentSettings }) {
   )
 }
 
+// ----- Data enrichment APIs (FMP + SEC EDGAR) -----
+function DataEnrichmentCard({ s }: { s: AgentSettings }) {
+  const upd = useUpdateAgentSettings()
+  const [fmpKey, setFmpKey] = useState('')
+  const [clearFmpKey, setClearFmpKey] = useState(false)
+  const [fmpBaseUrl, setFmpBaseUrl] = useState(s.fmp_base_url)
+  const [secUa, setSecUa] = useState(s.sec_user_agent)
+
+  useEffect(() => {
+    setFmpBaseUrl(s.fmp_base_url)
+    setSecUa(s.sec_user_agent)
+  }, [s])
+
+  const save = () => {
+    const body: AgentSettingsUpdate = {
+      FMP_BASE_URL: fmpBaseUrl,
+      SEC_USER_AGENT: secUa,
+    }
+    if (clearFmpKey) {
+      body.FMP_API_KEY = ''
+    } else if (fmpKey.trim()) {
+      body.FMP_API_KEY = fmpKey.trim()
+    }
+    upd.mutate(body, {
+      onSuccess: () => {
+        setFmpKey('')
+        setClearFmpKey(false)
+      },
+    })
+  }
+
+  return (
+    <Card title="Data enrichment APIs (editable)">
+      <p className="text-xs text-muted-foreground mb-4">
+        Per-ticker fundamentals + filings data used to corroborate Twitter signals.
+        The agent enriches only the shortlist of tickers it wants to trade each run,
+        so the free tiers are plenty.
+      </p>
+
+      <div className="grid grid-cols-[220px_1fr] gap-3 py-2 border-b border-border">
+        <div className="text-xs text-muted-foreground uppercase tracking-wider">
+          FMP_API_KEY
+          <OverrideBadge k="FMP_API_KEY" overridden={s.overridden} />
+        </div>
+        <div className="space-y-1">
+          <input
+            type="password"
+            value={fmpKey}
+            onChange={(e) => setFmpKey(e.target.value)}
+            placeholder={
+              s.fmp_api_key_set
+                ? `current: ${s.fmp_api_key_preview} (leave blank to keep)`
+                : 'Financial Modeling Prep API key'
+            }
+            className="px-3 py-2 rounded-md text-sm w-full max-w-md font-mono"
+          />
+          <label className="flex items-center gap-2 text-xs text-muted-foreground">
+            <input
+              type="checkbox"
+              checked={clearFmpKey}
+              onChange={(e) => setClearFmpKey(e.target.checked)}
+            />
+            clear stored key (disables FMP enrichment)
+          </label>
+          <div className="text-[11px] text-muted-foreground">
+            Free key at{' '}
+            <a
+              href="https://site.financialmodelingprep.com/register"
+              target="_blank"
+              rel="noreferrer"
+              className="text-primary hover:underline"
+            >
+              financialmodelingprep.com/register
+            </a>{' '}
+            (250 calls/day free tier). Pulls quote + profile + ratios-ttm per ticker.
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-[220px_1fr] gap-3 py-2 border-b border-border">
+        <div className="text-xs text-muted-foreground uppercase tracking-wider">
+          FMP_BASE_URL
+          <OverrideBadge k="FMP_BASE_URL" overridden={s.overridden} />
+        </div>
+        <input
+          value={fmpBaseUrl}
+          onChange={(e) => setFmpBaseUrl(e.target.value)}
+          placeholder="https://financialmodelingprep.com/api/v3"
+          className="px-3 py-2 rounded-md text-sm w-full max-w-md"
+        />
+      </div>
+
+      <div className="grid grid-cols-[220px_1fr] gap-3 py-2 border-b border-border">
+        <div className="text-xs text-muted-foreground uppercase tracking-wider">
+          SEC_USER_AGENT
+          <OverrideBadge k="SEC_USER_AGENT" overridden={s.overridden} />
+        </div>
+        <div className="space-y-1">
+          <input
+            value={secUa}
+            onChange={(e) => setSecUa(e.target.value)}
+            placeholder="YourApp (personal) you@email.com"
+            className="px-3 py-2 rounded-md text-sm w-full max-w-md"
+          />
+          <div className="text-[11px] text-muted-foreground">
+            SEC EDGAR full-text search is free but requires a User-Agent identifying
+            you (name + contact email). No API key.
+          </div>
+        </div>
+      </div>
+
+      <div className="flex items-center gap-3 pt-3">
+        <button
+          onClick={save}
+          disabled={upd.isPending}
+          className="btn-primary px-4 py-2 rounded-lg"
+        >
+          {upd.isPending ? 'Saving...' : 'Save enrichment settings'}
+        </button>
+        {upd.isSuccess && !upd.isPending && (
+          <span className="text-xs text-success">saved</span>
+        )}
+      </div>
+    </Card>
+  )
+}
+
 // ----- Twitter accounts (editable) -----
 function TwitterAccountsCard({ s }: { s: AgentSettings }) {
   const upd = useUpdateAgentSettings()
@@ -577,6 +704,7 @@ export function SettingsPage() {
       {agentSettings ? (
         <>
           <LLMProviderCard s={agentSettings} />
+          <DataEnrichmentCard s={agentSettings} />
           <AgentBudgetCard s={agentSettings} />
           <TwitterAccountsCard s={agentSettings} />
         </>

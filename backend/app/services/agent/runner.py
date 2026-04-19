@@ -569,6 +569,29 @@ async def run_once(broker: AlpacaBroker) -> int:
             log.add(f"  candidate {p['symbol']} {p['side']} qty={p['qty']} "
                     f"notional=${p['notional']} -> {p['action']} ({p.get('reason','')})")
 
+        # 4b. Per-ticker enrichment for the shortlist only (keeps us well below
+        # the FMP free-tier 250/day and SEC 10-req/sec limits). We enrich
+        # anything we're proposing BUY or SELL on this run.
+        shortlist = sorted({
+            (p["symbol"] or "").upper()
+            for p in proposals
+            if p.get("action") == "proposed" and p.get("symbol")
+        })
+        if shortlist:
+            try:
+                await intel.enrich_symbols(
+                    shortlist,
+                    fmp_api_key=rs.fmp_api_key,
+                    fmp_base_url=rs.fmp_base_url,
+                    sec_user_agent=rs.sec_user_agent,
+                    log=_tw_log,
+                )
+                # Update the run's stored brief with enrichment baked in.
+                intel_brief_text = intel.brief()
+                run.intel_brief = intel_brief_text[:6000]
+            except Exception as e:
+                log.add(f"enrichment failed: {e}")
+
         # 5. Decide auto-execute
         auto_execute = (
             settings.APP_MODE == "paper"
