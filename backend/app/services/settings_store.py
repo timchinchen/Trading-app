@@ -35,6 +35,7 @@ EDITABLE_KEYS: dict[str, type] = {
     "FMP_API_KEY": str,
     "FMP_BASE_URL": str,
     "SEC_USER_AGENT": str,
+    "STOCKTWITS_COOKIES": str,
     # Agent budget / cadence
     "AGENT_ENABLED": bool,
     "AGENT_AUTO_EXECUTE_LIVE": bool,
@@ -53,7 +54,7 @@ EDITABLE_KEYS: dict[str, type] = {
 }
 
 # Keys whose value should be masked when the API returns the current settings.
-SECRET_KEYS = {"OPENAI_API_KEY", "FMP_API_KEY"}
+SECRET_KEYS = {"OPENAI_API_KEY", "FMP_API_KEY", "STOCKTWITS_COOKIES"}
 
 
 def _coerce(raw: str, target: type) -> Any:
@@ -84,6 +85,7 @@ class RuntimeSettings:
     fmp_api_key: str = ""
     fmp_base_url: str = ""
     sec_user_agent: str = ""
+    stocktwits_cookies: str = ""
     # Agent
     agent_enabled: bool = False
     agent_auto_execute_live: bool = False
@@ -144,6 +146,7 @@ def get_runtime_settings(db: Session | None = None) -> RuntimeSettings:
         fmp_api_key=str(pick("FMP_API_KEY", str)),
         fmp_base_url=str(pick("FMP_BASE_URL", str)),
         sec_user_agent=str(pick("SEC_USER_AGENT", str)),
+        stocktwits_cookies=str(pick("STOCKTWITS_COOKIES", str)),
         agent_enabled=bool(pick("AGENT_ENABLED", bool)),
         agent_auto_execute_live=bool(pick("AGENT_AUTO_EXECUTE_LIVE", bool)),
         agent_budget_usd=float(pick("AGENT_BUDGET_USD", float)),
@@ -211,6 +214,12 @@ def public_view(rs: RuntimeSettings) -> dict[str, Any]:
             else ("set" if rs.fmp_api_key else "")
         ),
         "sec_user_agent": rs.sec_user_agent,
+        "stocktwits_cookies_set": bool(rs.stocktwits_cookies),
+        "stocktwits_cookies_preview": (
+            f"{len(rs.stocktwits_cookies)} chars stored"
+            if rs.stocktwits_cookies
+            else ""
+        ),
         "agent_enabled": rs.agent_enabled,
         "agent_auto_execute_live": rs.agent_auto_execute_live,
         "agent_budget_usd": rs.agent_budget_usd,

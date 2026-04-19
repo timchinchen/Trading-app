@@ -584,6 +584,7 @@ async def run_once(broker: AlpacaBroker) -> int:
                     fmp_api_key=rs.fmp_api_key,
                     fmp_base_url=rs.fmp_base_url,
                     sec_user_agent=rs.sec_user_agent,
+                    stocktwits_cookies=rs.stocktwits_cookies,
                     log=_tw_log,
                 )
                 # Update the run's stored brief with enrichment baked in.

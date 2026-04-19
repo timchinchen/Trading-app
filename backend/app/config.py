@@ -75,6 +75,11 @@ class Settings(BaseSettings):
     # SEC EDGAR full-text search (free). The SEC requires a User-Agent
     # identifying the caller - put a contact email here.
     SEC_USER_AGENT: str = "TradingApp (personal use) noreply@example.com"
+    # Stocktwits session cookies (sentiment + news-articles). Stocktwits is
+    # behind Cloudflare - we drive it via Playwright with your logged-in
+    # cookies. Paste a Netscape-format blob or a JSON dict of cookies from
+    # DevTools. Leave empty to disable the source.
+    STOCKTWITS_COOKIES: str = ""
 
     TWSCRAPE_DB: str = "./twscrape.db"
     TWITTER_ACCOUNTS: str = ""

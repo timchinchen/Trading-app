@@ -12,7 +12,7 @@ import asyncio
 from dataclasses import dataclass, field
 from typing import Any, Callable, Optional
 
-from . import fmp, sec_edgar, stockanalysis, tradingview
+from . import fmp, sec_edgar, stockanalysis, stocktwits, tradingview
 
 LogFn = Callable[[str], None]
 
@@ -25,8 +25,11 @@ class MarketIntel:
     screener: list[dict[str, Any]] = field(default_factory=list)
     headlines: list[dict[str, Any]] = field(default_factory=list)
     # Per-ticker enrichment populated lazily when runner calls enrich_symbols().
-    # Shape: {SYM: {"fmp": {...}, "sec": {...}}}
+    # Shape: {SYM: {"fmp": {...}, "sec": {...}, "stocktwits": {...}}}
     enrichment: dict[str, dict[str, Any]] = field(default_factory=dict)
+    # Stocktwits-wide news headlines (not per-symbol). Merged in alongside
+    # tradingview headlines for advisor context.
+    stocktwits_news: list[dict[str, Any]] = field(default_factory=list)
     errors: dict[str, str] = field(default_factory=dict)
 
     def corroborating_symbols(self) -> set[str]:
@@ -36,6 +39,9 @@ class MarketIntel:
             if s := row.get("symbol"):
                 out.add(s.upper())
         for item in self.headlines:
+            for s in item.get("symbols") or []:
+                out.add(s.upper())
+        for item in self.stocktwits_news:
             for s in item.get("symbols") or []:
                 out.add(s.upper())
         return out
@@ -69,6 +75,11 @@ class MarketIntel:
                 syms = ",".join(h.get("symbols") or [])
                 lines.append(f"  - [{syms}] {h.get('title','')[:110]}")
 
+        if self.stocktwits_news:
+            lines.append("Stocktwits news:")
+            for h in self.stocktwits_news[:max_items]:
+                lines.append("  - " + stocktwits.brief_news_line(h))
+
         if self.enrichment:
             lines.append("Per-ticker enrichment:")
             for sym, payload in self.enrichment.items():
@@ -79,6 +90,9 @@ class MarketIntel:
                 sec_line = sec_edgar.brief_line(payload.get("sec") or {})
                 if sec_line:
                     parts.append(f"SEC: {sec_line}")
+                st_line = stocktwits.brief_line(sym, payload.get("stocktwits") or {})
+                if st_line:
+                    parts.append(f"ST: {st_line}")
                 entity = (payload.get("sec") or {}).get("entity_name")
                 if entity:
                     lines.append(f"  - {sym} ({entity}): " + " | ".join(parts))
@@ -99,11 +113,13 @@ class MarketIntel:
         fmp_api_key: str,
         fmp_base_url: str,
         sec_user_agent: str,
+        stocktwits_cookies: str = "",
         log: Optional[LogFn] = None,
     ) -> None:
-        """Pull FMP + SEC EDGAR data for a small list of tickers and stash it
-        on `self.enrichment`. Idempotent - re-calling with new symbols only
-        enriches the new ones. Best-effort; failures are tracked in `errors`."""
+        """Pull FMP + SEC EDGAR + Stocktwits data for a small list of tickers
+        and stash it on `self.enrichment`. Idempotent - re-calling with new
+        symbols only enriches the new ones. Best-effort; failures are
+        tracked in `errors`."""
         syms = sorted({s.upper().strip() for s in symbols if s and s.strip()})
         if not syms:
             return
@@ -115,15 +131,23 @@ class MarketIntel:
                 except Exception:
                     pass
 
-        # Parallel FMP + SEC
+        # Parallel FMP + SEC + Stocktwits
         fmp_task = asyncio.create_task(
             fmp.fetch_many(syms, api_key=fmp_api_key, base_url=fmp_base_url)
         )
         sec_task = asyncio.create_task(
             sec_edgar.fetch_many(syms, user_agent=sec_user_agent)
         )
+        if stocktwits_cookies:
+            st_task = asyncio.create_task(
+                stocktwits.fetch_all(syms, stocktwits_cookies, log=log)
+            )
+        else:
+            st_task = None
+
         fmp_map = await fmp_task
         sec_map = await sec_task
+        st_result = await st_task if st_task else None
 
         for sym in syms:
             slot = self.enrichment.setdefault(sym, {})
@@ -131,15 +155,38 @@ class MarketIntel:
                 slot["fmp"] = fmp_map[sym]
             if sec_map.get(sym):
                 slot["sec"] = sec_map[sym]
+            if st_result and st_result.sentiment.get(sym):
+                slot["stocktwits"] = st_result.sentiment[sym]
+
+        if st_result:
+            # Merge any news headlines from stocktwits into the top-level list.
+            if st_result.news:
+                self.stocktwits_news.extend(st_result.news)
+            for k, v in st_result.errors.items():
+                self.errors[k] = v
 
         fmp_ok = sum(1 for s in syms if fmp_map.get(s) and not fmp_map[s].get("error"))
         sec_ok = sum(1 for s in syms if sec_map.get(s) and not sec_map[s].get("error"))
+        st_ok = (
+            sum(
+                1
+                for s in syms
+                if st_result
+                and st_result.sentiment.get(s)
+                and not st_result.sentiment[s].get("error")
+            )
+            if st_result
+            else 0
+        )
         _log(
             f"enrichment: fmp_ok={fmp_ok}/{len(syms)} sec_ok={sec_ok}/{len(syms)} "
+            f"stocktwits_ok={st_ok}/{len(syms)} news={len(st_result.news) if st_result else 0} "
             f"(symbols: {', '.join(syms)})"
         )
         if fmp_api_key == "":
             self.errors["fmp"] = "FMP_API_KEY not set"
+        if not stocktwits_cookies:
+            self.errors["stocktwits"] = "STOCKTWITS_COOKIES not set"
 
 
 async def collect_intel(log: Optional[LogFn] = None) -> MarketIntel:

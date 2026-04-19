@@ -163,6 +163,8 @@ export interface AgentSettings {
   fmp_api_key_set: boolean
   fmp_api_key_preview: string
   sec_user_agent: string
+  stocktwits_cookies_set: boolean
+  stocktwits_cookies_preview: string
   agent_enabled: boolean
   agent_auto_execute_live: boolean
   agent_budget_usd: number
@@ -189,6 +191,7 @@ export type AgentSettingsUpdate = Partial<{
   FMP_API_KEY: string
   FMP_BASE_URL: string
   SEC_USER_AGENT: string
+  STOCKTWITS_COOKIES: string
   AGENT_ENABLED: boolean
   AGENT_AUTO_EXECUTE_LIVE: boolean
   AGENT_BUDGET_USD: number

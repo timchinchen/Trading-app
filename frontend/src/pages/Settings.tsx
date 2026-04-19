@@ -376,6 +376,91 @@ function DataEnrichmentCard({ s }: { s: AgentSettings }) {
   )
 }
 
+// ----- Stocktwits session cookies (editable) -----
+function StocktwitsCard({ s }: { s: AgentSettings }) {
+  const upd = useUpdateAgentSettings()
+  const [cookies, setCookies] = useState('')
+  const [clearCookies, setClearCookies] = useState(false)
+
+  const save = () => {
+    const body: AgentSettingsUpdate = {}
+    if (clearCookies) {
+      body.STOCKTWITS_COOKIES = ''
+    } else if (cookies.trim()) {
+      body.STOCKTWITS_COOKIES = cookies.trim()
+    } else {
+      return
+    }
+    upd.mutate(body, {
+      onSuccess: () => {
+        setCookies('')
+        setClearCookies(false)
+      },
+    })
+  }
+
+  return (
+    <Card title="Stocktwits session (editable)">
+      <p className="text-xs text-muted-foreground mb-4">
+        Stocktwits is behind Cloudflare, so the agent drives headless Chromium
+        using your own logged-in browser cookies. Paste either a JSON dict (
+        <code className="text-primary">{`{"name":"value", ...}`}</code>), a JSON
+        array of cookie objects, or Netscape cookies.txt content. Cookies are
+        stored as a secret and only used by the scraper.
+      </p>
+
+      <div className="grid grid-cols-[220px_1fr] gap-3 py-2 border-b border-border">
+        <div className="text-xs text-muted-foreground uppercase tracking-wider">
+          STOCKTWITS_COOKIES
+          <OverrideBadge k="STOCKTWITS_COOKIES" overridden={s.overridden} />
+        </div>
+        <div className="space-y-1">
+          <textarea
+            value={cookies}
+            onChange={(e) => setCookies(e.target.value)}
+            rows={6}
+            placeholder={
+              s.stocktwits_cookies_set
+                ? `current: ${s.stocktwits_cookies_preview} (leave blank to keep)`
+                : '{"stocktwits_session":"...", "csrftoken":"..."}'
+            }
+            className="px-3 py-2 rounded-md text-sm w-full font-mono"
+          />
+          <label className="flex items-center gap-2 text-xs text-muted-foreground">
+            <input
+              type="checkbox"
+              checked={clearCookies}
+              onChange={(e) => setClearCookies(e.target.checked)}
+            />
+            clear stored cookies (disables Stocktwits scraping)
+          </label>
+          <div className="text-[11px] text-muted-foreground">
+            To grab cookies: open stocktwits.com in a logged-in browser, open
+            DevTools &rarr; Application &rarr; Cookies &rarr; https://stocktwits.com,
+            then copy the rows (any export extension works) or the raw JSON.
+            Scraper pulls per-ticker bull/bear sentiment from
+            <code className="text-primary"> /symbol/&lt;SYM&gt;</code> and
+            headlines from <code className="text-primary">/news-articles</code>.
+          </div>
+        </div>
+      </div>
+
+      <div className="flex items-center gap-3 pt-3">
+        <button
+          onClick={save}
+          disabled={upd.isPending}
+          className="btn-primary px-4 py-2 rounded-lg"
+        >
+          {upd.isPending ? 'Saving...' : 'Save Stocktwits cookies'}
+        </button>
+        {upd.isSuccess && !upd.isPending && (
+          <span className="text-xs text-success">saved</span>
+        )}
+      </div>
+    </Card>
+  )
+}
+
 // ----- Twitter accounts (editable) -----
 function TwitterAccountsCard({ s }: { s: AgentSettings }) {
   const upd = useUpdateAgentSettings()
@@ -705,6 +790,7 @@ export function SettingsPage() {
         <>
           <LLMProviderCard s={agentSettings} />
           <DataEnrichmentCard s={agentSettings} />
+          <StocktwitsCard s={agentSettings} />
           <AgentBudgetCard s={agentSettings} />
           <TwitterAccountsCard s={agentSettings} />
         </>
