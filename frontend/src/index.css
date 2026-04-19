@@ -1,0 +1,284 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  /* Base — darker than the cards, so cards clearly lift above it */
+  --background: #0f0b1e;
+  --background-soft: #140f28;
+  --foreground: #f2ecfb;
+  --foreground-muted: #c8bee0;
+
+  /* Cards — visibly brighter than bg so each panel reads as a surface */
+  --card: #2a2250;
+  --card-elevated: #332a5e;
+  --card-foreground: #f2ecfb;
+
+  --popover: #332a5e;
+  --popover-foreground: #f2ecfb;
+
+  /* Rose accent pulled from the black-hole reference ring */
+  --primary: #e66a8a;
+  --primary-hover: #f17da0;
+  --primary-deep: #c94e70;
+  --primary-foreground: #ffffff;
+
+  --secondary: #8b78c7;
+  --secondary-foreground: #ffffff;
+
+  --muted: #3a3068;
+  --muted-hover: #443878;
+  --muted-foreground: #b7acdb;
+
+  --accent: #9b89d6;
+  --accent-foreground: #ffffff;
+
+  --destructive: #e85d75;
+  --destructive-foreground: #ffffff;
+
+  /* Borders that are actually visible on dark plum */
+  --border: rgba(200, 186, 235, 0.14);
+  --border-strong: rgba(200, 186, 235, 0.28);
+
+  --input-background: #1d1638;
+  --input-border: rgba(200, 186, 235, 0.22);
+
+  --ring: #e66a8a;
+
+  --success: #5fe0a8;
+  --warning: #ffb86b;
+  --danger: #e85d75;
+
+  color-scheme: dark;
+}
+
+* {
+  border-color: var(--border);
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  color: var(--foreground);
+}
+
+html,
+body {
+  /* Cosmic backdrop — darker than cards so panels clearly sit *above* it.
+     Soft radial glows echo the reference image's purple mist + rose halo. */
+  background:
+    radial-gradient(1400px 800px at 85% -5%, rgba(230, 106, 138, 0.22), transparent 55%),
+    radial-gradient(1100px 800px at -10% 0%, rgba(139, 120, 199, 0.25), transparent 55%),
+    radial-gradient(1000px 700px at 50% 115%, rgba(72, 56, 118, 0.35), transparent 60%),
+    linear-gradient(180deg, #0f0b1e 0%, #140f28 55%, #0f0b1e 100%);
+  background-attachment: fixed;
+}
+
+body {
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue",
+    Arial, "Noto Sans", sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  letter-spacing: -0.005em;
+}
+
+#root {
+  position: relative;
+  z-index: 1;
+}
+
+/* ==========================================================================
+   Panel / card — visible elevation + glass-like top edge
+   ========================================================================== */
+
+.panel {
+  position: relative;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.025) 0%, transparent 40%),
+    var(--card);
+  border: 1px solid var(--border-strong);
+  border-radius: 14px;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.06) inset,
+    0 0 0 1px rgba(0, 0, 0, 0.2),
+    0 24px 48px -24px rgba(0, 0, 0, 0.7),
+    0 8px 24px -16px rgba(72, 56, 118, 0.5);
+}
+
+.panel-elevated {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.035) 0%, transparent 40%),
+    var(--card-elevated);
+  border: 1px solid var(--border-strong);
+  border-radius: 14px;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.08) inset,
+    0 0 0 1px rgba(0, 0, 0, 0.2),
+    0 24px 48px -24px rgba(0, 0, 0, 0.7);
+}
+
+/* ==========================================================================
+   Buttons — primary has a gradient + glow so it clearly pops
+   ========================================================================== */
+
+.btn-primary {
+  background: linear-gradient(180deg, #f17da0 0%, #e66a8a 50%, #c94e70 100%);
+  color: #ffffff;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.25) inset,
+    0 8px 24px -8px rgba(230, 106, 138, 0.55),
+    0 0 0 1px rgba(201, 78, 112, 0.4);
+  transition:
+    transform 0.08s ease,
+    box-shadow 0.2s ease,
+    filter 0.2s ease;
+}
+
+.btn-primary:hover:not(:disabled) {
+  filter: brightness(1.08);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.3) inset,
+    0 10px 28px -6px rgba(230, 106, 138, 0.7),
+    0 0 0 1px rgba(230, 106, 138, 0.55);
+}
+
+.btn-primary:active:not(:disabled) {
+  transform: translateY(1px);
+  filter: brightness(0.95);
+}
+
+.btn-primary:disabled {
+  opacity: 0.5;
+  filter: grayscale(0.2);
+}
+
+.btn-secondary {
+  background: var(--muted);
+  color: var(--foreground);
+  border: 1px solid var(--border-strong);
+  font-weight: 500;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.06) inset,
+    0 2px 8px -2px rgba(0, 0, 0, 0.4);
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.btn-secondary:hover:not(:disabled) {
+  background: var(--muted-hover);
+  border-color: rgba(200, 186, 235, 0.4);
+}
+
+.btn-ghost {
+  background: transparent;
+  color: var(--muted-foreground);
+  border: 1px solid transparent;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.btn-ghost:hover:not(:disabled) {
+  background: rgba(200, 186, 235, 0.08);
+  color: var(--foreground);
+}
+
+.btn-destructive {
+  background: linear-gradient(180deg, #f17d8f 0%, #e85d75 50%, #c84059 100%);
+  color: #ffffff;
+  font-weight: 600;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.25) inset,
+    0 8px 24px -8px rgba(232, 93, 117, 0.55);
+  transition: filter 0.15s ease, transform 0.08s ease;
+}
+
+.btn-destructive:hover:not(:disabled) {
+  filter: brightness(1.1);
+}
+
+/* ==========================================================================
+   Table polish
+   ========================================================================== */
+
+.table-wrap {
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--background-soft);
+}
+
+/* ==========================================================================
+   Form controls — explicit contrast so dropdowns / inputs never clash
+   ========================================================================== */
+
+input,
+textarea,
+select,
+button {
+  font-family: inherit;
+  color: inherit;
+}
+
+input,
+textarea {
+  color: var(--foreground);
+  background-color: var(--input-background);
+}
+
+select {
+  color: var(--foreground);
+  background-color: var(--input-background);
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--muted-foreground) 50%),
+    linear-gradient(135deg, var(--muted-foreground) 50%, transparent 50%);
+  background-position:
+    calc(100% - 14px) 50%,
+    calc(100% - 9px) 50%;
+  background-size:
+    5px 5px,
+    5px 5px;
+  background-repeat: no-repeat;
+  padding-right: 30px;
+}
+
+select option,
+select optgroup {
+  background-color: #1b1433;
+  color: var(--foreground);
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--muted-foreground);
+  opacity: 0.6;
+}
+
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button {
+  opacity: 0.4;
+}
+
+/* ==========================================================================
+   Scrollbar
+   ========================================================================== */
+
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  background: rgba(200, 186, 235, 0.2);
+  border-radius: 999px;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: rgba(200, 186, 235, 0.4);
+}

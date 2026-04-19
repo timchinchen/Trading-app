@@ -1,0 +1,61 @@
+from typing import Literal
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+
+    APP_MODE: Literal["paper", "live"] = "paper"
+
+    ALPACA_PAPER_KEY: str = ""
+    ALPACA_PAPER_SECRET: str = ""
+    ALPACA_LIVE_KEY: str = ""
+    ALPACA_LIVE_SECRET: str = ""
+
+    MARKET_DATA_MODE: Literal["ws", "poll", "mixed"] = "mixed"
+    POLL_INTERVAL_SECONDS: int = 5
+
+    JWT_SECRET: str = "change_me"
+    JWT_EXPIRE_MINUTES: int = 60 * 24
+
+    MAX_ORDER_NOTIONAL: float = 5000.0
+
+    CORS_ORIGIN: str = "http://localhost:5173"
+
+    DATABASE_URL: str = "sqlite:///./trading.db"
+
+    # ---- Agent ----
+    AGENT_ENABLED: bool = False
+    AGENT_AUTO_EXECUTE_LIVE: bool = False
+    AGENT_BUDGET_USD: float = 50.0
+    AGENT_MAX_POSITION_USD: float = 10.0
+    AGENT_DAILY_LOSS_CAP_USD: float = 10.0
+    AGENT_CRON_MINUTES: int = 30
+    AGENT_MAX_TWEETS_PER_ACCOUNT: int = 20
+    AGENT_LOOKBACK_HOURS: int = 24
+    AGENT_PER_ACCOUNT_TIMEOUT_S: int = 45
+
+    OLLAMA_HOST: str = "http://localhost:11434"
+    OLLAMA_MODEL: str = "llama3.1:8b"
+
+    TWSCRAPE_DB: str = "./twscrape.db"
+    TWITTER_ACCOUNTS: str = ""
+
+    @property
+    def twitter_accounts_list(self) -> list[str]:
+        return [a.strip().lstrip("@") for a in self.TWITTER_ACCOUNTS.split(",") if a.strip()]
+
+    @property
+    def alpaca_key(self) -> str:
+        return self.ALPACA_LIVE_KEY if self.APP_MODE == "live" else self.ALPACA_PAPER_KEY
+
+    @property
+    def alpaca_secret(self) -> str:
+        return self.ALPACA_LIVE_SECRET if self.APP_MODE == "live" else self.ALPACA_PAPER_SECRET
+
+    @property
+    def is_paper(self) -> bool:
+        return self.APP_MODE == "paper"
+
+
+settings = Settings()

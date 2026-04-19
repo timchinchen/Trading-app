@@ -1,0 +1,37 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.env
+*.db
+*.sqlite
+*.sqlite3
+
+# Node
+node_modules/
+dist/
+.vite/
+*.local
+
+# Editors / OS
+.DS_Store
+.vscode/
+.idea/
+
+# Local tooling / caches
+*.log
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+frontend/tsconfig.tsbuildinfo
+
+# Design source (not part of the app)
+Trading-App-Figma/
+
+# Playwright browser cache is user-level, but ignore any local install dir too
+.playwright/
+
+# Don't commit the built favicon PNG (regeneratable from favicon.svg)
+# frontend/public/favicon.png  # commented - ok to ship
