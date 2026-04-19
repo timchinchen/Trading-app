@@ -1,8 +1,14 @@
 import asyncio
+import time
 from typing import Literal
 
 from .providers.alpaca_rest import AlpacaRestProvider
 from .providers.alpaca_ws import AlpacaWsProvider
+
+
+# OPEN / PREV CLOSE are session-scoped and don't change tick-by-tick, so we
+# cache them per-symbol for this long before re-hitting the snapshot API.
+_SNAPSHOT_TTL_S = 5 * 60
 
 
 class MarketDataService:
@@ -24,6 +30,9 @@ class MarketDataService:
         self._listeners: set[asyncio.Queue] = set()
         self._poll_task: asyncio.Task | None = None
         self._started = False
+        # symbol -> (expires_at_unix, {"open": float|None, "prev_close": float|None, ...})
+        self._snapshots: dict[str, tuple[float, dict]] = {}
+        self._snapshot_lock = asyncio.Lock()
 
     async def start(self):
         if self._started:
@@ -88,3 +97,45 @@ class MarketDataService:
 
     def routes(self) -> dict[str, str]:
         return dict(self._routes)
+
+    async def get_snapshots(self, symbols: list[str]) -> dict[str, dict]:
+        """Return cached session snapshots (open + prev_close) for each symbol,
+        fetching any that are missing or expired. Safe to call from request
+        handlers — one combined REST call, serialised by `_snapshot_lock`."""
+        if not symbols:
+            return {}
+        syms = [s.upper() for s in symbols]
+        now = time.time()
+
+        stale: list[str] = []
+        out: dict[str, dict] = {}
+        for sym in syms:
+            cached = self._snapshots.get(sym)
+            if cached and cached[0] > now:
+                out[sym] = cached[1]
+            else:
+                stale.append(sym)
+
+        if stale:
+            async with self._snapshot_lock:
+                # Re-check inside the lock to dedupe concurrent callers.
+                still_stale = [
+                    s for s in stale
+                    if not self._snapshots.get(s)
+                    or self._snapshots[s][0] <= time.time()
+                ]
+                if still_stale:
+                    fresh = await self.rest.fetch_snapshots(still_stale)
+                    exp = time.time() + _SNAPSHOT_TTL_S
+                    for sym in still_stale:
+                        self._snapshots[sym] = (exp, fresh.get(sym) or {})
+                for sym in stale:
+                    entry = self._snapshots.get(sym)
+                    if entry:
+                        out[sym] = entry[1]
+
+        return out
+
+    async def snapshot_for(self, symbol: str) -> dict:
+        res = await self.get_snapshots([symbol])
+        return res.get(symbol.upper(), {})

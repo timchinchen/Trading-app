@@ -35,6 +35,10 @@ class WatchlistItemOut(BaseModel):
     id: int
     symbol: str
     feed: str
+    open: Optional[float] = None
+    prev_close: Optional[float] = None
+    day_high: Optional[float] = None
+    day_low: Optional[float] = None
     class Config:
         from_attributes = True
 

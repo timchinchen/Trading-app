@@ -38,6 +38,10 @@ export interface WatchlistItem {
   id: number
   symbol: string
   feed: 'ws' | 'poll'
+  open?: number | null
+  prev_close?: number | null
+  day_high?: number | null
+  day_low?: number | null
 }
 
 export interface Quote {

@@ -173,8 +173,11 @@ export function DashboardPage() {
               <tr>
                 <th className="px-4 py-3 text-left text-xs text-muted-foreground">Symbol</th>
                 <th className="px-4 py-3 text-left text-xs text-muted-foreground">Feed</th>
+                <th className="px-4 py-3 text-right text-xs text-muted-foreground">Open</th>
+                <th className="px-4 py-3 text-right text-xs text-muted-foreground">Prev Close</th>
                 <th className="px-4 py-3 text-right text-xs text-muted-foreground">Bid</th>
                 <th className="px-4 py-3 text-right text-xs text-muted-foreground">Ask</th>
+                <th className="px-4 py-3 text-right text-xs text-muted-foreground">% Chg</th>
                 <th className="px-4 py-3 text-right text-xs text-muted-foreground">Source</th>
                 <th className="px-4 py-3 text-right text-xs text-muted-foreground"></th>
               </tr>
@@ -182,6 +185,21 @@ export function DashboardPage() {
             <tbody>
               {watchlist?.map((w) => {
                 const q: any = quotes[w.symbol]
+                const last =
+                  (typeof q?.last === 'number' ? q.last : null) ??
+                  (typeof q?.ask === 'number' ? q.ask : null)
+                const prevClose =
+                  typeof w.prev_close === 'number' ? w.prev_close : null
+                const pct =
+                  last !== null && prevClose && prevClose !== 0
+                    ? ((last - prevClose) / prevClose) * 100
+                    : null
+                const pctCls =
+                  pct === null
+                    ? 'text-muted-foreground'
+                    : pct >= 0
+                      ? 'text-success'
+                      : 'text-destructive'
                 return (
                   <tr
                     key={w.symbol}
@@ -210,11 +228,26 @@ export function DashboardPage() {
                         <option value="poll">Poll</option>
                       </select>
                     </td>
-                    <td className="px-4 py-3 text-sm text-right">
+                    <td className="px-4 py-3 text-sm text-right tabular-nums">
+                      {typeof w.open === 'number' ? w.open.toFixed(2) : '-'}
+                    </td>
+                    <td className="px-4 py-3 text-sm text-right tabular-nums">
+                      {typeof w.prev_close === 'number'
+                        ? w.prev_close.toFixed(2)
+                        : '-'}
+                    </td>
+                    <td className="px-4 py-3 text-sm text-right tabular-nums">
                       {q?.bid?.toFixed?.(2) ?? '-'}
                     </td>
-                    <td className="px-4 py-3 text-sm text-right">
+                    <td className="px-4 py-3 text-sm text-right tabular-nums">
                       {q?.ask?.toFixed?.(2) ?? '-'}
+                    </td>
+                    <td
+                      className={`px-4 py-3 text-sm text-right tabular-nums ${pctCls}`}
+                    >
+                      {pct === null
+                        ? '-'
+                        : `${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%`}
                     </td>
                     <td className="px-4 py-3 text-xs text-right text-muted-foreground">
                       {q?.source ?? ''}
@@ -233,7 +266,7 @@ export function DashboardPage() {
               {(!watchlist || watchlist.length === 0) && (
                 <tr className="border-t border-border">
                   <td
-                    colSpan={6}
+                    colSpan={9}
                     className="px-4 py-8 text-center text-sm text-muted-foreground"
                   >
                     Watchlist empty — add a symbol to start streaming.

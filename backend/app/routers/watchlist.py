@@ -12,8 +12,30 @@ router = APIRouter(prefix="/watchlist", tags=["watchlist"])
 
 
 @router.get("", response_model=list[WatchlistItemOut])
-def list_items(user=Depends(get_current_user), db: Session = Depends(get_db)):
-    return db.query(WatchlistItem).filter(WatchlistItem.user_id == user.id).all()
+async def list_items(
+    user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+    md: MarketDataService = Depends(get_market_data),
+):
+    items = db.query(WatchlistItem).filter(WatchlistItem.user_id == user.id).all()
+    if not items:
+        return []
+    snaps = await md.get_snapshots([w.symbol for w in items])
+    out: list[WatchlistItemOut] = []
+    for w in items:
+        snap = snaps.get(w.symbol) or {}
+        out.append(
+            WatchlistItemOut(
+                id=w.id,
+                symbol=w.symbol,
+                feed=w.feed,
+                open=snap.get("open"),
+                prev_close=snap.get("prev_close"),
+                day_high=snap.get("day_high"),
+                day_low=snap.get("day_low"),
+            )
+        )
+    return out
 
 
 @router.post("", response_model=WatchlistItemOut)

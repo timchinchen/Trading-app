@@ -18,6 +18,61 @@ class AlpacaRestProvider:
         except Exception as e:
             print(f"[rest-provider] init warning: {e}")
 
+    async def fetch_snapshots(self, symbols: list[str]) -> dict[str, dict]:
+        """Fetch per-symbol session snapshots (today's open + previous close).
+
+        Uses Alpaca's snapshot endpoint which returns latest trade + today's
+        daily bar + previous daily bar in a single round-trip. Returns
+        {SYM: {"open": float|None, "prev_close": float|None,
+               "prev_open": float|None, "day_high": float|None,
+               "day_low": float|None}}.
+        """
+        if not symbols or not self._client:
+            return {}
+        try:
+            from alpaca.data.requests import StockSnapshotRequest
+        except Exception as e:
+            print(f"[rest-provider] snapshot req import error: {e}")
+            return {}
+
+        loop = asyncio.get_event_loop()
+
+        def _do():
+            return self._client.get_stock_snapshot(
+                StockSnapshotRequest(symbol_or_symbols=symbols)
+            )
+
+        try:
+            result = await loop.run_in_executor(None, _do)
+        except Exception as e:
+            print(f"[rest-provider] snapshot fetch error: {e}")
+            return {}
+
+        out: dict[str, dict] = {}
+        for sym, snap in (result or {}).items():
+            if snap is None:
+                continue
+            daily = getattr(snap, "daily_bar", None)
+            prev = getattr(snap, "previous_daily_bar", None)
+
+            def _f(obj, attr):
+                if obj is None:
+                    return None
+                v = getattr(obj, attr, None)
+                try:
+                    return float(v) if v is not None else None
+                except Exception:
+                    return None
+
+            out[sym] = {
+                "open": _f(daily, "open"),
+                "day_high": _f(daily, "high"),
+                "day_low": _f(daily, "low"),
+                "prev_close": _f(prev, "close"),
+                "prev_open": _f(prev, "open"),
+            }
+        return out
+
     async def poll_loop(self, symbols_provider, on_quote):
         """symbols_provider: callable returning current set[str] of symbols.
         on_quote: async callable(quote_dict)."""
