@@ -706,6 +706,247 @@ function AgentBudgetCard({ s }: { s: AgentSettings }) {
   )
 }
 
+// ----- Agent signal thresholds (previously hard-coded) -----
+function AgentThresholdsCard({ s }: { s: AgentSettings }) {
+  const upd = useUpdateAgentSettings()
+  const [minScore, setMinScore] = useState(s.agent_min_score)
+  const [minConf, setMinConf] = useState(s.agent_min_confidence)
+  const [topN, setTopN] = useState(s.agent_top_n_candidates)
+  const [llmConc, setLlmConc] = useState(s.agent_llm_concurrency)
+
+  useEffect(() => {
+    setMinScore(s.agent_min_score)
+    setMinConf(s.agent_min_confidence)
+    setTopN(s.agent_top_n_candidates)
+    setLlmConc(s.agent_llm_concurrency)
+  }, [s])
+
+  const save = () =>
+    upd.mutate({
+      AGENT_MIN_SCORE: Number(minScore),
+      AGENT_MIN_CONFIDENCE: Number(minConf),
+      AGENT_TOP_N_CANDIDATES: Number(topN),
+      AGENT_LLM_CONCURRENCY: Number(llmConc),
+    })
+
+  const Num = ({
+    value,
+    onChange,
+    step = '1',
+  }: {
+    value: number
+    onChange: (n: number) => void
+    step?: string
+  }) => (
+    <input
+      type="number"
+      step={step}
+      value={value}
+      onChange={(e) => onChange(Number(e.target.value))}
+      className="px-3 py-2 rounded-md text-sm w-32"
+    />
+  )
+
+  return (
+    <Card title="Agent signal thresholds (editable)">
+      <p className="text-xs text-muted-foreground mb-3">
+        These were previously hard-coded in the allocator. Raising the min
+        score/confidence makes the agent pickier (fewer but higher-quality
+        proposals). Top-N caps how many candidates are sized per run.
+      </p>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6">
+        <div className="grid grid-cols-[180px_1fr] gap-2 py-2 border-b border-border">
+          <div className="text-xs text-muted-foreground uppercase tracking-wider self-center">
+            MIN_SCORE
+            <OverrideBadge k="AGENT_MIN_SCORE" overridden={s.overridden} />
+          </div>
+          <Num value={minScore} onChange={setMinScore} step="0.05" />
+        </div>
+        <div className="grid grid-cols-[180px_1fr] gap-2 py-2 border-b border-border">
+          <div className="text-xs text-muted-foreground uppercase tracking-wider self-center">
+            MIN_CONFIDENCE
+            <OverrideBadge k="AGENT_MIN_CONFIDENCE" overridden={s.overridden} />
+          </div>
+          <Num value={minConf} onChange={setMinConf} step="0.05" />
+        </div>
+        <div className="grid grid-cols-[180px_1fr] gap-2 py-2 border-b border-border">
+          <div className="text-xs text-muted-foreground uppercase tracking-wider self-center">
+            TOP_N_CANDIDATES
+            <OverrideBadge k="AGENT_TOP_N_CANDIDATES" overridden={s.overridden} />
+          </div>
+          <Num value={topN} onChange={setTopN} step="1" />
+        </div>
+        <div className="grid grid-cols-[180px_1fr] gap-2 py-2 border-b border-border">
+          <div className="text-xs text-muted-foreground uppercase tracking-wider self-center">
+            LLM_CONCURRENCY
+            <OverrideBadge k="AGENT_LLM_CONCURRENCY" overridden={s.overridden} />
+          </div>
+          <Num value={llmConc} onChange={setLlmConc} step="1" />
+        </div>
+      </div>
+      <div className="flex items-center gap-3 pt-4">
+        <button
+          onClick={save}
+          disabled={upd.isPending}
+          className="btn-primary px-4 py-2 rounded-lg"
+        >
+          {upd.isPending ? 'Saving...' : 'Save thresholds'}
+        </button>
+        {upd.isSuccess && !upd.isPending && (
+          <span className="text-xs text-success">saved</span>
+        )}
+      </div>
+    </Card>
+  )
+}
+
+// ----- Scraper cadence (previously hard-coded) -----
+function ScraperCadenceCard({ s }: { s: AgentSettings }) {
+  const upd = useUpdateAgentSettings()
+  const [maxTweets, setMaxTweets] = useState(s.agent_max_tweets_per_account)
+  const [lookback, setLookback] = useState(s.agent_lookback_hours)
+  const [timeout, setTimeoutS] = useState(s.agent_per_account_timeout_s)
+  const [poll, setPoll] = useState(s.poll_interval_seconds)
+
+  useEffect(() => {
+    setMaxTweets(s.agent_max_tweets_per_account)
+    setLookback(s.agent_lookback_hours)
+    setTimeoutS(s.agent_per_account_timeout_s)
+    setPoll(s.poll_interval_seconds)
+  }, [s])
+
+  const save = () =>
+    upd.mutate({
+      AGENT_MAX_TWEETS_PER_ACCOUNT: Number(maxTweets),
+      AGENT_LOOKBACK_HOURS: Number(lookback),
+      AGENT_PER_ACCOUNT_TIMEOUT_S: Number(timeout),
+      POLL_INTERVAL_SECONDS: Number(poll),
+    })
+
+  const Num = ({
+    value,
+    onChange,
+  }: {
+    value: number
+    onChange: (n: number) => void
+  }) => (
+    <input
+      type="number"
+      step="1"
+      value={value}
+      onChange={(e) => onChange(Number(e.target.value))}
+      className="px-3 py-2 rounded-md text-sm w-32"
+    />
+  )
+
+  return (
+    <Card title="Scraper cadence (editable)">
+      <p className="text-xs text-muted-foreground mb-3">
+        X/Twitter scraper windows + REST quote poll interval. Previously
+        hard-coded; edit here instead of touching .env.
+      </p>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6">
+        <div className="grid grid-cols-[220px_1fr] gap-2 py-2 border-b border-border">
+          <div className="text-xs text-muted-foreground uppercase tracking-wider self-center">
+            MAX_TWEETS_PER_ACCOUNT
+            <OverrideBadge k="AGENT_MAX_TWEETS_PER_ACCOUNT" overridden={s.overridden} />
+          </div>
+          <Num value={maxTweets} onChange={setMaxTweets} />
+        </div>
+        <div className="grid grid-cols-[220px_1fr] gap-2 py-2 border-b border-border">
+          <div className="text-xs text-muted-foreground uppercase tracking-wider self-center">
+            LOOKBACK_HOURS
+            <OverrideBadge k="AGENT_LOOKBACK_HOURS" overridden={s.overridden} />
+          </div>
+          <Num value={lookback} onChange={setLookback} />
+        </div>
+        <div className="grid grid-cols-[220px_1fr] gap-2 py-2 border-b border-border">
+          <div className="text-xs text-muted-foreground uppercase tracking-wider self-center">
+            PER_ACCOUNT_TIMEOUT_S
+            <OverrideBadge k="AGENT_PER_ACCOUNT_TIMEOUT_S" overridden={s.overridden} />
+          </div>
+          <Num value={timeout} onChange={setTimeoutS} />
+        </div>
+        <div className="grid grid-cols-[220px_1fr] gap-2 py-2 border-b border-border">
+          <div className="text-xs text-muted-foreground uppercase tracking-wider self-center">
+            POLL_INTERVAL_SECONDS
+            <OverrideBadge k="POLL_INTERVAL_SECONDS" overridden={s.overridden} />
+          </div>
+          <Num value={poll} onChange={setPoll} />
+        </div>
+      </div>
+      <p className="text-[11px] text-muted-foreground mt-2">
+        Note: POLL_INTERVAL_SECONDS changes take effect on process restart (the
+        REST polling loop reads it at startup).
+      </p>
+      <div className="flex items-center gap-3 pt-4">
+        <button
+          onClick={save}
+          disabled={upd.isPending}
+          className="btn-primary px-4 py-2 rounded-lg"
+        >
+          {upd.isPending ? 'Saving...' : 'Save cadence'}
+        </button>
+        {upd.isSuccess && !upd.isPending && (
+          <span className="text-xs text-success">saved</span>
+        )}
+      </div>
+    </Card>
+  )
+}
+
+// ----- Manual-order safety cap (replaces MAX_ORDER_NOTIONAL) -----
+function ManualOrderSafetyCard({ s }: { s: AgentSettings }) {
+  const upd = useUpdateAgentSettings()
+  const [cap, setCap] = useState(s.manual_order_max_notional)
+  useEffect(() => setCap(s.manual_order_max_notional), [s])
+
+  const save = () =>
+    upd.mutate({ MANUAL_ORDER_MAX_NOTIONAL: Number(cap) })
+
+  return (
+    <Card title="Manual order safety (editable)">
+      <p className="text-xs text-muted-foreground mb-3">
+        Fat-finger cap for <strong>manual</strong> orders placed via the Trade
+        page. Applied in addition to Alpaca's live buying power, so you are
+        always bounded by both. Default is intentionally small to match the
+        $20-$30 trade style — raise temporarily if you want to place a larger
+        manual order.
+      </p>
+      <div className="grid grid-cols-[220px_1fr] gap-2 py-2 border-b border-border">
+        <div className="text-xs text-muted-foreground uppercase tracking-wider self-center">
+          MANUAL_ORDER_MAX_NOTIONAL
+          <OverrideBadge k="MANUAL_ORDER_MAX_NOTIONAL" overridden={s.overridden} />
+        </div>
+        <div className="flex items-center gap-2">
+          <input
+            type="number"
+            step="1"
+            value={cap}
+            onChange={(e) => setCap(Number(e.target.value))}
+            className="px-3 py-2 rounded-md text-sm w-32"
+          />
+          <span className="text-xs text-muted-foreground">
+            USD. Broker buying power still applies on top.
+          </span>
+        </div>
+      </div>
+      <div className="flex items-center gap-3 pt-4">
+        <button
+          onClick={save}
+          disabled={upd.isPending}
+          className="btn-primary px-4 py-2 rounded-lg"
+        >
+          {upd.isPending ? 'Saving...' : 'Save cap'}
+        </button>
+        {upd.isSuccess && !upd.isPending && (
+          <span className="text-xs text-success">saved</span>
+        )}
+      </div>
+    </Card>
+  )
+}
+
 export function SettingsPage() {
   const { data: mode } = useMode()
   const { data: account } = useAccount()
@@ -792,6 +1033,9 @@ export function SettingsPage() {
           <DataEnrichmentCard s={agentSettings} />
           <StocktwitsCard s={agentSettings} />
           <AgentBudgetCard s={agentSettings} />
+          <AgentThresholdsCard s={agentSettings} />
+          <ScraperCadenceCard s={agentSettings} />
+          <ManualOrderSafetyCard s={agentSettings} />
           <TwitterAccountsCard s={agentSettings} />
         </>
       ) : (

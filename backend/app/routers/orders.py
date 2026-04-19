@@ -8,6 +8,7 @@ from ..models import Order
 from ..schemas import OrderIn, OrderOut
 from ..security import get_current_user
 from ..services.broker import AlpacaBroker, BrokerError
+from ..services.settings_store import get_runtime_settings
 
 router = APIRouter(prefix="/orders", tags=["orders"])
 
@@ -33,16 +34,40 @@ def place_order(
     db: Session = Depends(get_db),
     broker: AlpacaBroker = Depends(get_broker),
 ):
-    # Server-side notional cap (estimate using limit price or last quote)
+    # Server-side notional cap. Two ceilings are enforced:
+    #   1. `manual_order_max_notional` - user's safety cap (default $100) to
+    #      stop a single fat-finger click placing an oversize order. Editable
+    #      from the Settings UI.
+    #   2. Alpaca's reported `buying_power` for the active mode - real broker
+    #      ceiling, so we never submit something the exchange will reject.
     est_price = body.limit_price or 0.0
     if not est_price:
         q = broker.latest_quote(body.symbol)
         est_price = q.get("ask") or q.get("last") or 0.0
     notional = (est_price or 0.0) * body.qty
-    if notional and notional > settings.MAX_ORDER_NOTIONAL:
+
+    rs = get_runtime_settings(db)
+    user_cap = float(rs.manual_order_max_notional or 0.0)
+    if notional and user_cap > 0 and notional > user_cap:
         raise HTTPException(
             status_code=400,
-            detail=f"Order notional {notional:.2f} exceeds MAX_ORDER_NOTIONAL ({settings.MAX_ORDER_NOTIONAL})",
+            detail=(
+                f"Order notional {notional:.2f} exceeds MANUAL_ORDER_MAX_NOTIONAL "
+                f"({user_cap:.2f}). Raise the cap in Settings if this is intentional."
+            ),
+        )
+
+    try:
+        broker_cap = float((broker.account() or {}).get("buying_power") or 0.0)
+    except Exception:
+        broker_cap = 0.0
+    if notional and broker_cap > 0 and notional > broker_cap:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Order notional {notional:.2f} exceeds Alpaca buying_power "
+                f"({broker_cap:.2f})."
+            ),
         )
 
     try:

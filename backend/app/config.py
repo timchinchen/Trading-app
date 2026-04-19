@@ -18,7 +18,12 @@ class Settings(BaseSettings):
     JWT_SECRET: str = "change_me"
     JWT_EXPIRE_MINUTES: int = 60 * 24
 
-    MAX_ORDER_NOTIONAL: float = 5000.0
+    # Manual-order fat-finger cap. This is checked in addition to whatever
+    # buying power Alpaca reports, so even if the broker would allow a
+    # larger order, we reject anything above this cap. Editable at runtime
+    # via the Settings UI. Default is deliberately small ($100) so a single
+    # accidental click can't place a $5000 order.
+    MANUAL_ORDER_MAX_NOTIONAL: float = 100.0
 
     CORS_ORIGIN: str = "http://localhost:5173"
 
@@ -44,6 +49,14 @@ class Settings(BaseSettings):
     AGENT_MAX_TWEETS_PER_ACCOUNT: int = 20
     AGENT_LOOKBACK_HOURS: int = 24
     AGENT_PER_ACCOUNT_TIMEOUT_S: int = 45
+    # Signal thresholds (previously hard-coded in allocator.py).
+    # Signals with score or confidence below these are filtered out entirely.
+    AGENT_MIN_SCORE: float = 0.30
+    AGENT_MIN_CONFIDENCE: float = 0.30
+    # Max number of fresh-signal candidates the allocator considers per run.
+    AGENT_TOP_N_CANDIDATES: int = 5
+    # Max concurrent LLM calls when analysing tweets.
+    AGENT_LLM_CONCURRENCY: int = 3
     # Market-intel corroboration: boost applied to a ticker's confidence when
     # the intel sources independently flag it (movers list, TradingView news).
     AGENT_INTEL_BOOST: float = 0.15

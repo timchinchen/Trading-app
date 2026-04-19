@@ -57,8 +57,10 @@ def _today_realized_pl(db: Session, mode: str) -> float:
     return total
 
 
-def _remaining_budget(db: Session, mode: str) -> float:
-    """Budget remaining = BUDGET_USD minus gross notional of today's agent BUY trades."""
+def _remaining_budget(db: Session, mode: str, budget_usd: float) -> float:
+    """Budget remaining = `budget_usd` minus gross notional of today's
+    agent BUY trades. `budget_usd` is sourced from runtime settings so
+    Settings UI edits take effect on the next run."""
     start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
     used = 0.0
     rows = (
@@ -73,7 +75,7 @@ def _remaining_budget(db: Session, mode: str) -> float:
     )
     for r in rows:
         used += (r.notional or 0.0)
-    return max(0.0, settings.AGENT_BUDGET_USD - used)
+    return max(0.0, float(budget_usd) - used)
 
 
 def _week_start_utc(now: datetime | None = None) -> datetime:
@@ -347,9 +349,9 @@ async def run_once(broker: AlpacaBroker) -> int:
         # Playwright is our primary source since Dec-2025 twscrape 0.17.0 hit
         # parsing failures that self-lock accounts for 15 minutes. twscrape
         # remains as a fallback.
-        log.add(f"fetching tweets via playwright (lookback={settings.AGENT_LOOKBACK_HOURS}h, "
-                f"max/account={settings.AGENT_MAX_TWEETS_PER_ACCOUNT}, "
-                f"per-account timeout={settings.AGENT_PER_ACCOUNT_TIMEOUT_S}s) ...")
+        log.add(f"fetching tweets via playwright (lookback={rs.agent_lookback_hours}h, "
+                f"max/account={rs.agent_max_tweets_per_account}, "
+                f"per-account timeout={rs.agent_per_account_timeout_s}s) ...")
         _save_logs()
 
         def _tw_log(msg: str):
@@ -366,10 +368,10 @@ async def run_once(broker: AlpacaBroker) -> int:
         try:
             tweets = await playwright_client.fetch_recent_tweets(
                 handles=handles,
-                lookback_hours=settings.AGENT_LOOKBACK_HOURS,
-                max_per_account=settings.AGENT_MAX_TWEETS_PER_ACCOUNT,
+                lookback_hours=rs.agent_lookback_hours,
+                max_per_account=rs.agent_max_tweets_per_account,
                 db_path=settings.TWSCRAPE_DB,
-                per_account_timeout_s=settings.AGENT_PER_ACCOUNT_TIMEOUT_S,
+                per_account_timeout_s=rs.agent_per_account_timeout_s,
                 log=_tw_log,
             )
         except playwright_client.PlaywrightNotInstalledError as e:
@@ -392,10 +394,10 @@ async def run_once(broker: AlpacaBroker) -> int:
             try:
                 tweets = await twitter_client.fetch_recent_tweets(
                     handles=handles,
-                    lookback_hours=settings.AGENT_LOOKBACK_HOURS,
-                    max_per_account=settings.AGENT_MAX_TWEETS_PER_ACCOUNT,
+                    lookback_hours=rs.agent_lookback_hours,
+                    max_per_account=rs.agent_max_tweets_per_account,
                     db_path=settings.TWSCRAPE_DB,
-                    per_account_timeout_s=settings.AGENT_PER_ACCOUNT_TIMEOUT_S,
+                    per_account_timeout_s=rs.agent_per_account_timeout_s,
                     log=_tw_log,
                 )
             except twitter_client.TwitterPoolExhaustedError as e:
@@ -430,9 +432,10 @@ async def run_once(broker: AlpacaBroker) -> int:
         db.commit()
         _save_logs()
 
-        # 2. LLM analyze each tweet (limited concurrency)
-        log.add(f"analysing tweets via {rs.llm_provider} ({rs.llm_model}) ...")
-        sem = asyncio.Semaphore(3)
+        # 2. LLM analyze each tweet (limited concurrency; tunable via Settings).
+        log.add(f"analysing tweets via {rs.llm_provider} ({rs.llm_model}) "
+                f"[concurrency={rs.agent_llm_concurrency}] ...")
+        sem = asyncio.Semaphore(max(1, int(rs.agent_llm_concurrency)))
         analyses: list[dict[str, Any]] = []
 
         async def analyze(tw):
@@ -505,7 +508,7 @@ async def run_once(broker: AlpacaBroker) -> int:
 
         # 4. Allocate
         open_positions = {p["symbol"] for p in broker.positions()} if broker.configured else set()
-        daily_budget = _remaining_budget(db, settings.APP_MODE)
+        daily_budget = _remaining_budget(db, settings.APP_MODE, rs.agent_budget_usd)
         weekly_used = _weekly_deployed(db, settings.APP_MODE)
         weekly_remaining = max(0.0, rs.agent_weekly_budget_usd - weekly_used)
         log.add(
@@ -541,6 +544,9 @@ async def run_once(broker: AlpacaBroker) -> int:
             max_position_usd=rs.agent_max_position_usd,
             max_open_positions=rs.agent_max_open_positions,
             get_price=_price,
+            min_score=rs.agent_min_score,
+            min_confidence=rs.agent_min_confidence,
+            top_n=rs.agent_top_n_candidates,
             recently_bought=recently_bought,
         )
 

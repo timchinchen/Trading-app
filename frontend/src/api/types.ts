@@ -181,6 +181,15 @@ export interface AgentSettings {
   agent_intel_boost: number
   agent_take_profit_pct: number
   agent_recent_trade_window_hours: number
+  agent_min_score: number
+  agent_min_confidence: number
+  agent_top_n_candidates: number
+  agent_llm_concurrency: number
+  agent_max_tweets_per_account: number
+  agent_lookback_hours: number
+  agent_per_account_timeout_s: number
+  poll_interval_seconds: number
+  manual_order_max_notional: number
   twitter_accounts: string
   overridden: string[]
 }
@@ -208,6 +217,15 @@ export type AgentSettingsUpdate = Partial<{
   AGENT_INTEL_BOOST: number
   AGENT_TAKE_PROFIT_PCT: number
   AGENT_RECENT_TRADE_WINDOW_HOURS: number
+  AGENT_MIN_SCORE: number
+  AGENT_MIN_CONFIDENCE: number
+  AGENT_TOP_N_CANDIDATES: number
+  AGENT_LLM_CONCURRENCY: number
+  AGENT_MAX_TWEETS_PER_ACCOUNT: number
+  AGENT_LOOKBACK_HOURS: number
+  AGENT_PER_ACCOUNT_TIMEOUT_S: number
+  POLL_INTERVAL_SECONDS: number
+  MANUAL_ORDER_MAX_NOTIONAL: number
   TWITTER_ACCOUNTS: string
 }>
 

@@ -49,6 +49,18 @@ EDITABLE_KEYS: dict[str, type] = {
     "AGENT_INTEL_BOOST": float,
     "AGENT_TAKE_PROFIT_PCT": float,
     "AGENT_RECENT_TRADE_WINDOW_HOURS": int,
+    # Agent signal thresholds (previously hard-coded)
+    "AGENT_MIN_SCORE": float,
+    "AGENT_MIN_CONFIDENCE": float,
+    "AGENT_TOP_N_CANDIDATES": int,
+    "AGENT_LLM_CONCURRENCY": int,
+    # Scraper cadence (previously hard-coded)
+    "AGENT_MAX_TWEETS_PER_ACCOUNT": int,
+    "AGENT_LOOKBACK_HOURS": int,
+    "AGENT_PER_ACCOUNT_TIMEOUT_S": int,
+    "POLL_INTERVAL_SECONDS": int,
+    # Manual order safety cap
+    "MANUAL_ORDER_MAX_NOTIONAL": float,
     # Twitter
     "TWITTER_ACCOUNTS": str,
 }
@@ -99,6 +111,18 @@ class RuntimeSettings:
     agent_intel_boost: float = 0.0
     agent_take_profit_pct: float = 0.0
     agent_recent_trade_window_hours: int = 0
+    # Signal thresholds (allocator)
+    agent_min_score: float = 0.0
+    agent_min_confidence: float = 0.0
+    agent_top_n_candidates: int = 0
+    agent_llm_concurrency: int = 0
+    # Scraper cadence
+    agent_max_tweets_per_account: int = 0
+    agent_lookback_hours: int = 0
+    agent_per_account_timeout_s: int = 0
+    poll_interval_seconds: int = 0
+    # Manual order safety cap
+    manual_order_max_notional: float = 0.0
     # Twitter
     twitter_accounts: str = ""
     # Bookkeeping: which keys are overridden in the DB (vs env default)
@@ -159,6 +183,15 @@ def get_runtime_settings(db: Session | None = None) -> RuntimeSettings:
         agent_intel_boost=float(pick("AGENT_INTEL_BOOST", float)),
         agent_take_profit_pct=float(pick("AGENT_TAKE_PROFIT_PCT", float)),
         agent_recent_trade_window_hours=int(pick("AGENT_RECENT_TRADE_WINDOW_HOURS", int)),
+        agent_min_score=float(pick("AGENT_MIN_SCORE", float)),
+        agent_min_confidence=float(pick("AGENT_MIN_CONFIDENCE", float)),
+        agent_top_n_candidates=int(pick("AGENT_TOP_N_CANDIDATES", int)),
+        agent_llm_concurrency=int(pick("AGENT_LLM_CONCURRENCY", int)),
+        agent_max_tweets_per_account=int(pick("AGENT_MAX_TWEETS_PER_ACCOUNT", int)),
+        agent_lookback_hours=int(pick("AGENT_LOOKBACK_HOURS", int)),
+        agent_per_account_timeout_s=int(pick("AGENT_PER_ACCOUNT_TIMEOUT_S", int)),
+        poll_interval_seconds=int(pick("POLL_INTERVAL_SECONDS", int)),
+        manual_order_max_notional=float(pick("MANUAL_ORDER_MAX_NOTIONAL", float)),
         twitter_accounts=str(pick("TWITTER_ACCOUNTS", str)),
         overridden={k for k, v in overrides.items() if v != ""},
     )
@@ -232,6 +265,15 @@ def public_view(rs: RuntimeSettings) -> dict[str, Any]:
         "agent_intel_boost": rs.agent_intel_boost,
         "agent_take_profit_pct": rs.agent_take_profit_pct,
         "agent_recent_trade_window_hours": rs.agent_recent_trade_window_hours,
+        "agent_min_score": rs.agent_min_score,
+        "agent_min_confidence": rs.agent_min_confidence,
+        "agent_top_n_candidates": rs.agent_top_n_candidates,
+        "agent_llm_concurrency": rs.agent_llm_concurrency,
+        "agent_max_tweets_per_account": rs.agent_max_tweets_per_account,
+        "agent_lookback_hours": rs.agent_lookback_hours,
+        "agent_per_account_timeout_s": rs.agent_per_account_timeout_s,
+        "poll_interval_seconds": rs.poll_interval_seconds,
+        "manual_order_max_notional": rs.manual_order_max_notional,
         "twitter_accounts": rs.twitter_accounts,
         "overridden": sorted(rs.overridden),
     }
