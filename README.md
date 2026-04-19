@@ -2,11 +2,14 @@
 
 Self-hosted trading app with **Paper** (preview) and **Live** modes, backed by Alpaca.
 
-- Frontend: React + Vite + TypeScript + Tailwind
+![Agent debug view in paper mode](docs/screenshots/agent-ui.png)
+
+- Frontend: React + Vite + TypeScript + Tailwind (cosmic-purple theme)
 - Backend: FastAPI + SQLite + SQLAlchemy
 - Broker: Alpaca (paper + live)
 - Mode toggle: `APP_MODE` env variable, resolved at startup
 - Market data: pluggable, can mix WebSocket streaming and REST polling per symbol
+- Agent: curated X timelines + local LLM -> paper trades with hard budget caps
 
 ## Quick start
 
@@ -70,18 +73,26 @@ live mode, unless `AGENT_AUTO_EXECUTE_LIVE=true`).
    ollama pull llama3.1:8b            # ~4.7 GB
    ```
 
-2. **Create a throwaway X account** (agent scraping will get your account
-   rate-limited or banned, so do not use your real one). Confirm the email,
-   set a password, then register it with twscrape:
+2. **Install Playwright + Chromium** (used to render each handle's timeline
+   with auth cookies - X now gates recent tweets behind login even for public
+   profiles):
    ```bash
    cd backend
-   .venv/bin/python -m app.services.agent.setup add \
-       <x_username> <x_password> <email> <email_password>
-   .venv/bin/python -m app.services.agent.setup login
+   .venv/bin/pip install playwright
+   .venv/bin/playwright install chromium
+   ```
+
+3. **Create a throwaway X account** (agent scraping will get your account
+   rate-limited or banned, so do not use your real one). Log in to it from a
+   real browser, grab the `auth_token` and `ct0` cookies from DevTools, then:
+   ```bash
+   cd backend
+   .venv/bin/python -m app.services.agent.setup add_cookies
+   # follow the prompts, paste auth_token and ct0 when asked
    .venv/bin/python -m app.services.agent.setup list
    ```
 
-3. **Enable the agent** in `backend/.env`:
+4. **Enable the agent** in `backend/.env`:
    ```
    AGENT_ENABLED=true
    AGENT_BUDGET_USD=50
@@ -94,7 +105,7 @@ live mode, unless `AGENT_AUTO_EXECUTE_LIVE=true`).
    TWITTER_ACCOUNTS=blondesnmoney,PeterLBrandt,LindaRaschke,...
    ```
 
-4. Restart the backend. The **Agent** page in the UI shows status, past runs,
+5. Restart the backend. The **Agent** page in the UI shows status, past runs,
    per-ticker signals, and executed trades. Click **Run now** to trigger
    immediately instead of waiting for the next 30-minute slot.
 
@@ -102,7 +113,8 @@ live mode, unless `AGENT_AUTO_EXECUTE_LIVE=true`).
 
 ```
 every 30m (mon-fri, 09:00-15:59 ET)
-  -> twscrape: last 12h of tweets from each handle
+  -> Playwright (headless Chromium + twscrape cookies): last 24h of tweets per handle
+     (falls back to twscrape API if Playwright is unavailable)
   -> Ollama chat (format=json): extract tickers + sentiment + confidence per tweet
   -> aggregate across all tweets -> per-ticker score, confidence, mentions
   -> allocator: top 3 bullish signals, size each at min($10, remaining budget)
