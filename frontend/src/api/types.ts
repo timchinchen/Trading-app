@@ -32,6 +32,13 @@ export interface Order {
   status: string
   mode: string
   submitted_at: string
+  // Populated once the order is accepted / filled by Alpaca.
+  filled_avg_price?: number | null
+  filled_qty?: number | null
+  filled_at?: string | null
+  total_cost?: number | null
+  current_price?: number | null
+  pct_change?: number | null
 }
 
 export interface WatchlistItem {

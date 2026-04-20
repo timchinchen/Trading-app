@@ -38,6 +38,11 @@ class Order(Base):
     status = Column(String, nullable=False, default="new")
     mode = Column(String, nullable=False)         # paper | live
     submitted_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    # Populated once Alpaca fills (wholly or partially). Reconciled on every
+    # GET /orders request for rows that still show new/accepted/partially_*.
+    filled_avg_price = Column(Float)
+    filled_qty = Column(Float)
+    filled_at = Column(DateTime)
 
 
 class Trade(Base):

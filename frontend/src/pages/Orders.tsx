@@ -1,5 +1,11 @@
 import { useCancelOrder, useOrders } from '../api/hooks'
 
+const fmtUsd = (v?: number | null) =>
+  v == null ? '-' : `$${v.toFixed(2)}`
+
+const fmtPct = (v?: number | null) =>
+  v == null ? '-' : `${v >= 0 ? '+' : ''}${v.toFixed(2)}%`
+
 export function OrdersPage() {
   const { data: orders } = useOrders()
   const cancel = useCancelOrder()
@@ -18,55 +24,92 @@ export function OrdersPage() {
                 <th className="px-4 py-3 text-left text-xs text-muted-foreground">Type</th>
                 <th className="px-4 py-3 text-right text-xs text-muted-foreground">Qty</th>
                 <th className="px-4 py-3 text-right text-xs text-muted-foreground">Limit</th>
+                <th className="px-4 py-3 text-right text-xs text-muted-foreground">Fill Px</th>
+                <th className="px-4 py-3 text-right text-xs text-muted-foreground">Total</th>
+                <th className="px-4 py-3 text-right text-xs text-muted-foreground">Current</th>
+                <th className="px-4 py-3 text-right text-xs text-muted-foreground">% Chg</th>
                 <th className="px-4 py-3 text-left text-xs text-muted-foreground">Status</th>
                 <th className="px-4 py-3 text-left text-xs text-muted-foreground">Mode</th>
                 <th className="px-4 py-3 text-right text-xs text-muted-foreground"></th>
               </tr>
             </thead>
             <tbody>
-              {orders?.map((o) => (
-                <tr
-                  key={o.id}
-                  className="border-t border-border hover:bg-muted/20 transition-colors"
-                >
-                  <td className="px-4 py-3 text-xs text-muted-foreground">
-                    {new Date(o.submitted_at).toLocaleString()}
-                  </td>
-                  <td className="px-4 py-3 text-sm font-medium">{o.symbol}</td>
-                  <td
-                    className={`px-4 py-3 text-sm ${
-                      o.side === 'buy' ? 'text-success' : 'text-danger'
-                    }`}
+              {orders?.map((o) => {
+                const pct = o.pct_change
+                const pctClass =
+                  pct == null
+                    ? 'text-muted-foreground'
+                    : pct >= 0
+                      ? 'text-success'
+                      : 'text-danger'
+                // For sell orders the P/L sign flips: a rise after a sell is
+                // a missed-opportunity cost, not a win. We still show the raw
+                // price move but colour it neutrally so the trader can read
+                // it unambiguously.
+                const sideAwarePctClass = o.side === 'sell'
+                  ? 'text-muted-foreground'
+                  : pctClass
+
+                return (
+                  <tr
+                    key={o.id}
+                    className="border-t border-border hover:bg-muted/20 transition-colors"
                   >
-                    {o.side}
-                  </td>
-                  <td className="px-4 py-3 text-sm">{o.type}</td>
-                  <td className="px-4 py-3 text-sm text-right">{o.qty}</td>
-                  <td className="px-4 py-3 text-sm text-right">{o.limit_price ?? '-'}</td>
-                  <td className="px-4 py-3 text-sm">
-                    <span className="px-2 py-0.5 rounded-md bg-muted/50 border border-border text-xs">
-                      {o.status}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-sm text-muted-foreground">{o.mode}</td>
-                  <td className="px-4 py-3 text-sm text-right">
-                    {['new', 'accepted', 'pending_new', 'partially_filled'].includes(
-                      o.status,
-                    ) && (
-                      <button
-                        className="text-xs text-danger hover:underline"
-                        onClick={() => cancel.mutate(o.id)}
-                      >
-                        cancel
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              ))}
+                    <td className="px-4 py-3 text-xs text-muted-foreground">
+                      {new Date(o.submitted_at).toLocaleString()}
+                    </td>
+                    <td className="px-4 py-3 text-sm font-medium">{o.symbol}</td>
+                    <td
+                      className={`px-4 py-3 text-sm ${
+                        o.side === 'buy' ? 'text-success' : 'text-danger'
+                      }`}
+                    >
+                      {o.side}
+                    </td>
+                    <td className="px-4 py-3 text-sm">{o.type}</td>
+                    <td className="px-4 py-3 text-sm text-right">{o.qty}</td>
+                    <td className="px-4 py-3 text-sm text-right">
+                      {o.limit_price != null ? fmtUsd(o.limit_price) : '-'}
+                    </td>
+                    <td className="px-4 py-3 text-sm text-right font-mono">
+                      {fmtUsd(o.filled_avg_price)}
+                    </td>
+                    <td className="px-4 py-3 text-sm text-right font-mono">
+                      {fmtUsd(o.total_cost)}
+                    </td>
+                    <td className="px-4 py-3 text-sm text-right font-mono">
+                      {fmtUsd(o.current_price)}
+                    </td>
+                    <td
+                      className={`px-4 py-3 text-sm text-right font-mono ${sideAwarePctClass}`}
+                    >
+                      {fmtPct(pct)}
+                    </td>
+                    <td className="px-4 py-3 text-sm">
+                      <span className="px-2 py-0.5 rounded-md bg-muted/50 border border-border text-xs">
+                        {o.status}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-sm text-muted-foreground">{o.mode}</td>
+                    <td className="px-4 py-3 text-sm text-right">
+                      {['new', 'accepted', 'pending_new', 'partially_filled'].includes(
+                        o.status,
+                      ) && (
+                        <button
+                          className="text-xs text-danger hover:underline"
+                          onClick={() => cancel.mutate(o.id)}
+                        >
+                          cancel
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                )
+              })}
               {(!orders || orders.length === 0) && (
                 <tr className="border-t border-border">
                   <td
-                    colSpan={9}
+                    colSpan={13}
                     className="px-4 py-12 text-center text-sm text-muted-foreground"
                   >
                     No orders

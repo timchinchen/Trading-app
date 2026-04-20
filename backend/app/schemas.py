@@ -62,6 +62,15 @@ class OrderOut(BaseModel):
     status: str
     mode: str
     submitted_at: datetime
+    # Fill info reconciled from Alpaca (null until accepted+filled).
+    filled_avg_price: Optional[float] = None
+    filled_qty: Optional[float] = None
+    filled_at: Optional[datetime] = None
+    total_cost: Optional[float] = None       # filled_avg_price * filled_qty
+    # Live-ish enrichment (sourced from the shared snapshot cache so the
+    # Orders tab doesn't cost extra Alpaca round-trips).
+    current_price: Optional[float] = None
+    pct_change: Optional[float] = None       # (current - fill) / fill * 100
     class Config:
         from_attributes = True
 

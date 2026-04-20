@@ -48,6 +48,28 @@ class MarketDataService:
         return {s for s, feed in self._routes.items() if feed == "poll"}
 
     async def _broadcast(self, quote: dict):
+        # Memoise last-seen price per symbol so the Orders tab (and any other
+        # non-streaming consumer) can grab it for free without another REST
+        # call. We prefer `last` over `ask` which matches the provider
+        # convention.
+        sym = quote.get("symbol")
+        last_px = quote.get("last") or quote.get("ask") or quote.get("bid")
+        if sym and last_px:
+            existing = self._snapshots.get(sym)
+            if existing:
+                exp, payload = existing
+                if payload.get("last") != last_px:
+                    payload = {**payload, "last": float(last_px)}
+                    self._snapshots[sym] = (exp, payload)
+            else:
+                # No session context yet, but remember the live last price so
+                # we can still answer Orders-tab lookups. TTL is the normal
+                # snapshot TTL so it gets refreshed eventually.
+                self._snapshots[sym] = (
+                    time.time() + _SNAPSHOT_TTL_S,
+                    {"last": float(last_px)},
+                )
+
         dead = []
         for q in self._listeners:
             try:

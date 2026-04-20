@@ -112,16 +112,37 @@ class AlpacaBroker:
             raise BrokerError("Broker not configured.")
         self._client.cancel_order_by_id(alpaca_id)
 
+    def get_order_by_id(self, alpaca_id: str) -> dict | None:
+        """Pull the latest state for a single order. Returns None on any
+        error / unconfigured broker so callers can just skip reconciliation."""
+        if not self._client:
+            return None
+        try:
+            o = self._client.get_order_by_id(alpaca_id)
+        except Exception as e:
+            print(f"[broker] get_order_by_id({alpaca_id}) failed: {e}")
+            return None
+        return self._order_to_dict(o)
+
     def _order_to_dict(self, o) -> dict:
+        def _f(v):
+            try:
+                return float(v) if v is not None else None
+            except Exception:
+                return None
+
         return {
             "alpaca_id": str(o.id),
             "symbol": o.symbol,
             "qty": float(o.qty) if o.qty is not None else 0.0,
             "side": o.side.value if hasattr(o.side, "value") else str(o.side),
             "type": o.order_type.value if hasattr(o.order_type, "value") else str(o.order_type),
-            "limit_price": float(o.limit_price) if o.limit_price else None,
+            "limit_price": _f(getattr(o, "limit_price", None)),
             "status": o.status.value if hasattr(o.status, "value") else str(o.status),
             "submitted_at": o.submitted_at,
+            "filled_avg_price": _f(getattr(o, "filled_avg_price", None)),
+            "filled_qty": _f(getattr(o, "filled_qty", None)),
+            "filled_at": getattr(o, "filled_at", None),
         }
 
     # --- Quotes ---

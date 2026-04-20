@@ -54,6 +54,8 @@ class AlpacaRestProvider:
                 continue
             daily = getattr(snap, "daily_bar", None)
             prev = getattr(snap, "previous_daily_bar", None)
+            latest_trade = getattr(snap, "latest_trade", None)
+            minute = getattr(snap, "minute_bar", None)
 
             def _f(obj, attr):
                 if obj is None:
@@ -64,12 +66,21 @@ class AlpacaRestProvider:
                 except Exception:
                     return None
 
+            # Prefer the most recent price we can see in the snapshot:
+            # latest trade > latest minute bar close > today's daily close.
+            last_px = (
+                _f(latest_trade, "price")
+                or _f(minute, "close")
+                or _f(daily, "close")
+            )
+
             out[sym] = {
                 "open": _f(daily, "open"),
                 "day_high": _f(daily, "high"),
                 "day_low": _f(daily, "low"),
                 "prev_close": _f(prev, "close"),
                 "prev_open": _f(prev, "open"),
+                "last": last_px,
             }
         return out
 
