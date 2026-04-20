@@ -35,3 +35,6 @@ Trading-App-Figma/
 
 # Don't commit the built favicon PNG (regeneratable from favicon.svg)
 # frontend/public/favicon.png  # commented - ok to ship
+
+# Docker compose local overrides (checked-in example only)
+docker-compose.override.yml

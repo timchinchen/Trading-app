@@ -9,8 +9,14 @@ export function usePriceStream(symbols: string[]) {
 
   useEffect(() => {
     if (!token || symbols.length === 0) return
-    const proto = location.protocol === 'https:' ? 'wss' : 'ws'
-    const url = `${proto}://${location.host}/ws/prices?token=${encodeURIComponent(
+    // VITE_WS_URL lets docker/prod override when backend is on a different host:port.
+    // Default: same origin as the page (works with Vite dev proxy + nginx reverse-proxy).
+    const envWs = (import.meta as any).env?.VITE_WS_URL as string | undefined
+    const base =
+      envWs && envWs.length > 0
+        ? envWs.replace(/\/$/, '')
+        : `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}`
+    const url = `${base}/ws/prices?token=${encodeURIComponent(
       token,
     )}&symbols=${encodeURIComponent(symbols.join(','))}`
     const ws = new WebSocket(url)

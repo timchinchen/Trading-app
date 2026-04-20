@@ -1,0 +1,70 @@
+# Two-service stack: FastAPI backend + Vite/React frontend served by Nginx.
+# Playwright/Chromium is baked into the backend image (Microsoft's official
+# playwright-python base).
+#
+# Quick start:
+#   1. cp backend/.env.example backend/.env   # fill in ALPACA keys, JWT_SECRET, etc.
+#   2. docker compose up -d --build
+#   3. open http://localhost:5173
+#
+# Data persists in the named volume 'trading-data' (sqlite + twscrape db).
+
+services:
+  backend:
+    build:
+      context: ./backend
+      # Enabling buildx multi-arch:
+      #   docker buildx bake -f docker-compose.yml --set *.platform=linux/amd64,linux/arm64
+      # Left unset so `docker compose build` uses the host arch.
+    image: trading-app-backend:latest
+    container_name: trading-app-backend
+    env_file:
+      - ./backend/.env
+    environment:
+      # Pin storage paths into the mounted volume so the sqlite files
+      # survive container rebuilds.
+      DATABASE_URL: sqlite:////data/trading.db
+      TWSCRAPE_DB: /data/twscrape.db
+      # The backend talks to the host browser across the network, so we
+      # widen CORS to the frontend's port. Override in .env if remote.
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:5173}
+      # Playwright needs a writable home dir for its cache.
+      HOME: /home/app
+    ports:
+      - "8000:8000"
+    volumes:
+      - trading-data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health', timeout=3).status == 200 else 1)\""]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        # These are baked into the JS bundle at build time. Override on the
+        # host if serving from a non-localhost box, e.g.:
+        #   VITE_API_URL=http://192.168.1.50:8000 docker compose up -d --build
+        VITE_API_URL: ${VITE_API_URL:-http://localhost:8000}
+        VITE_WS_URL: ${VITE_WS_URL:-ws://localhost:8000}
+    image: trading-app-frontend:latest
+    container_name: trading-app-frontend
+    ports:
+      - "5173:80"
+    depends_on:
+      backend:
+        condition: service_started
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost/"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+
+volumes:
+  trading-data:
+    name: trading-app-data

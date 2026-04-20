@@ -1,0 +1,18 @@
+node_modules/
+dist/
+.vite/
+*.log
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/
+
+# Docker itself
+Dockerfile
+.dockerignore
+
+# Local env that might shadow build-arg VITE_* values
+.env
+.env.*
+!.env.example

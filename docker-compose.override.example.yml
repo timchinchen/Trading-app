@@ -1,0 +1,14 @@
+# Copy to docker-compose.override.yml for local-only tweaks.
+# Compose will auto-merge it on top of docker-compose.yml.
+
+services:
+  backend:
+    environment:
+      # Uncomment to reach an Ollama instance running on the host machine
+      # (Mac/Windows Docker Desktop exposes it via host.docker.internal).
+      # OLLAMA_HOST: http://host.docker.internal:11434
+      LOG_LEVEL: DEBUG
+
+  # Example: expose backend only on the loopback interface
+  #   ports:
+  #     - "127.0.0.1:8000:8000"
