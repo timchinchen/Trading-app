@@ -165,13 +165,13 @@ export interface ChatResponse {
   duration_ms: number
 }
 
+export type LLMProvider = 'ollama' | 'openai' | 'huggingface' | 'cohere'
+
 export interface LLMInfo {
-  provider: 'ollama' | 'openai'
+  provider: LLMProvider
   host: string
   default_model: string
 }
-
-export type LLMProvider = 'ollama' | 'openai' | 'huggingface' | 'cohere'
 
 export interface AgentSettings {
   llm_provider: LLMProvider

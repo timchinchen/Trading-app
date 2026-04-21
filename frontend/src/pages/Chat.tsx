@@ -153,8 +153,23 @@ export function ChatPage() {
       >
         {messages.length === 0 && (
           <div className="text-muted-foreground text-sm">
-            Start a conversation. The assistant runs locally via Ollama at{' '}
-            {info?.host ?? '...'}.
+            Start a conversation.{' '}
+            {info?.provider === 'ollama' && (
+              <>The assistant runs locally via Ollama at {info.host}.</>
+            )}
+            {info?.provider === 'openai' && (
+              <>Using OpenAI ({info.default_model}) at {info.host}.</>
+            )}
+            {info?.provider === 'huggingface' && (
+              <>
+                Using Hugging Face ({info.default_model}) via the free-tier
+                router at {info.host}.
+              </>
+            )}
+            {info?.provider === 'cohere' && (
+              <>Using Cohere ({info.default_model}) at {info.host}.</>
+            )}
+            {!info && <>Connecting to the configured LLM provider...</>}
           </div>
         )}
         {messages.map((m, i) => (
