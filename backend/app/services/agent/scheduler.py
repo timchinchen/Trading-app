@@ -34,7 +34,11 @@ class AgentScheduler:
         self._backup_job = None
 
     def _schedule_digest_job(self) -> None:
-        """Attach the daily digest compression to the scheduler (09:30 ET)."""
+        """Attach the daily digest compression to the scheduler (09:30 ET).
+
+        Note: Job.next_run_time is only populated *after* the scheduler has
+        been started, so we defensively getattr() it for the log line - the
+        job itself is valid either way."""
         if self.sched is None:
             return
         digest_trigger = CronTrigger(
@@ -49,7 +53,8 @@ class AgentScheduler:
             self._digest_job = self.sched.add_job(
                 self._digest, trigger=digest_trigger, id="trading_digest_daily"
             )
-        print(f"[digest] daily compression job armed; next: {self._digest_job.next_run_time}")
+        nr = getattr(self._digest_job, "next_run_time", None)
+        print(f"[digest] daily compression job armed; next: {nr or '(pending scheduler start)'}")
 
     async def _digest(self):
         try:
@@ -80,7 +85,8 @@ class AgentScheduler:
             self._backup_job = self.sched.add_job(
                 self._backup_db, trigger=backup_trigger, id="db_backup_daily"
             )
-        print(f"[backup] daily db-backup job armed; next: {self._backup_job.next_run_time}")
+        nr = getattr(self._backup_job, "next_run_time", None)
+        print(f"[backup] daily db-backup job armed; next: {nr or '(pending scheduler start)'}")
 
     async def _backup_db(self):
         try:
@@ -101,11 +107,15 @@ class AgentScheduler:
             timezone="America/New_York",
         )
         self._job = self.sched.add_job(self._runner, trigger=trigger, id="agent_main")
+        # Start the scheduler BEFORE attaching secondary jobs so their
+        # next_run_time is populated when we log it. APScheduler leaves
+        # next_run_time as the attribute-missing sentinel until the sched
+        # is running, which used to crash startup on the debug print.
+        self.sched.start()
         self._schedule_digest_job()
         self._schedule_backup_job()
-        self.sched.start()
-        nr = self._job.next_run_time
-        print(f"[agent] scheduler started; next run: {nr}")
+        nr = getattr(self._job, "next_run_time", None)
+        print(f"[agent] scheduler started; next run: {nr or '(pending)'}")
 
     async def _runner(self):
         try:
@@ -147,7 +157,8 @@ class AgentScheduler:
         # scheduler was just recreated from a disabled state).
         self._schedule_digest_job()
         self._schedule_backup_job()
-        print(f"[agent] scheduler rescheduled every {cron_minutes}m; next: {self._job.next_run_time}")
+        nr = getattr(self._job, "next_run_time", None)
+        print(f"[agent] scheduler rescheduled every {cron_minutes}m; next: {nr or '(pending)'}")
 
     def next_digest_at(self) -> Optional[datetime]:
         if self._digest_job is None:
