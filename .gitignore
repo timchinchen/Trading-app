@@ -6,8 +6,11 @@ __pycache__/
 venv/
 .env
 *.db
+*.db-wal
+*.db-shm
 *.sqlite
 *.sqlite3
+backend/backups/
 
 # Node
 node_modules/
