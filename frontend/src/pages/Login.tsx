@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { api } from '../api/client'
+import { PrerequisitesPanel } from '../components/PrerequisitesPanel'
 import { useAuth } from '../store/auth'
 
 export function LoginPage() {
@@ -33,7 +34,8 @@ export function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center px-4">
+    <div className="min-h-screen flex items-center justify-center px-4 relative">
+      <PrerequisitesPanel />
       <form
         onSubmit={submit}
         className="w-full max-w-sm space-y-4 panel p-8"

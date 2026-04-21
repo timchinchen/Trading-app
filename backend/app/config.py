@@ -2,6 +2,13 @@ from typing import Literal
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+# Kept in lockstep with frontend/src/version.ts (X.Y user-controlled,
+# Z droid-controlled - bumped on every droid-authored edit). Reported
+# by /health/setup so the Prerequisites panel can show the same version
+# badge the Settings page does.
+APP_VERSION_BACKEND = "1.0.1"
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
