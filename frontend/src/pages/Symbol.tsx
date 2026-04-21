@@ -1,15 +1,24 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { useQuote } from '../api/hooks'
 import { OrderTicket } from '../components/OrderTicket'
 import { PriceChart } from '../components/Chart'
 import { usePriceStream } from '../hooks/usePriceStream'
 
+function fmt(n: unknown): string {
+  const v = typeof n === 'string' ? parseFloat(n) : (n as number | null | undefined)
+  if (v === null || v === undefined || Number.isNaN(v)) return '-'
+  return v.toFixed(2)
+}
+
 export function SymbolPage() {
   const { symbol = '' } = useParams()
   const sym = symbol.toUpperCase()
   const { data: snapshot } = useQuote(sym)
-  const stream = usePriceStream([sym])
+  // Freeze the symbol array so usePriceStream's effect doesn't tear
+  // down + reopen the WS on every parent re-render.
+  const symList = useMemo(() => [sym], [sym])
+  const stream = usePriceStream(symList)
   const live: any = stream[sym]
   const [history, setHistory] = useState<{ time: number; value: number }[]>([])
 
@@ -17,16 +26,17 @@ export function SymbolPage() {
     setHistory([])
   }, [sym])
 
+  const lastPrice = live?.last ?? live?.ask ?? snapshot?.last ?? snapshot?.ask
   useEffect(() => {
-    const last = live?.last ?? live?.ask ?? snapshot?.last ?? snapshot?.ask
-    if (last) {
-      const t = Math.floor(Date.now() / 1000)
-      setHistory((h) => {
-        const next = [...h, { time: t, value: Number(last) }]
-        return next.slice(-300)
-      })
-    }
-  }, [live?.last, live?.ask, snapshot?.last, snapshot?.ask])
+    if (lastPrice === null || lastPrice === undefined) return
+    const v = typeof lastPrice === 'string' ? parseFloat(lastPrice) : lastPrice
+    if (!Number.isFinite(v)) return
+    const t = Math.floor(Date.now() / 1000)
+    setHistory((h) => {
+      const next = [...h, { time: t, value: v }]
+      return next.slice(-300)
+    })
+  }, [lastPrice])
 
   const display = live ?? snapshot
 
@@ -39,9 +49,8 @@ export function SymbolPage() {
               {sym}
             </h1>
             <div className="text-xs text-muted-foreground mt-1">
-              bid {display?.bid?.toFixed?.(2) ?? '-'} · ask{' '}
-              {display?.ask?.toFixed?.(2) ?? '-'} · last{' '}
-              {(display?.last ?? display?.ask)?.toFixed?.(2) ?? '-'}
+              bid {fmt(display?.bid)} · ask {fmt(display?.ask)} · last{' '}
+              {fmt(display?.last ?? display?.ask)}
             </div>
           </div>
         </div>
