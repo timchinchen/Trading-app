@@ -104,6 +104,24 @@ def _check_openai_key() -> dict[str, Any]:
     return {"ok": set_, "detail": "key set" if set_ else "not set (optional)"}
 
 
+def _check_huggingface_key() -> dict[str, Any]:
+    try:
+        rs = get_runtime_settings()
+        set_ = bool(rs.huggingface_api_key)
+    except Exception:
+        set_ = bool(settings.HUGGINGFACE_API_KEY)
+    return {"ok": set_, "detail": "key set" if set_ else "not set (optional)"}
+
+
+def _check_cohere_key() -> dict[str, Any]:
+    try:
+        rs = get_runtime_settings()
+        set_ = bool(rs.cohere_api_key)
+    except Exception:
+        set_ = bool(settings.COHERE_API_KEY)
+    return {"ok": set_, "detail": "key set" if set_ else "not set (optional)"}
+
+
 def _check_jwt() -> dict[str, Any]:
     v = (settings.JWT_SECRET or "").strip()
     bad = v in ("", "change_me", "change_me_to_a_long_random_string")
@@ -177,6 +195,8 @@ def setup_health() -> dict[str, Any]:
         "alpaca": _run_with_timeout(_check_alpaca),
         "ollama": _run_with_timeout(_check_ollama),
         "openai": _check_openai_key(),
+        "huggingface": _check_huggingface_key(),
+        "cohere": _check_cohere_key(),
         "playwright": _check_playwright(),
         "fmp": {"ok": fmp_ok, "detail": "key set" if fmp_ok else "not set (optional)"},
         "stocktwits": {

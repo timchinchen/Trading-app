@@ -9,7 +9,7 @@ import {
   useMode,
   useUpdateAgentSettings,
 } from '../api/hooks'
-import type { AgentSettings, AgentSettingsUpdate } from '../api/types'
+import type { AgentSettings, AgentSettingsUpdate, LLMProvider } from '../api/types'
 import { APP_VERSION } from '../version'
 
 function Row({
@@ -74,13 +74,21 @@ function OverrideBadge({
 // ----- LLM provider section (editable) -----
 function LLMProviderCard({ s }: { s: AgentSettings }) {
   const upd = useUpdateAgentSettings()
-  const [provider, setProvider] = useState(s.llm_provider)
+  const [provider, setProvider] = useState<LLMProvider>(s.llm_provider)
   const [ollamaHost, setOllamaHost] = useState(s.ollama_host)
   const [ollamaModel, setOllamaModel] = useState(s.ollama_model)
   const [openaiKey, setOpenaiKey] = useState('') // empty = leave existing
   const [clearOpenaiKey, setClearOpenaiKey] = useState(false)
   const [openaiModel, setOpenaiModel] = useState(s.openai_model)
   const [openaiBaseUrl, setOpenaiBaseUrl] = useState(s.openai_base_url)
+  const [hfKey, setHfKey] = useState('')
+  const [clearHfKey, setClearHfKey] = useState(false)
+  const [hfModel, setHfModel] = useState(s.huggingface_model)
+  const [hfBaseUrl, setHfBaseUrl] = useState(s.huggingface_base_url)
+  const [cohereKey, setCohereKey] = useState('')
+  const [clearCohereKey, setClearCohereKey] = useState(false)
+  const [cohereModel, setCohereModel] = useState(s.cohere_model)
+  const [cohereBaseUrl, setCohereBaseUrl] = useState(s.cohere_base_url)
   const [savedAt, setSavedAt] = useState<number | null>(null)
 
   // Re-sync when server data changes (e.g. after another tab saved).
@@ -90,6 +98,10 @@ function LLMProviderCard({ s }: { s: AgentSettings }) {
     setOllamaModel(s.ollama_model)
     setOpenaiModel(s.openai_model)
     setOpenaiBaseUrl(s.openai_base_url)
+    setHfModel(s.huggingface_model)
+    setHfBaseUrl(s.huggingface_base_url)
+    setCohereModel(s.cohere_model)
+    setCohereBaseUrl(s.cohere_base_url)
   }, [s])
 
   const save = () => {
@@ -99,16 +111,25 @@ function LLMProviderCard({ s }: { s: AgentSettings }) {
       OLLAMA_MODEL: ollamaModel,
       OPENAI_MODEL: openaiModel,
       OPENAI_BASE_URL: openaiBaseUrl,
+      HUGGINGFACE_MODEL: hfModel,
+      HUGGINGFACE_BASE_URL: hfBaseUrl,
+      COHERE_MODEL: cohereModel,
+      COHERE_BASE_URL: cohereBaseUrl,
     }
-    if (clearOpenaiKey) {
-      body.OPENAI_API_KEY = ''
-    } else if (openaiKey.trim()) {
-      body.OPENAI_API_KEY = openaiKey.trim()
-    }
+    if (clearOpenaiKey) body.OPENAI_API_KEY = ''
+    else if (openaiKey.trim()) body.OPENAI_API_KEY = openaiKey.trim()
+    if (clearHfKey) body.HUGGINGFACE_API_KEY = ''
+    else if (hfKey.trim()) body.HUGGINGFACE_API_KEY = hfKey.trim()
+    if (clearCohereKey) body.COHERE_API_KEY = ''
+    else if (cohereKey.trim()) body.COHERE_API_KEY = cohereKey.trim()
     upd.mutate(body, {
       onSuccess: () => {
         setOpenaiKey('')
         setClearOpenaiKey(false)
+        setHfKey('')
+        setClearHfKey(false)
+        setCohereKey('')
+        setClearCohereKey(false)
         setSavedAt(Date.now())
       },
     })
@@ -117,9 +138,9 @@ function LLMProviderCard({ s }: { s: AgentSettings }) {
   return (
     <Card title="LLM provider (editable)">
       <p className="text-xs text-muted-foreground mb-4">
-        Switch between local Ollama and hosted OpenAI. Saved here, persisted in the
-        SQLite DB, used by the next agent run and the Chat page immediately - no
-        restart needed.
+        Switch between local Ollama, hosted OpenAI, Hugging Face (free tier), or
+        Cohere (free trial). Saved here, persisted in the SQLite DB, used by the
+        next agent run and the Chat page immediately - no restart needed.
       </p>
 
       <div className="grid grid-cols-[220px_1fr] gap-3 py-2 border-b border-border">
@@ -130,11 +151,13 @@ function LLMProviderCard({ s }: { s: AgentSettings }) {
         <div className="flex items-center gap-2">
           <select
             value={provider}
-            onChange={(e) => setProvider(e.target.value as 'ollama' | 'openai')}
-            className="px-3 py-2 rounded-md text-sm w-48"
+            onChange={(e) => setProvider(e.target.value as LLMProvider)}
+            className="px-3 py-2 rounded-md text-sm w-56"
           >
             <option value="ollama">Ollama (local)</option>
             <option value="openai">OpenAI (hosted)</option>
+            <option value="huggingface">Hugging Face (free tier)</option>
+            <option value="cohere">Cohere (free trial)</option>
           </select>
           <span className="text-xs text-muted-foreground">
             currently active: <code className="text-primary">{s.llm_provider}</code>
@@ -225,6 +248,149 @@ function LLMProviderCard({ s }: { s: AgentSettings }) {
               value={openaiBaseUrl}
               onChange={(e) => setOpenaiBaseUrl(e.target.value)}
               placeholder="https://api.openai.com/v1"
+              className="px-3 py-2 rounded-md text-sm w-full max-w-md"
+            />
+          </div>
+        </>
+      )}
+
+      {provider === 'huggingface' && (
+        <>
+          <div className="grid grid-cols-[220px_1fr] gap-3 py-2 border-b border-border">
+            <div className="text-xs text-muted-foreground uppercase tracking-wider">
+              HUGGINGFACE_API_KEY
+              <OverrideBadge k="HUGGINGFACE_API_KEY" overridden={s.overridden} />
+            </div>
+            <div className="space-y-1">
+              <input
+                type="password"
+                value={hfKey}
+                onChange={(e) => setHfKey(e.target.value)}
+                placeholder={
+                  s.huggingface_api_key_set
+                    ? `current: ${s.huggingface_api_key_preview} (leave blank to keep)`
+                    : 'hf_...'
+                }
+                className="px-3 py-2 rounded-md text-sm w-full max-w-md font-mono"
+              />
+              <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                <input
+                  type="checkbox"
+                  checked={clearHfKey}
+                  onChange={(e) => setClearHfKey(e.target.checked)}
+                />
+                clear stored key (revert to .env / disable Hugging Face)
+              </label>
+              <div className="text-[11px] text-muted-foreground">
+                Create a free read token at{' '}
+                <a
+                  href="https://huggingface.co/settings/tokens"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-primary hover:underline"
+                >
+                  huggingface.co/settings/tokens
+                </a>
+                . Free serverless Inference API — ~1000 req/day across all
+                models, no credit card. First call after idle may take
+                ~15-20s (cold start). Not ideal for heavy Agent runs with
+                many tweets; better suited to occasional Deep Analysis use.
+              </div>
+            </div>
+          </div>
+          <div className="grid grid-cols-[220px_1fr] gap-3 py-2 border-b border-border">
+            <div className="text-xs text-muted-foreground uppercase tracking-wider">
+              HUGGINGFACE_MODEL
+              <OverrideBadge k="HUGGINGFACE_MODEL" overridden={s.overridden} />
+            </div>
+            <input
+              value={hfModel}
+              onChange={(e) => setHfModel(e.target.value)}
+              placeholder="mistralai/Mistral-7B-Instruct-v0.3"
+              className="px-3 py-2 rounded-md text-sm w-full max-w-md font-mono"
+            />
+          </div>
+          <div className="grid grid-cols-[220px_1fr] gap-3 py-2 border-b border-border">
+            <div className="text-xs text-muted-foreground uppercase tracking-wider">
+              HUGGINGFACE_BASE_URL
+              <OverrideBadge k="HUGGINGFACE_BASE_URL" overridden={s.overridden} />
+            </div>
+            <input
+              value={hfBaseUrl}
+              onChange={(e) => setHfBaseUrl(e.target.value)}
+              placeholder="https://api-inference.huggingface.co"
+              className="px-3 py-2 rounded-md text-sm w-full max-w-md"
+            />
+          </div>
+        </>
+      )}
+
+      {provider === 'cohere' && (
+        <>
+          <div className="grid grid-cols-[220px_1fr] gap-3 py-2 border-b border-border">
+            <div className="text-xs text-muted-foreground uppercase tracking-wider">
+              COHERE_API_KEY
+              <OverrideBadge k="COHERE_API_KEY" overridden={s.overridden} />
+            </div>
+            <div className="space-y-1">
+              <input
+                type="password"
+                value={cohereKey}
+                onChange={(e) => setCohereKey(e.target.value)}
+                placeholder={
+                  s.cohere_api_key_set
+                    ? `current: ${s.cohere_api_key_preview} (leave blank to keep)`
+                    : 'co_...'
+                }
+                className="px-3 py-2 rounded-md text-sm w-full max-w-md font-mono"
+              />
+              <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                <input
+                  type="checkbox"
+                  checked={clearCohereKey}
+                  onChange={(e) => setClearCohereKey(e.target.checked)}
+                />
+                clear stored key (revert to .env / disable Cohere)
+              </label>
+              <div className="text-[11px] text-muted-foreground">
+                Create a free trial key at{' '}
+                <a
+                  href="https://dashboard.cohere.com/api-keys"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-primary hover:underline"
+                >
+                  dashboard.cohere.com/api-keys
+                </a>
+                . Free trial: ~1000 calls/month and 20 req/min. Fine for
+                the Deep Analysis advisor (1 call/run) but will hit the
+                20/min ceiling if used as the Agent LLM on tweet-heavy
+                runs. Recommended model:{' '}
+                <code className="text-primary">command-r-08-2024</code>.
+              </div>
+            </div>
+          </div>
+          <div className="grid grid-cols-[220px_1fr] gap-3 py-2 border-b border-border">
+            <div className="text-xs text-muted-foreground uppercase tracking-wider">
+              COHERE_MODEL
+              <OverrideBadge k="COHERE_MODEL" overridden={s.overridden} />
+            </div>
+            <input
+              value={cohereModel}
+              onChange={(e) => setCohereModel(e.target.value)}
+              placeholder="command-r-08-2024"
+              className="px-3 py-2 rounded-md text-sm w-full max-w-md font-mono"
+            />
+          </div>
+          <div className="grid grid-cols-[220px_1fr] gap-3 py-2 border-b border-border">
+            <div className="text-xs text-muted-foreground uppercase tracking-wider">
+              COHERE_BASE_URL
+              <OverrideBadge k="COHERE_BASE_URL" overridden={s.overridden} />
+            </div>
+            <input
+              value={cohereBaseUrl}
+              onChange={(e) => setCohereBaseUrl(e.target.value)}
+              placeholder="https://api.cohere.com/v1"
               className="px-3 py-2 rounded-md text-sm w-full max-w-md"
             />
           </div>

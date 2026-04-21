@@ -1,15 +1,20 @@
 """LLM client for structured tweet analysis + portfolio advice.
 
-Supports two providers, picked at call-time:
-  - "ollama"  - local HTTP API at OLLAMA_HOST (default)
-  - "openai"  - OpenAI-compatible chat completions API (works with OpenAI,
-                Azure OpenAI, OpenRouter, etc. - point OPENAI_BASE_URL at it)
+Supports four providers, picked at call-time:
+  - "ollama"       - local HTTP API at OLLAMA_HOST (default)
+  - "openai"       - OpenAI-compatible chat completions API (works with
+                     OpenAI, Azure OpenAI, OpenRouter, etc. - point
+                     OPENAI_BASE_URL at it)
+  - "huggingface"  - Hugging Face Inference API (free serverless tier) via
+                     the text-generation endpoint with an Instruct prompt
+  - "cohere"       - Cohere chat API (free trial tier, ~1000 calls/month)
 
 Callers pass the resolved provider/host/model/api_key from the settings_store
 so that switching the provider in the UI takes effect on the next run without
 restarting the server.
 """
 
+import asyncio
 import json
 import re
 from typing import Any
@@ -18,19 +23,53 @@ import httpx
 
 
 # Provider value type.
-Provider = str  # "ollama" | "openai"
+Provider = str  # "ollama" | "openai" | "huggingface" | "cohere"
 
 
 ROLE_PREAMBLE = (
     "ROLE: You are a swing-trading assistant hunting quick wins over a 1-2 week "
-    "holding horizon. You are NOT a low-latency/HFT bot and NOT a long-term "
-    "investor. Your edge is synthesising every scrap of information supplied "
-    "(tweets, fundamentals, market-intel snapshots, Stocktwits sentiment, news, "
-    "SEC filings, price action) to predict near-term price moves on specific "
-    "US-listed tickers. Favour catalysts that are likely to play out within "
-    "5-10 trading days: earnings reactions, guidance revisions, product launches, "
-    "insider flow, short squeezes, sector rotations, technical breakouts/breakdowns. "
-    "Ignore decade-long theses and intraday scalps."
+    "holding horizon (3-10 trading days). You are NOT a low-latency/HFT bot and "
+    "NOT a long-term investor. Your edge is synthesising every scrap of "
+    "information supplied (tweets, fundamentals, market-intel snapshots, "
+    "Stocktwits sentiment, news, SEC filings, price action, moving averages, "
+    "RSI, volume, gap behaviour) to predict near-term price moves on specific "
+    "US-listed tickers.\n\n"
+    "CORE PRINCIPLE: do not predict; execute repeatable setups with defined "
+    "risk. Only act when trend, setup, and market conditions align.\n\n"
+    "APPROVED SETUPS (one of these MUST be identifiable before a BUY):\n"
+    "  1. TREND PULLBACK (primary) - price above 20 and 50-day MAs in a clear "
+    "uptrend (higher highs, higher lows); pullback into support (10/20/50 MA "
+    "or prior structure) on decreasing volume; entry on break of prior-day "
+    "high or strong bullish reversal candle; stop below recent swing low or "
+    "3-6% below entry; target 5-15% retest/continuation.\n"
+    "  2. BREAKOUT FROM CONSOLIDATION - tight 5-15 day range, clear resistance, "
+    "decreasing volatility, volume contraction -> expansion; entry on break "
+    "above resistance with strong volume; stop inside the prior range or "
+    "3-5% below entry; target 5-12%.\n"
+    "  3. OVERSOLD BOUNCE (secondary, smaller size, exit fast if it fails) - "
+    "RSI<30 or similar, 2-5 consecutive down days, approaching support; "
+    "entry on first strong upward move or reclaim of key level; stop below "
+    "recent low or 3-5% below entry; target 3-8%.\n"
+    "  4. EARNINGS/NEWS MOMENTUM - gap up on earnings or news, high relative "
+    "volume, holds key intraday levels; entry on break of high-of-day or "
+    "next-day continuation; stop below gap support or 4-8% below entry; "
+    "target 5-20%.\n\n"
+    "MARKET FILTER (mandatory): only take BUYs when SPY is trending upward "
+    "(price above its 50-day MA with 20-day MA rising). In choppy/bearish "
+    "regimes downgrade every BUY to watch-only.\n\n"
+    "STOCK SELECTION FILTER: high liquidity (tight spreads, strong volume), "
+    "relative strength vs SPY, clean readable price structure.\n\n"
+    "RISK RULES (hard): risk <=1% of total capital per trade; max 3-5 open "
+    "positions; mandatory stop loss; never average down on losers; require "
+    "risk/reward >= 1:2 before entry.\n\n"
+    "TRADE MANAGEMENT: at +5% consider partial profit; at +8-10% move stop "
+    "to breakeven; if no progress after 3-5 days exit; if stop hit exit "
+    "immediately.\n\n"
+    "ANTI-PATTERNS (reject): chasing extended moves, low-volume/illiquid "
+    "stocks, ignoring overall market direction, overtrading/forcing setups, "
+    "holding losing positions beyond stop.\n\n"
+    "SUMMARY RULE: buy strength on weakness, buy breakouts on confirmation, "
+    "cut losses quickly, only trade when market conditions support the setup."
 )
 
 
@@ -83,6 +122,78 @@ async def _chat(
     Returns the raw assistant text (caller is responsible for JSON parsing if
     needed). Raises httpx.HTTPError on transport failures."""
     provider = (provider or "ollama").lower()
+    if provider == "huggingface":
+        if not api_key:
+            raise RuntimeError("HUGGINGFACE_API_KEY is empty - configure it in Settings")
+        base = (host or "https://api-inference.huggingface.co").rstrip("/")
+        model_id = model or "mistralai/Mistral-7B-Instruct-v0.3"
+        url = f"{base}/models/{model_id}"
+        # Mistral-Instruct prompt format. Most free-tier Instruct models on
+        # HF accept [INST] wrapping; if the user picks a non-Mistral model
+        # the text still parses, the model just produces less clean JSON.
+        prompt = f"<s>[INST] <<SYS>>\n{system}\n<</SYS>>\n\n{user} [/INST]"
+        payload = {
+            "inputs": prompt,
+            "parameters": {
+                "temperature": max(0.01, temperature),
+                "return_full_text": False,
+                "max_new_tokens": 1024,
+            },
+            "options": {"wait_for_model": True},
+        }
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        }
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            # One retry on 503 "model is loading" (HF cold-starts after
+            # ~15 min idle).
+            for attempt in range(2):
+                r = await client.post(url, headers=headers, json=payload)
+                if r.status_code == 503 and attempt == 0:
+                    await asyncio.sleep(3.0)
+                    continue
+                r.raise_for_status()
+                break
+            data = r.json()
+            if isinstance(data, list) and data:
+                return (data[0].get("generated_text") or "").strip()
+            if isinstance(data, dict):
+                return (data.get("generated_text") or "").strip()
+            return ""
+
+    if provider == "cohere":
+        if not api_key:
+            raise RuntimeError("COHERE_API_KEY is empty - configure it in Settings")
+        base = (host or "https://api.cohere.com/v1").rstrip("/")
+        url = f"{base}/chat"
+        payload = {
+            "model": model or "command-r-08-2024",
+            "preamble": system,
+            "message": user,
+            "temperature": temperature,
+        }
+        if json_mode:
+            payload["response_format"] = {"type": "json_object"}
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        }
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            r = await client.post(url, headers=headers, json=payload)
+            r.raise_for_status()
+            data = r.json()
+            # Cohere v1 /chat returns {"text": "..."} as the assistant
+            # response. Some variants return chat_history with final entry.
+            text = data.get("text")
+            if text:
+                return text
+            hist = data.get("chat_history") or []
+            if hist:
+                return hist[-1].get("message", "") or ""
+            return ""
+
     if provider == "openai":
         if not api_key:
             raise RuntimeError("OPENAI_API_KEY is empty - configure it in Settings")
@@ -196,37 +307,46 @@ async def summarize_run(
 ADVISOR_SYSTEM = (
     ROLE_PREAMBLE + "\n\n"
     "You are the portfolio advisor for a small personal paper-trading account "
-    "(low-hundreds of dollars) running a 1-2 week swing strategy. Every hold/add/"
-    "trim decision should be justified by a catalyst or technical setup that "
-    "resolves within that window. You are given:\n"
-    "  1. Current open positions with notional value, unrealised P/L, and age\n"
+    "(low-hundreds of dollars) running the 1-2 week swing strategy described "
+    "above. Every BUY/HOLD/TRIM/ADD decision must map onto one of the four "
+    "approved setups (trend pullback, breakout, oversold bounce, earnings/news "
+    "momentum) with a concrete stop, target, and R/R >= 1:2. You are given:\n"
+    "  1. Current open positions with notional, unrealised P/L, age\n"
     "  2. Today's agent signals (symbol, score, confidence, mentions, rationale)\n"
-    "  3. Trade proposals this run (executed, proposed, and skipped with reason)\n"
-    "  4. Market intelligence snapshot (top movers, losers, headlines, sentiment)\n"
-    "  5. Budget state (daily + weekly remaining, open-position count)\n\n"
-    "Write a crisp, actionable recommendation in plain text (no markdown fences, "
-    "no disclaimers) using EXACTLY these section headers:\n\n"
+    "  3. Trade proposals this run (executed/proposed/skipped + reason)\n"
+    "  4. Market intel + technical scan on every watchlist symbol (trend, MAs, "
+    "RSI, setup classification, entry/stop/target)\n"
+    "  5. Market regime check (SPY trend, go/no-go)\n"
+    "  6. Budget state (daily + weekly remaining, open-position count)\n\n"
+    "Write a crisp, actionable recommendation in plain text (no markdown, no "
+    "disclaimers) using EXACTLY these section headers:\n\n"
+    "Market Regime\n"
+    "- <go | no-go> — one-line justification from the SPY trend snapshot\n\n"
     "Portfolio Today\n"
-    "- <SYMBOL>: hold | trim | add — catalyst / thesis playing out in next 1-2 weeks\n"
+    "- <SYMBOL>: hold | trim | add | exit — setup it's playing out + stop + "
+    "target; call out +5% partial-profit, +8% move-to-breakeven, or >=3-5 "
+    "day time-stop triggers\n"
     "(one line per held position; write 'none' if flat)\n\n"
     "New Ideas (this run)\n"
-    "- BUY <SYMBOL> ~$<notional> — near-term catalyst + why it beats alternatives\n"
-    "(one line per executed or proposed new trade; write 'none' if nothing)\n\n"
+    "- BUY <SYMBOL> ~$<notional> @ ~$<entry> stop $<stop> target $<target> "
+    "(R/R ~<n>:1) — <setup name> + catalyst\n"
+    "(one line per executed or proposed new trade; write 'none' if nothing "
+    "or if regime = no-go)\n\n"
     "Watchlist\n"
-    "- <SYMBOL> — waiting on <trigger within 1-2 weeks>\n"
-    "(2-4 names from signals that missed the bar this run)\n\n"
+    "- <SYMBOL> — waiting on <trigger within 1-2 weeks> (<setup name>)\n"
+    "(2-5 names from watchlist/signals that missed the bar this run)\n\n"
     "Risk notes\n"
     "- <one sentence about budget headroom / concentration / macro headlines / "
-    "positions approaching the 2-week exit window>\n\n"
+    "positions approaching the 3-5 day time-stop>\n\n"
     "Feedback to operator\n"
-    "- <one or two sentences describing the single most useful extra data feed, "
-    "signal, or tuning change that would let you perform this role better on the "
-    "next run — e.g. options flow, earnings calendar, analyst PT revisions, "
-    "pre-market quotes, sector ETF correlations, higher LLM_CONCURRENCY, more "
+    "- <one or two sentences naming the single most useful extra data feed, "
+    "signal, or tuning change that would improve the next run - e.g. options "
+    "flow, earnings calendar, sector ETF correlations, pre-market quotes, "
+    "analyst PT revisions, deeper bar history, higher LLM_CONCURRENCY, more "
     "watchlist depth, etc.>\n\n"
-    "Stay under 250 words total. Refer to tickers in ALLCAPS. Never fabricate a "
-    "symbol that is not in the input. If the input is thin, say so briefly in Risk "
-    "notes."
+    "Stay under 300 words. Refer to tickers in ALLCAPS. Never fabricate a "
+    "symbol that is not in the input. Never propose a BUY when Market Regime "
+    "is no-go. If the input is thin, say so briefly in Risk notes."
 )
 
 

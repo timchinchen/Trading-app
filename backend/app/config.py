@@ -6,7 +6,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 # Z droid-controlled - bumped on every droid-authored edit). Reported
 # by /health/setup so the Prerequisites panel can show the same version
 # badge the Settings page does.
-APP_VERSION_BACKEND = "1.0.1"
+APP_VERSION_BACKEND = "1.0.3"
 
 
 class Settings(BaseSettings):
@@ -107,10 +107,10 @@ class Settings(BaseSettings):
     AUTO_SELL_MAX_HOLD_DAYS: int = 30
 
     # ---- LLM provider ----
-    # "ollama" (default, local) or "openai" (hosted, requires OPENAI_API_KEY).
-    # This is the default; the user can override it at runtime from the
-    # Settings page (persisted in the AppSetting table).
-    LLM_PROVIDER: Literal["ollama", "openai"] = "ollama"
+    # One of: "ollama" (default, local), "openai" (hosted, requires key),
+    # "huggingface" (HF Inference API, free serverless tier), or "cohere"
+    # (Cohere chat API, free trial tier). Switch at runtime from Settings.
+    LLM_PROVIDER: Literal["ollama", "openai", "huggingface", "cohere"] = "ollama"
 
     OLLAMA_HOST: str = "http://localhost:11434"
     OLLAMA_MODEL: str = "llama3.1:8b"
@@ -118,6 +118,23 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: str = ""
     OPENAI_MODEL: str = "gpt-4o-mini"
     OPENAI_BASE_URL: str = "https://api.openai.com/v1"
+
+    # Hugging Face Inference API (free serverless tier). Pick a chat-tuned
+    # model - DistilBERT / T5-small are NOT a good fit for JSON ticker
+    # extraction. Default is Mistral-7B-Instruct-v0.3 (free tier). First
+    # call after idle can cold-start ~20s; _chat() retries once on the
+    # "model is loading" 503.
+    HUGGINGFACE_API_KEY: str = ""
+    HUGGINGFACE_MODEL: str = "mistralai/Mistral-7B-Instruct-v0.3"
+    HUGGINGFACE_BASE_URL: str = "https://api-inference.huggingface.co"
+
+    # Cohere chat API (free trial tier: 1000 calls/month, 20/min).
+    # command-r-08-2024 is the cheapest useful chat model. The rate limit
+    # is fine for the once-per-run Deep Analysis LLM (advisor), but hits
+    # the 20/min ceiling if used as the Agent LLM (20-60 tweet calls/run).
+    COHERE_API_KEY: str = ""
+    COHERE_MODEL: str = "command-r-08-2024"
+    COHERE_BASE_URL: str = "https://api.cohere.com/v1"
 
     # ---- Deep Analysis LLM (advisor / portfolio recommender) ----
     # When enabled, the end-of-run advisor call uses a second, independent LLM

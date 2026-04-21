@@ -44,6 +44,31 @@ async def list_models(_user=Depends(get_current_user)):
                 data = r.json()
                 ids = sorted({m.get("id") for m in data.get("data", []) if m.get("id")})
                 return {"models": ids}
+        if rs.llm_provider == "cohere":
+            if not rs.cohere_api_key:
+                return {"models": [], "error": "COHERE_API_KEY not set"}
+            async with httpx.AsyncClient(timeout=15) as c:
+                r = await c.get(
+                    f"{rs.cohere_base_url.rstrip('/')}/models",
+                    headers={"Authorization": f"Bearer {rs.cohere_api_key}"},
+                )
+                r.raise_for_status()
+                data = r.json()
+                names = sorted({m.get("name") for m in data.get("models", []) if m.get("name")})
+                return {"models": names}
+        if rs.llm_provider == "huggingface":
+            # HF has no enumeration endpoint without a search query; return
+            # a short curated list of free-tier chat-capable Instruct models
+            # so the picker isn't empty. Users can still type any model id.
+            return {
+                "models": [
+                    "mistralai/Mistral-7B-Instruct-v0.3",
+                    "mistralai/Mistral-7B-Instruct-v0.2",
+                    "HuggingFaceH4/zephyr-7b-beta",
+                    "meta-llama/Meta-Llama-3-8B-Instruct",
+                    "google/gemma-2-2b-it",
+                ]
+            }
         # Ollama
         async with httpx.AsyncClient(timeout=10) as c:
             r = await c.get(f"{rs.ollama_host.rstrip('/')}/api/tags")
@@ -56,48 +81,34 @@ async def list_models(_user=Depends(get_current_user)):
 
 @router.post("/chat", response_model=ChatOut)
 async def chat(body: ChatIn, _user=Depends(get_current_user)):
+    from ..services.agent.llm import _chat
+
     rs = get_runtime_settings()
     model = body.model or rs.llm_model
     system = body.system or DEFAULT_TRADING_SYSTEM
-    msgs = [{"role": "system", "content": system}] + [
-        {"role": m.role, "content": m.content} for m in body.messages
-    ]
+    # Flatten chat history into the user turn - the shared _chat dispatcher
+    # takes a single system + user string so all four providers behave
+    # identically.
+    user_parts: list[str] = []
+    for m in body.messages:
+        role = m.role.upper() if m.role != "user" else "USER"
+        user_parts.append(f"{role}: {m.content}")
+    user_text = "\n\n".join(user_parts) if user_parts else ""
     t0 = time.time()
     try:
-        if rs.llm_provider == "openai":
-            if not rs.openai_api_key:
-                raise HTTPException(status_code=400, detail="OPENAI_API_KEY not set; configure it in Settings")
-            async with httpx.AsyncClient(timeout=300) as c:
-                r = await c.post(
-                    f"{rs.openai_base_url.rstrip('/')}/chat/completions",
-                    headers={
-                        "Authorization": f"Bearer {rs.openai_api_key}",
-                        "Content-Type": "application/json",
-                    },
-                    json={
-                        "model": model,
-                        "messages": msgs,
-                        "temperature": body.temperature,
-                        "stream": False,
-                    },
-                )
-                r.raise_for_status()
-                data = r.json()
-                content = ((data.get("choices") or [{}])[0].get("message", {}).get("content", "") or "").strip()
-        else:
-            async with httpx.AsyncClient(timeout=300) as c:
-                r = await c.post(
-                    f"{rs.ollama_host.rstrip('/')}/api/chat",
-                    json={
-                        "model": model,
-                        "stream": False,
-                        "messages": msgs,
-                        "options": {"temperature": body.temperature},
-                    },
-                )
-                r.raise_for_status()
-                data = r.json()
-                content = data.get("message", {}).get("content", "").strip()
+        content = await _chat(
+            provider=rs.llm_provider,
+            host=rs.llm_host,
+            model=model,
+            api_key=rs.llm_api_key,
+            system=system,
+            user=user_text,
+            temperature=body.temperature,
+            timeout=300,
+        )
+        content = (content or "").strip()
+    except RuntimeError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except httpx.HTTPError as e:
         raise HTTPException(status_code=502, detail=f"LLM error ({rs.llm_provider}): {e}")
     dt = int((time.time() - t0) * 1000)

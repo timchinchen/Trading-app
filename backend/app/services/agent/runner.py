@@ -442,7 +442,7 @@ async def run_once(broker: AlpacaBroker) -> int:
             async with sem:
                 a = await llm.analyze_tweet(
                     tw["text"], tw["handle"], rs.llm_host, rs.llm_model,
-                    provider=rs.llm_provider, api_key=rs.openai_api_key,
+                    provider=rs.llm_provider, api_key=rs.llm_api_key,
                 )
             analyses.append({"tweet": tw, "analysis": a})
 

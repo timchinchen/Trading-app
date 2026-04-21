@@ -171,14 +171,24 @@ export interface LLMInfo {
   default_model: string
 }
 
+export type LLMProvider = 'ollama' | 'openai' | 'huggingface' | 'cohere'
+
 export interface AgentSettings {
-  llm_provider: 'ollama' | 'openai'
+  llm_provider: LLMProvider
   ollama_host: string
   ollama_model: string
   openai_model: string
   openai_base_url: string
   openai_api_key_set: boolean
   openai_api_key_preview: string
+  huggingface_model: string
+  huggingface_base_url: string
+  huggingface_api_key_set: boolean
+  huggingface_api_key_preview: string
+  cohere_model: string
+  cohere_base_url: string
+  cohere_api_key_set: boolean
+  cohere_api_key_preview: string
   deep_llm_enabled: boolean
   deep_llm_provider: 'ollama' | 'openai' | ''
   deep_llm_ollama_host: string
@@ -233,12 +243,18 @@ export interface AgentSettings {
 }
 
 export type AgentSettingsUpdate = Partial<{
-  LLM_PROVIDER: 'ollama' | 'openai'
+  LLM_PROVIDER: LLMProvider
   OLLAMA_HOST: string
   OLLAMA_MODEL: string
   OPENAI_API_KEY: string
   OPENAI_MODEL: string
   OPENAI_BASE_URL: string
+  HUGGINGFACE_API_KEY: string
+  HUGGINGFACE_MODEL: string
+  HUGGINGFACE_BASE_URL: string
+  COHERE_API_KEY: string
+  COHERE_MODEL: string
+  COHERE_BASE_URL: string
   DEEP_LLM_ENABLED: boolean
   DEEP_LLM_PROVIDER: 'ollama' | 'openai'
   DEEP_LLM_OLLAMA_HOST: string

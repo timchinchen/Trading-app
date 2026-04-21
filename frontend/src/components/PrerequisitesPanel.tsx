@@ -23,6 +23,8 @@ const ROWS: { key: string; label: string; kind: RowKind }[] = [
   { key: 'alpaca', label: 'Alpaca', kind: 'required' },
   { key: 'ollama', label: 'Ollama (local LLM)', kind: 'optional' },
   { key: 'openai', label: 'OpenAI key', kind: 'optional' },
+  { key: 'huggingface', label: 'Hugging Face key', kind: 'optional' },
+  { key: 'cohere', label: 'Cohere key', kind: 'optional' },
   { key: 'playwright', label: 'Playwright chromium', kind: 'optional' },
   { key: 'fmp', label: 'FMP (fundamentals)', kind: 'optional' },
   { key: 'stocktwits', label: 'Stocktwits cookies', kind: 'optional' },
@@ -105,6 +107,10 @@ const OPTIONAL_ENV = `AGENT_ENABLED=false
 OLLAMA_HOST=http://localhost:11434
 OLLAMA_MODEL=llama3.1:8b
 OPENAI_API_KEY=
+HUGGINGFACE_API_KEY=
+HUGGINGFACE_MODEL=mistralai/Mistral-7B-Instruct-v0.3
+COHERE_API_KEY=
+COHERE_MODEL=command-r-08-2024
 FMP_API_KEY=
 SEC_USER_AGENT=YourApp (personal) you@example.com
 TWITTER_ACCOUNTS=PeterLBrandt,LindaRaschke`

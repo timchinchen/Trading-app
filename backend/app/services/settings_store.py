@@ -31,6 +31,12 @@ EDITABLE_KEYS: dict[str, type] = {
     "OPENAI_API_KEY": str,
     "OPENAI_MODEL": str,
     "OPENAI_BASE_URL": str,
+    "HUGGINGFACE_API_KEY": str,
+    "HUGGINGFACE_MODEL": str,
+    "HUGGINGFACE_BASE_URL": str,
+    "COHERE_API_KEY": str,
+    "COHERE_MODEL": str,
+    "COHERE_BASE_URL": str,
     # Deep Analysis LLM (advisor). Empty string = fall back to Agent LLM.
     "DEEP_LLM_ENABLED": bool,
     "DEEP_LLM_PROVIDER": str,
@@ -89,6 +95,8 @@ EDITABLE_KEYS: dict[str, type] = {
 # Keys whose value should be masked when the API returns the current settings.
 SECRET_KEYS = {
     "OPENAI_API_KEY",
+    "HUGGINGFACE_API_KEY",
+    "COHERE_API_KEY",
     "FMP_API_KEY",
     "STOCKTWITS_COOKIES",
     "DEEP_LLM_OPENAI_API_KEY",
@@ -119,6 +127,12 @@ class RuntimeSettings:
     openai_api_key: str = ""
     openai_model: str = ""
     openai_base_url: str = ""
+    huggingface_api_key: str = ""
+    huggingface_model: str = ""
+    huggingface_base_url: str = ""
+    cohere_api_key: str = ""
+    cohere_model: str = ""
+    cohere_base_url: str = ""
     # Deep Analysis LLM (advisor). Empty-string slots fall back to the
     # matching Agent LLM value via the deep_llm_* resolver properties.
     deep_llm_enabled: bool = False
@@ -182,11 +196,37 @@ class RuntimeSettings:
 
     @property
     def llm_model(self) -> str:
-        return self.openai_model if self.llm_provider == "openai" else self.ollama_model
+        p = (self.llm_provider or "ollama").lower()
+        if p == "openai":
+            return self.openai_model
+        if p == "huggingface":
+            return self.huggingface_model
+        if p == "cohere":
+            return self.cohere_model
+        return self.ollama_model
 
     @property
     def llm_host(self) -> str:
-        return self.openai_base_url if self.llm_provider == "openai" else self.ollama_host
+        p = (self.llm_provider or "ollama").lower()
+        if p == "openai":
+            return self.openai_base_url
+        if p == "huggingface":
+            return self.huggingface_base_url
+        if p == "cohere":
+            return self.cohere_base_url
+        return self.ollama_host
+
+    @property
+    def llm_api_key(self) -> str:
+        """Effective API key for the active Agent LLM provider (empty for Ollama)."""
+        p = (self.llm_provider or "ollama").lower()
+        if p == "openai":
+            return self.openai_api_key
+        if p == "huggingface":
+            return self.huggingface_api_key
+        if p == "cohere":
+            return self.cohere_api_key
+        return ""
 
     # -- Deep Analysis LLM resolvers --------------------------------------- #
     # Each returns the effective value used for the advisor call. When
@@ -254,6 +294,12 @@ def get_runtime_settings(db: Session | None = None) -> RuntimeSettings:
         openai_api_key=str(pick("OPENAI_API_KEY", str)),
         openai_model=str(pick("OPENAI_MODEL", str)),
         openai_base_url=str(pick("OPENAI_BASE_URL", str)),
+        huggingface_api_key=str(pick("HUGGINGFACE_API_KEY", str)),
+        huggingface_model=str(pick("HUGGINGFACE_MODEL", str)),
+        huggingface_base_url=str(pick("HUGGINGFACE_BASE_URL", str)),
+        cohere_api_key=str(pick("COHERE_API_KEY", str)),
+        cohere_model=str(pick("COHERE_MODEL", str)),
+        cohere_base_url=str(pick("COHERE_BASE_URL", str)),
         deep_llm_enabled=bool(pick("DEEP_LLM_ENABLED", bool)),
         deep_llm_provider=str(pick("DEEP_LLM_PROVIDER", str)),
         deep_llm_ollama_host=str(pick("DEEP_LLM_OLLAMA_HOST", str)),
@@ -343,6 +389,22 @@ def public_view(rs: RuntimeSettings) -> dict[str, Any]:
             (rs.openai_api_key[:6] + "..." + rs.openai_api_key[-4:])
             if len(rs.openai_api_key) >= 12
             else ("set" if rs.openai_api_key else "")
+        ),
+        "huggingface_model": rs.huggingface_model,
+        "huggingface_base_url": rs.huggingface_base_url,
+        "huggingface_api_key_set": bool(rs.huggingface_api_key),
+        "huggingface_api_key_preview": (
+            (rs.huggingface_api_key[:6] + "..." + rs.huggingface_api_key[-4:])
+            if len(rs.huggingface_api_key) >= 12
+            else ("set" if rs.huggingface_api_key else "")
+        ),
+        "cohere_model": rs.cohere_model,
+        "cohere_base_url": rs.cohere_base_url,
+        "cohere_api_key_set": bool(rs.cohere_api_key),
+        "cohere_api_key_preview": (
+            (rs.cohere_api_key[:6] + "..." + rs.cohere_api_key[-4:])
+            if len(rs.cohere_api_key) >= 12
+            else ("set" if rs.cohere_api_key else "")
         ),
         "deep_llm_enabled": rs.deep_llm_enabled,
         "deep_llm_provider": rs.deep_llm_provider,
