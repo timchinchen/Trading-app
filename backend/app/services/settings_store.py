@@ -298,6 +298,21 @@ def get_runtime_settings(db: Session | None = None) -> RuntimeSettings:
                 row.value = new_url
                 db.commit()  # type: ignore[union-attr]
             overrides["HUGGINGFACE_BASE_URL"] = new_url
+        # HF also removed Mistral-7B-Instruct-v0.3 from the routed-chat
+        # list - it now returns 400 "not a chat model". Anyone who saved
+        # the default from v1.0.3-v1.0.6 is stuck on it until they pick a
+        # new one. Silently bump them to the new working default.
+        if overrides.get("HUGGINGFACE_MODEL") == "mistralai/Mistral-7B-Instruct-v0.3":
+            new_model = "meta-llama/Llama-3.1-8B-Instruct"
+            row = (
+                db.query(AppSetting)  # type: ignore[union-attr]
+                .filter(AppSetting.key == "HUGGINGFACE_MODEL")
+                .first()
+            )
+            if row:
+                row.value = new_model
+                db.commit()  # type: ignore[union-attr]
+            overrides["HUGGINGFACE_MODEL"] = new_model
     finally:
         if own_session:
             db.close()  # type: ignore[union-attr]

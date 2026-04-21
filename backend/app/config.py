@@ -6,7 +6,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 # Z droid-controlled - bumped on every droid-authored edit). Reported
 # by /health/setup so the Prerequisites panel can show the same version
 # badge the Settings page does.
-APP_VERSION_BACKEND = "1.0.6"
+APP_VERSION_BACKEND = "1.0.7"
 
 
 class Settings(BaseSettings):
@@ -125,7 +125,11 @@ class Settings(BaseSettings):
     # Instruct model. First call after idle can cold-start ~20s;
     # _chat() retries once on the "model is loading" 503.
     HUGGINGFACE_API_KEY: str = ""
-    HUGGINGFACE_MODEL: str = "mistralai/Mistral-7B-Instruct-v0.3"
+    # Pick a model the HF router actually exposes on /v1/chat/completions.
+    # Mistral-7B-Instruct-v0.3 was removed from the routed list (router
+    # responds 400 "not a chat model"). Llama-3.1-8B-Instruct is currently
+    # served free via novita / cerebras / nscale / scaleway / featherless.
+    HUGGINGFACE_MODEL: str = "meta-llama/Llama-3.1-8B-Instruct"
     HUGGINGFACE_BASE_URL: str = "https://router.huggingface.co/v1"
 
     # Cohere chat API (free trial tier: 1000 calls/month, 20/min).

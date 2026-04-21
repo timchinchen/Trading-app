@@ -308,7 +308,7 @@ function LLMProviderCard({ s }: { s: AgentSettings }) {
             <input
               value={hfModel}
               onChange={(e) => setHfModel(e.target.value)}
-              placeholder="mistralai/Mistral-7B-Instruct-v0.3"
+              placeholder="meta-llama/Llama-3.1-8B-Instruct"
               className="px-3 py-2 rounded-md text-sm w-full max-w-md font-mono"
             />
           </div>

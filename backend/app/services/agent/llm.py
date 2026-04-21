@@ -134,7 +134,7 @@ async def _chat(
             base = "https://router.huggingface.co/v1"
         url = f"{base}/chat/completions"
         payload: dict[str, Any] = {
-            "model": model or "mistralai/Mistral-7B-Instruct-v0.3",
+            "model": model or "meta-llama/Llama-3.1-8B-Instruct",
             "messages": [
                 {"role": "system", "content": system},
                 {"role": "user", "content": user},
@@ -155,7 +155,20 @@ async def _chat(
                 if r.status_code == 503 and attempt == 0:
                     await asyncio.sleep(3.0)
                     continue
-                r.raise_for_status()
+                # HF's router returns 400 with a structured JSON body
+                # (e.g. {"error":{"message":"is not a chat model"}}) when
+                # the selected model isn't routable through
+                # /v1/chat/completions. Surface that body instead of the
+                # bare URL so users can see the actionable reason in the
+                # Chat window / agent logs.
+                if r.status_code >= 400:
+                    try:
+                        body = r.json()
+                    except Exception:
+                        body = r.text
+                    raise RuntimeError(
+                        f"Hugging Face router {r.status_code}: {body}"
+                    )
                 break
             data = r.json()
             return (data.get("choices") or [{}])[0].get("message", {}).get("content", "") or ""

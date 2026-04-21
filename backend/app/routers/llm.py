@@ -57,16 +57,39 @@ async def list_models(_user=Depends(get_current_user)):
                 names = sorted({m.get("name") for m in data.get("models", []) if m.get("name")})
                 return {"models": names}
         if rs.llm_provider == "huggingface":
-            # HF has no enumeration endpoint without a search query; return
-            # a short curated list of free-tier chat-capable Instruct models
-            # so the picker isn't empty. Users can still type any model id.
+            # Query the router's /v1/models endpoint (OpenAI-compatible) to
+            # get models that are actually live on /v1/chat/completions.
+            # Falls back to a curated verified-working list when the
+            # router is unreachable or returns an empty set.
+            try:
+                async with httpx.AsyncClient(timeout=10) as c:
+                    r = await c.get(
+                        f"{rs.huggingface_base_url.rstrip('/')}/models",
+                        headers={"Authorization": f"Bearer {rs.huggingface_api_key}"}
+                        if rs.huggingface_api_key
+                        else {},
+                    )
+                    r.raise_for_status()
+                    data = r.json()
+                    ids = sorted(
+                        {
+                            m.get("id")
+                            for m in data.get("data", [])
+                            if m.get("id")
+                        }
+                    )
+                    if ids:
+                        return {"models": ids}
+            except Exception:
+                pass
             return {
                 "models": [
-                    "mistralai/Mistral-7B-Instruct-v0.3",
-                    "mistralai/Mistral-7B-Instruct-v0.2",
-                    "HuggingFaceH4/zephyr-7b-beta",
+                    "meta-llama/Llama-3.1-8B-Instruct",
                     "meta-llama/Meta-Llama-3-8B-Instruct",
-                    "google/gemma-2-2b-it",
+                    "meta-llama/Llama-3.3-70B-Instruct",
+                    "Qwen/Qwen2.5-7B-Instruct",
+                    "Qwen/Qwen3-8B",
+                    "openai/gpt-oss-20b",
                 ]
             }
         # Ollama
