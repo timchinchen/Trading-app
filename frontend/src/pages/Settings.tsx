@@ -8,6 +8,7 @@ import {
   useUpdateAgentSettings,
 } from '../api/hooks'
 import type { AgentSettings, AgentSettingsUpdate } from '../api/types'
+import { APP_VERSION } from '../version'
 
 function Row({
   label,
@@ -1118,6 +1119,169 @@ function ScraperCadenceCard({ s }: { s: AgentSettings }) {
   )
 }
 
+// ----- Swing-trading skill (1-2 week horizon) -----
+function SwingTradingCard({ s }: { s: AgentSettings }) {
+  const upd = useUpdateAgentSettings()
+  const [enabled, setEnabled] = useState(s.swing_enabled)
+  const [riskPct, setRiskPct] = useState(s.swing_risk_per_trade_pct)
+  const [minRR, setMinRR] = useState(s.swing_min_rr)
+  const [timeStop, setTimeStop] = useState(s.swing_time_stop_days)
+  const [moveBe, setMoveBe] = useState(s.swing_move_stop_be_pct)
+  const [partial, setPartial] = useState(s.swing_partial_pct)
+  const [filterSym, setFilterSym] = useState(s.swing_market_filter_symbol)
+  const [filterMa, setFilterMa] = useState(s.swing_market_filter_ma)
+  const [lookback, setLookback] = useState(s.swing_bar_lookback_days)
+
+  useEffect(() => {
+    setEnabled(s.swing_enabled)
+    setRiskPct(s.swing_risk_per_trade_pct)
+    setMinRR(s.swing_min_rr)
+    setTimeStop(s.swing_time_stop_days)
+    setMoveBe(s.swing_move_stop_be_pct)
+    setPartial(s.swing_partial_pct)
+    setFilterSym(s.swing_market_filter_symbol)
+    setFilterMa(s.swing_market_filter_ma)
+    setLookback(s.swing_bar_lookback_days)
+  }, [s])
+
+  const save = () =>
+    upd.mutate({
+      SWING_ENABLED: enabled,
+      SWING_RISK_PER_TRADE_PCT: Number(riskPct),
+      SWING_MIN_RR: Number(minRR),
+      SWING_TIME_STOP_DAYS: Number(timeStop),
+      SWING_MOVE_STOP_BE_PCT: Number(moveBe),
+      SWING_PARTIAL_PCT: Number(partial),
+      SWING_MARKET_FILTER_SYMBOL: filterSym,
+      SWING_MARKET_FILTER_MA: Number(filterMa),
+      SWING_BAR_LOOKBACK_DAYS: Number(lookback),
+    })
+
+  const Num = ({
+    value,
+    onChange,
+    step = '1',
+  }: {
+    value: number
+    onChange: (n: number) => void
+    step?: string
+  }) => (
+    <input
+      type="number"
+      step={step}
+      value={value}
+      onChange={(e) => onChange(Number(e.target.value))}
+      className="px-3 py-2 rounded-md text-sm w-32"
+    />
+  )
+
+  return (
+    <Card title="Swing-trading skill (1-2 week horizon)">
+      <p className="text-xs text-muted-foreground mb-3">
+        Layer the four approved setups (trend pullback, breakout,
+        oversold bounce, earnings/news momentum) on top of the tweet pipeline.
+        Every run applies the setup scanner to every watchlist symbol, sizes
+        positions by 1% risk against a concrete stop, and enforces the
+        market-regime filter + trade-management rules (stop hit / time stop /
+        breakeven bump). When <strong>regime = no-go</strong>, all BUYs
+        become watch-only.
+      </p>
+
+      <div className="grid grid-cols-[220px_1fr] gap-2 py-2 border-b border-border">
+        <div className="text-xs text-muted-foreground uppercase tracking-wider self-center">
+          SWING_ENABLED
+          <OverrideBadge k="SWING_ENABLED" overridden={s.overridden} />
+        </div>
+        <label className="flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={enabled}
+            onChange={(e) => setEnabled(e.target.checked)}
+          />
+          Run the swing scanner on every agent run
+        </label>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6">
+        <div className="grid grid-cols-[180px_1fr] gap-2 py-2 border-b border-border">
+          <div className="text-xs text-muted-foreground uppercase tracking-wider self-center">
+            RISK_PER_TRADE
+            <OverrideBadge k="SWING_RISK_PER_TRADE_PCT" overridden={s.overridden} />
+          </div>
+          <Num value={riskPct} onChange={setRiskPct} step="0.005" />
+        </div>
+        <div className="grid grid-cols-[180px_1fr] gap-2 py-2 border-b border-border">
+          <div className="text-xs text-muted-foreground uppercase tracking-wider self-center">
+            MIN_R/R
+            <OverrideBadge k="SWING_MIN_RR" overridden={s.overridden} />
+          </div>
+          <Num value={minRR} onChange={setMinRR} step="0.25" />
+        </div>
+        <div className="grid grid-cols-[180px_1fr] gap-2 py-2 border-b border-border">
+          <div className="text-xs text-muted-foreground uppercase tracking-wider self-center">
+            TIME_STOP_DAYS
+            <OverrideBadge k="SWING_TIME_STOP_DAYS" overridden={s.overridden} />
+          </div>
+          <Num value={timeStop} onChange={setTimeStop} step="1" />
+        </div>
+        <div className="grid grid-cols-[180px_1fr] gap-2 py-2 border-b border-border">
+          <div className="text-xs text-muted-foreground uppercase tracking-wider self-center">
+            MOVE_STOP_BE_PCT
+            <OverrideBadge k="SWING_MOVE_STOP_BE_PCT" overridden={s.overridden} />
+          </div>
+          <Num value={moveBe} onChange={setMoveBe} step="0.01" />
+        </div>
+        <div className="grid grid-cols-[180px_1fr] gap-2 py-2 border-b border-border">
+          <div className="text-xs text-muted-foreground uppercase tracking-wider self-center">
+            PARTIAL_PCT
+            <OverrideBadge k="SWING_PARTIAL_PCT" overridden={s.overridden} />
+          </div>
+          <Num value={partial} onChange={setPartial} step="0.01" />
+        </div>
+        <div className="grid grid-cols-[180px_1fr] gap-2 py-2 border-b border-border">
+          <div className="text-xs text-muted-foreground uppercase tracking-wider self-center">
+            FILTER_SYMBOL
+            <OverrideBadge k="SWING_MARKET_FILTER_SYMBOL" overridden={s.overridden} />
+          </div>
+          <input
+            type="text"
+            value={filterSym}
+            onChange={(e) => setFilterSym(e.target.value.toUpperCase())}
+            className="px-3 py-2 rounded-md text-sm w-32"
+          />
+        </div>
+        <div className="grid grid-cols-[180px_1fr] gap-2 py-2 border-b border-border">
+          <div className="text-xs text-muted-foreground uppercase tracking-wider self-center">
+            FILTER_MA
+            <OverrideBadge k="SWING_MARKET_FILTER_MA" overridden={s.overridden} />
+          </div>
+          <Num value={filterMa} onChange={setFilterMa} step="5" />
+        </div>
+        <div className="grid grid-cols-[180px_1fr] gap-2 py-2 border-b border-border">
+          <div className="text-xs text-muted-foreground uppercase tracking-wider self-center">
+            BAR_LOOKBACK_DAYS
+            <OverrideBadge k="SWING_BAR_LOOKBACK_DAYS" overridden={s.overridden} />
+          </div>
+          <Num value={lookback} onChange={setLookback} step="10" />
+        </div>
+      </div>
+
+      <div className="flex items-center gap-3 pt-4">
+        <button
+          onClick={save}
+          disabled={upd.isPending}
+          className="btn-primary px-4 py-2 rounded-lg"
+        >
+          {upd.isPending ? 'Saving...' : 'Save swing rules'}
+        </button>
+        {upd.isSuccess && !upd.isPending && (
+          <span className="text-xs text-success">saved</span>
+        )}
+      </div>
+    </Card>
+  )
+}
+
 // ----- Manual-order safety cap (replaces MAX_ORDER_NOTIONAL) -----
 function ManualOrderSafetyCard({ s }: { s: AgentSettings }) {
   const upd = useUpdateAgentSettings()
@@ -1188,7 +1352,18 @@ export function SettingsPage() {
   return (
     <div className="p-6 space-y-6 max-w-5xl">
       <div>
-        <h1 className="text-2xl font-semibold">Settings & Configuration</h1>
+        <div className="flex items-baseline justify-between gap-3">
+          <h1 className="text-2xl font-semibold">Settings & Configuration</h1>
+          <a
+            href={`https://github.com/timchinchen/Trading-app/releases/tag/v${APP_VERSION}`}
+            target="_blank"
+            rel="noreferrer"
+            title="GitHub release tag matching this build (X.Y human-controlled, Z droid-controlled)"
+            className="text-xs font-mono px-2 py-1 rounded border border-border text-muted-foreground hover:text-primary hover:border-primary/40"
+          >
+            v{APP_VERSION}
+          </a>
+        </div>
         <p className="text-xs text-muted-foreground mt-1">
           Defaults come from <code className="text-primary">backend/.env</code> at
           startup. Anything you change in the editable cards below is persisted in
@@ -1258,6 +1433,7 @@ export function SettingsPage() {
           <StocktwitsCard s={agentSettings} />
           <AgentBudgetCard s={agentSettings} />
           <AgentThresholdsCard s={agentSettings} />
+          <SwingTradingCard s={agentSettings} />
           <ScraperCadenceCard s={agentSettings} />
           <ManualOrderSafetyCard s={agentSettings} />
           <TwitterAccountsCard s={agentSettings} />
