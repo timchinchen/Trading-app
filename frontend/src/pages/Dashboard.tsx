@@ -3,6 +3,8 @@ import { Link } from 'react-router-dom'
 import {
   useAccount,
   useAddWatch,
+  useCompressDigest,
+  useDigest,
   usePositions,
   useRemoveWatch,
   useUpdateFeed,
@@ -38,6 +40,117 @@ function Card({
   )
 }
 
+function TradingMemoryCard() {
+  const { data, isLoading } = useDigest()
+  const compress = useCompressDigest()
+  const [showEntries, setShowEntries] = useState(false)
+
+  const latest = data?.latest
+  const nextAt = data?.next_compression_at
+  const entries = data?.recent_entries ?? []
+
+  return (
+    <Card
+      title="Trading Memory"
+      action={
+        <div className="flex gap-2 items-center text-xs text-muted-foreground">
+          {nextAt && (
+            <span>next auto: {new Date(nextAt).toLocaleString()}</span>
+          )}
+          <button
+            onClick={() => setShowEntries((v) => !v)}
+            className="text-xs text-primary hover:underline"
+          >
+            {showEntries ? 'hide log' : `log (${entries.length})`}
+          </button>
+          <button
+            onClick={() => compress.mutate()}
+            disabled={compress.isPending}
+            className="btn-primary px-3 py-1 text-xs rounded-md disabled:opacity-50"
+          >
+            {compress.isPending ? 'compressing…' : 'compress now'}
+          </button>
+        </div>
+      }
+    >
+      {isLoading ? (
+        <div className="text-sm text-muted-foreground">loading…</div>
+      ) : latest ? (
+        <div className="space-y-3">
+          <div className="flex items-center justify-between text-xs text-muted-foreground">
+            <span>
+              {latest.trade_date} · {latest.entries_covered} events ·{' '}
+              {latest.model_used || 'n/a'}
+            </span>
+            <span>
+              generated {new Date(latest.generated_at).toLocaleString()}
+            </span>
+          </div>
+          <pre className="whitespace-pre-wrap text-sm leading-relaxed font-sans">
+            {latest.text}
+          </pre>
+          {data && data.history.length > 1 && (
+            <details className="text-xs text-muted-foreground">
+              <summary className="cursor-pointer hover:text-foreground">
+                earlier digests ({data.history.length - 1})
+              </summary>
+              <div className="space-y-3 mt-3">
+                {data.history.slice(1).map((d) => (
+                  <div key={d.id} className="border-t border-border pt-2">
+                    <div className="text-muted-foreground mb-1">
+                      {d.trade_date} · {d.entries_covered} events
+                    </div>
+                    <pre className="whitespace-pre-wrap text-xs leading-relaxed font-sans">
+                      {d.text}
+                    </pre>
+                  </div>
+                ))}
+              </div>
+            </details>
+          )}
+        </div>
+      ) : (
+        <div className="text-sm text-muted-foreground space-y-2">
+          <p>
+            No compressed digest yet. The agent will record events over the
+            next few runs; the first daily summary fires at 09:30 ET.
+          </p>
+          <p>
+            You can also click <strong>compress now</strong> to force an
+            immediate summary once there are at least a few entries.
+          </p>
+        </div>
+      )}
+
+      {showEntries && (
+        <div className="border-t border-border pt-3 mt-3">
+          <div className="text-xs text-muted-foreground mb-2">
+            Raw event log (most recent first):
+          </div>
+          {entries.length === 0 ? (
+            <div className="text-sm text-muted-foreground">(empty)</div>
+          ) : (
+            <ul className="space-y-1 text-xs max-h-60 overflow-auto">
+              {entries.map((e) => (
+                <li key={e.id} className="flex gap-2">
+                  <span className="text-muted-foreground tabular-nums shrink-0">
+                    {new Date(e.created_at).toLocaleString()}
+                  </span>
+                  <span className="text-primary shrink-0">{e.kind}</span>
+                  {e.symbol && (
+                    <span className="text-foreground shrink-0">{e.symbol}</span>
+                  )}
+                  <span className="text-muted-foreground">{e.summary}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+    </Card>
+  )
+}
+
 export function DashboardPage() {
   const { data: account } = useAccount()
   const { data: positions } = usePositions()
@@ -53,6 +166,8 @@ export function DashboardPage() {
 
   return (
     <div className="p-6 space-y-6">
+      <TradingMemoryCard />
+
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <Card title="Account">
           {account ? (

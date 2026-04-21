@@ -12,6 +12,8 @@ import type {
   AgentTweetAnalysis,
   ChatMessage,
   ChatResponse,
+  DailyDigest,
+  DigestSummary,
   LLMInfo,
   LLMModels,
   Mode,
@@ -209,6 +211,22 @@ export const useUpdateAgentSettings = () => {
       qc.invalidateQueries({ queryKey: ['agent'] })
       qc.invalidateQueries({ queryKey: ['llm'] })
     },
+  })
+}
+
+export const useDigest = () =>
+  useQuery({
+    queryKey: ['digest'],
+    queryFn: async () => (await api.get<DigestSummary>('/digest')).data,
+    refetchInterval: 60_000,
+  })
+
+export const useCompressDigest = () => {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async () =>
+      (await api.post<DailyDigest | null>('/digest/compress?force=true')).data,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['digest'] }),
   })
 }
 

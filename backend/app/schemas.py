@@ -1,6 +1,6 @@
 from datetime import datetime
 from typing import Literal, Optional
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 
 class RegisterIn(BaseModel):
@@ -170,6 +170,11 @@ class AgentTradeOut(BaseModel):
     reason: Optional[str]
     mode: str
     created_at: datetime
+    setup_type: Optional[str] = None
+    entry_price: Optional[float] = None
+    stop_price: Optional[float] = None
+    target_price: Optional[float] = None
+    risk_reward: Optional[float] = None
     class Config:
         from_attributes = True
 
@@ -201,6 +206,38 @@ class AgentTweetAnalysisOut(BaseModel):
     created_at: datetime
     class Config:
         from_attributes = True
+
+
+class DigestEntryOut(BaseModel):
+    id: int
+    created_at: datetime
+    kind: str
+    symbol: Optional[str] = None
+    summary: str
+    data_json: Optional[str] = None
+    class Config:
+        from_attributes = True
+
+
+class DailyDigestOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True, protected_namespaces=())
+    id: int
+    trade_date: str
+    generated_at: datetime
+    entries_covered: int
+    window_start: Optional[datetime] = None
+    window_end: Optional[datetime] = None
+    model_used: Optional[str] = None
+    text: str
+
+
+class DigestSummaryOut(BaseModel):
+    """Payload for the Dashboard 'Trading Memory' panel: latest compressed
+    summary + tail of raw entries + next scheduled compression time."""
+    latest: Optional[DailyDigestOut] = None
+    history: list[DailyDigestOut]
+    recent_entries: list[DigestEntryOut]
+    next_compression_at: Optional[datetime] = None
 
 
 class ChatMessage(BaseModel):

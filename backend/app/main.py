@@ -28,7 +28,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from .config import settings
 from .db import init_db
 from .deps import get_broker, get_market_data
-from .routers import account, agent, auth, llm, orders, quotes, watchlist, ws
+from .routers import account, agent, auth, digest, llm, orders, quotes, watchlist, ws
 from .services.agent.scheduler import AgentScheduler
 
 agent_scheduler: AgentScheduler | None = None
@@ -95,4 +95,5 @@ app.include_router(quotes.router)
 app.include_router(watchlist.router)
 app.include_router(ws.router)
 app.include_router(agent.router)
+app.include_router(digest.router)
 app.include_router(llm.router)

@@ -100,6 +100,40 @@ class AgentTrade(Base):
     reason = Column(String)
     mode = Column(String, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    # Swing-trading plan snapshot at the moment this trade was emitted.
+    # Persisted so the Agent UI can show setup/stop/target and the trade-
+    # management pass on the next run can detect stop-hits without refetching.
+    setup_type = Column(String)
+    entry_price = Column(Float)
+    stop_price = Column(Float)
+    target_price = Column(Float)
+    risk_reward = Column(Float)
+
+
+class AgentPositionPlan(Base):
+    """Per-symbol swing plan for a currently-open position. One row per symbol
+    (latest-wins) so the trade-management pass can answer:
+      - has the stop been hit?
+      - is the position up enough to move stop to breakeven?
+      - is the position past its time stop?
+    Written by the runner when a BUY plan is proposed/executed; cleared
+    (status='closed') when the position is exited.
+    """
+    __tablename__ = "agent_position_plans"
+    id = Column(Integer, primary_key=True)
+    symbol = Column(String, nullable=False, index=True, unique=True)
+    run_id = Column(Integer, ForeignKey("agent_runs.id"), index=True)
+    setup_type = Column(String, nullable=False)
+    entry_price = Column(Float, nullable=False)
+    stop_price = Column(Float, nullable=False)
+    target_price = Column(Float, nullable=False)
+    risk_reward = Column(Float, nullable=False)
+    opened_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    breakeven_moved = Column(Integer, default=0, nullable=False)  # 0|1
+    partial_taken = Column(Integer, default=0, nullable=False)    # 0|1
+    status = Column(String, default="open", nullable=False)       # open|closed
+    notes = Column(String)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
 
 class AppSetting(Base):
@@ -121,6 +155,40 @@ class TwitterUserCache(Base):
     user_id = Column(String, nullable=False)
     resolved_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     not_found = Column(Integer, default=0, nullable=False)  # 1 if X said 'not found'
+
+
+class DigestEntry(Base):
+    """Append-only rolling log of notable events the agent, advisor, order
+    pipeline, and scrapers emit. Pruned after ~7 days (compressed into
+    DailyDigest rows before deletion) so we keep the raw log small and rely
+    on the daily summaries for long-term memory.
+    """
+    __tablename__ = "digest_entries"
+    id = Column(Integer, primary_key=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    kind = Column(String, nullable=False, index=True)
+    # agent_run | advisor | trade_exec | swing_setup | regime_flip |
+    # intel_highlight | watchlist_delta | settings_change | error
+    symbol = Column(String, index=True)      # optional ticker focus
+    summary = Column(String, nullable=False) # short human-readable one-liner
+    data_json = Column(String)               # optional JSON payload for richer context
+
+
+class DailyDigest(Base):
+    """Compressed daily trading memory. Produced once per trading day at the
+    09:30 ET open by the Deep Analysis LLM, covering the last 7 days of
+    DigestEntry rows. These rows are kept forever and are what the advisor
+    sees as long-term memory on every subsequent run.
+    """
+    __tablename__ = "daily_digests"
+    id = Column(Integer, primary_key=True)
+    trade_date = Column(String, nullable=False, unique=True, index=True)  # YYYY-MM-DD (US/Eastern)
+    generated_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    entries_covered = Column(Integer, default=0, nullable=False)
+    window_start = Column(DateTime)         # first entry covered (UTC)
+    window_end = Column(DateTime)           # last entry covered (UTC)
+    model_used = Column(String)             # provider:model string that produced this digest
+    text = Column(String, nullable=False)   # the compressed paragraph shown on the dashboard
 
 
 class AgentTweetAnalysis(Base):

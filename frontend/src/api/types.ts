@@ -119,6 +119,12 @@ export interface AgentTrade {
   reason?: string | null
   mode: string
   created_at: string
+  // Swing-skill plan snapshot (null for legacy tweet-only proposals).
+  setup_type?: string | null
+  entry_price?: number | null
+  stop_price?: number | null
+  target_price?: number | null
+  risk_reward?: number | null
 }
 
 export interface AgentAccountCache {
@@ -209,6 +215,15 @@ export interface AgentSettings {
   poll_interval_seconds: number
   manual_order_max_notional: number
   twitter_accounts: string
+  swing_enabled: boolean
+  swing_risk_per_trade_pct: number
+  swing_min_rr: number
+  swing_time_stop_days: number
+  swing_move_stop_be_pct: number
+  swing_partial_pct: number
+  swing_market_filter_symbol: string
+  swing_market_filter_ma: number
+  swing_bar_lookback_days: number
   overridden: string[]
 }
 
@@ -252,9 +267,45 @@ export type AgentSettingsUpdate = Partial<{
   POLL_INTERVAL_SECONDS: number
   MANUAL_ORDER_MAX_NOTIONAL: number
   TWITTER_ACCOUNTS: string
+  SWING_ENABLED: boolean
+  SWING_RISK_PER_TRADE_PCT: number
+  SWING_MIN_RR: number
+  SWING_TIME_STOP_DAYS: number
+  SWING_MOVE_STOP_BE_PCT: number
+  SWING_PARTIAL_PCT: number
+  SWING_MARKET_FILTER_SYMBOL: string
+  SWING_MARKET_FILTER_MA: number
+  SWING_BAR_LOOKBACK_DAYS: number
 }>
 
 export interface LLMModels {
   models: string[]
   error?: string
+}
+
+export interface DigestEntry {
+  id: number
+  created_at: string
+  kind: string
+  symbol?: string | null
+  summary: string
+  data_json?: string | null
+}
+
+export interface DailyDigest {
+  id: number
+  trade_date: string
+  generated_at: string
+  entries_covered: number
+  window_start?: string | null
+  window_end?: string | null
+  model_used?: string | null
+  text: string
+}
+
+export interface DigestSummary {
+  latest: DailyDigest | null
+  history: DailyDigest[]
+  recent_entries: DigestEntry[]
+  next_compression_at?: string | null
 }
