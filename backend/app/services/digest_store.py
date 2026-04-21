@@ -27,6 +27,12 @@ from ..models import DailyDigest, DigestEntry
 RAW_RETENTION_DAYS = 7
 COMPRESS_WINDOW_DAYS = 7
 ADVISOR_CONTEXT_DIGESTS = 3
+# Budget for the memory prefix injected into every advisor prompt. Caps the
+# total size so we don't silently spend ~8k tokens per run on old memories
+# (each DailyDigest can be up to 8kB). ~2kB ≈ 500 tokens.
+ADVISOR_MEMORY_MAX_CHARS = 2000
+# Per-digest cap inside the prefix. Older digests get stricter truncation.
+ADVISOR_MEMORY_PER_DIGEST_CHARS = 800
 
 # Permitted "kind" values - keep the enum tight so the downstream LLM can
 # reason about them without surprises.
@@ -103,20 +109,43 @@ def recent_daily_digests(db: Session, limit: int = ADVISOR_CONTEXT_DIGESTS) -> l
     )
 
 
+def _truncate(text: str, max_chars: int) -> str:
+    text = (text or "").strip()
+    if len(text) <= max_chars:
+        return text
+    return text[: max_chars - 1].rstrip() + "…"
+
+
 def advisor_memory_prefix(db: Session, limit: int = ADVISOR_CONTEXT_DIGESTS) -> str:
     """Short text block to prepend to every advisor prompt so the LLM has
-    continuity across runs. Returns '' if no digests yet."""
+    continuity across runs. Returns '' if no digests yet.
+
+    The block is capped at ADVISOR_MEMORY_MAX_CHARS total so we don't silently
+    pay for thousands of memory tokens on every advisor call. The most recent
+    digest keeps the largest slice; older ones are truncated more aggressively."""
     digests = recent_daily_digests(db, limit=limit)
     if not digests:
         return ""
-    # Oldest-first reads more naturally.
-    digests = list(reversed(digests))
-    lines: list[str] = ["Long-term trading memory (most recent daily digests):"]
-    for d in digests:
-        lines.append(f"[{d.trade_date}]")
-        lines.append(d.text.strip())
-        lines.append("")
-    return "\n".join(lines).rstrip() + "\n"
+    # newest first, so the most recent gets the largest individual budget.
+    header = "Long-term trading memory (most recent daily digests):"
+    chunks: list[str] = []
+    running = len(header) + 1
+    for i, d in enumerate(digests):
+        # First (newest) digest gets the full per-digest cap; each older one
+        # gets ~half of the previous.
+        per_cap = max(200, ADVISOR_MEMORY_PER_DIGEST_CHARS // (2 ** i))
+        body = _truncate(d.text, per_cap)
+        chunk = f"[{d.trade_date}]\n{body}"
+        # If adding this chunk would blow the total budget, stop here.
+        if running + len(chunk) + 2 > ADVISOR_MEMORY_MAX_CHARS:
+            break
+        chunks.append(chunk)
+        running += len(chunk) + 2
+    if not chunks:
+        return ""
+    # Oldest-first reads more naturally for the LLM.
+    chunks.reverse()
+    return header + "\n" + "\n\n".join(chunks) + "\n"
 
 
 def _render_entries_for_llm(entries: list[DigestEntry]) -> str:

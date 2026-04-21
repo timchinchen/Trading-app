@@ -5,6 +5,9 @@ weekday at 09:30 US/Eastern (market open) and rolls the last 7 days of
 DigestEntry rows into a DailyDigest via the Deep Analysis LLM.
 """
 
+import asyncio
+import os
+import shutil
 from datetime import datetime, timedelta
 from typing import Optional
 
@@ -12,9 +15,14 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
 from ...config import settings
+from ...db import engine
 from ..broker import AlpacaBroker
 from ..digest_store import compress_daily
 from .runner import run_once
+
+
+# How many daily SQLite backups we keep before rotating the oldest out.
+_DB_BACKUP_KEEP_DAYS = 14
 
 
 class AgentScheduler:
@@ -23,6 +31,7 @@ class AgentScheduler:
         self.sched: Optional[AsyncIOScheduler] = None
         self._job = None
         self._digest_job = None
+        self._backup_job = None
 
     def _schedule_digest_job(self) -> None:
         """Attach the daily digest compression to the scheduler (09:30 ET)."""
@@ -48,6 +57,37 @@ class AgentScheduler:
         except Exception as e:
             print(f"[digest] compress_daily crashed: {e}")
 
+    def _schedule_backup_job(self) -> None:
+        """Snapshot the sqlite DB once per weekday at 06:00 ET.
+
+        SQLite + WAL is resilient but not invincible - a crash during a
+        write, or accidental `rm trading.db`, is irreversible without a
+        backup. We copy the file to a rotating `./backups/` folder using
+        SQLite's `.backup` command via shutil (works while the db is open).
+        Non-sqlite backends (e.g. future Postgres) skip cleanly.
+        """
+        if self.sched is None:
+            return
+        backup_trigger = CronTrigger(
+            day_of_week="mon-fri",
+            hour=6,
+            minute=0,
+            timezone="America/New_York",
+        )
+        if self._backup_job:
+            self._backup_job.reschedule(trigger=backup_trigger)
+        else:
+            self._backup_job = self.sched.add_job(
+                self._backup_db, trigger=backup_trigger, id="db_backup_daily"
+            )
+        print(f"[backup] daily db-backup job armed; next: {self._backup_job.next_run_time}")
+
+    async def _backup_db(self):
+        try:
+            await asyncio.to_thread(_do_db_backup)
+        except Exception as e:
+            print(f"[backup] db backup crashed: {e}")
+
     def start(self) -> None:
         if not settings.AGENT_ENABLED:
             print("[agent] disabled via AGENT_ENABLED=false")
@@ -62,6 +102,7 @@ class AgentScheduler:
         )
         self._job = self.sched.add_job(self._runner, trigger=trigger, id="agent_main")
         self._schedule_digest_job()
+        self._schedule_backup_job()
         self.sched.start()
         nr = self._job.next_run_time
         print(f"[agent] scheduler started; next run: {nr}")
@@ -102,9 +143,10 @@ class AgentScheduler:
             self._job.reschedule(trigger=trigger)
         else:
             self._job = self.sched.add_job(self._runner, trigger=trigger, id="agent_main")
-        # Make sure the daily digest job is still attached (in case scheduler
-        # was just recreated from a disabled state).
+        # Make sure the digest + backup jobs are still attached (in case the
+        # scheduler was just recreated from a disabled state).
         self._schedule_digest_job()
+        self._schedule_backup_job()
         print(f"[agent] scheduler rescheduled every {cron_minutes}m; next: {self._job.next_run_time}")
 
     def next_digest_at(self) -> Optional[datetime]:
@@ -115,3 +157,58 @@ class AgentScheduler:
     def shutdown(self) -> None:
         if self.sched:
             self.sched.shutdown(wait=False)
+
+
+def _do_db_backup() -> None:
+    """Sync helper - runs in a worker thread so we never block the loop."""
+    if not engine.url.get_backend_name().startswith("sqlite"):
+        return  # non-sqlite backends handle their own backups
+
+    db_path = engine.url.database
+    if not db_path or not os.path.isfile(db_path):
+        print(f"[backup] db file not found at {db_path!r}; skipping")
+        return
+
+    backup_dir = os.path.join(os.path.dirname(os.path.abspath(db_path)) or ".", "backups")
+    os.makedirs(backup_dir, exist_ok=True)
+
+    stamp = datetime.utcnow().strftime("%Y%m%d")
+    dest = os.path.join(backup_dir, f"trading-{stamp}.db")
+
+    # Use sqlite3's online backup API to avoid copying a half-written page.
+    # Falls back to shutil.copy if anything goes wrong - still better than
+    # nothing.
+    try:
+        import sqlite3
+
+        src = sqlite3.connect(db_path)
+        dst = sqlite3.connect(dest)
+        try:
+            with dst:
+                src.backup(dst)
+        finally:
+            src.close()
+            dst.close()
+        print(f"[backup] sqlite backup -> {dest}")
+    except Exception as e:
+        print(f"[backup] sqlite backup api failed ({e}); falling back to file copy")
+        try:
+            shutil.copy2(db_path, dest)
+            print(f"[backup] file copy -> {dest}")
+        except Exception as e2:
+            print(f"[backup] file copy also failed: {e2}")
+            return
+
+    # Rotate: keep the newest _DB_BACKUP_KEEP_DAYS files, delete the rest.
+    try:
+        files = sorted(
+            (f for f in os.listdir(backup_dir) if f.startswith("trading-") and f.endswith(".db")),
+            reverse=True,
+        )
+        for old in files[_DB_BACKUP_KEEP_DAYS:]:
+            try:
+                os.remove(os.path.join(backup_dir, old))
+            except Exception:
+                pass
+    except Exception as e:
+        print(f"[backup] rotation failed: {e}")

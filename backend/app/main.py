@@ -37,6 +37,14 @@ agent_scheduler: AgentScheduler | None = None
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global agent_scheduler
+    # Fail fast on the stock placeholder secret. Anyone can forge a JWT when
+    # JWT_SECRET=="change_me", so refusing to start is the safest default for
+    # a laptop app with Alpaca + OpenAI credentials inside.
+    if settings.JWT_SECRET.strip() in ("", "change_me"):
+        raise RuntimeError(
+            "JWT_SECRET is unset or still the default 'change_me'. "
+            "Set a random 32+ char value in backend/.env before starting."
+        )
     init_db()
     md = get_market_data()
     await md.start()

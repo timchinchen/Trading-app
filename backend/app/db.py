@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine, inspect, text
+from sqlalchemy import create_engine, event, inspect, text
 from sqlalchemy.orm import sessionmaker, declarative_base
 
 from .config import settings
@@ -10,6 +10,21 @@ engine = create_engine(
 
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 Base = declarative_base()
+
+
+# foreign_keys is per-connection in SQLite, not a database attribute, so
+# setting it once at init_db() is lost on every subsequent connection. We
+# attach a connect listener instead so every pooled connection gets the
+# pragma when it's first opened. WAL + synchronous are durable DB-level
+# settings, handled separately in _apply_sqlite_pragmas().
+if engine.url.get_backend_name().startswith("sqlite"):
+    @event.listens_for(engine, "connect")
+    def _sqlite_per_connection_pragmas(dbapi_conn, _):  # pragma: no cover
+        cursor = dbapi_conn.cursor()
+        try:
+            cursor.execute("PRAGMA foreign_keys=ON")
+        finally:
+            cursor.close()
 
 
 # ----------------------------------------------------------------------------
@@ -69,8 +84,31 @@ def _sync_missing_columns() -> None:
                         print(f"[db-migrate] failed to add {table.name}.{col.name}: {e}")
 
 
+def _apply_sqlite_pragmas() -> None:
+    """Flip the SQLite file into WAL + lower-durability-sync mode.
+
+    WAL lets readers (Agent UI polling) proceed while the scheduler writes
+    digest/agent_run rows, fixing the intermittent `database is locked`
+    stalls on laptop-grade hardware. synchronous=NORMAL is safe with WAL
+    and noticeably faster for our write pattern. These are durable DB-
+    level pragmas (they persist between connections) so we only set them
+    once here; foreign_keys is per-connection and lives in the connect
+    listener on `engine` above.
+    """
+    if not engine.url.get_backend_name().startswith("sqlite"):
+        return
+    try:
+        with engine.begin() as conn:
+            conn.execute(text("PRAGMA journal_mode=WAL"))
+            conn.execute(text("PRAGMA synchronous=NORMAL"))
+        print("[db] sqlite pragmas applied (journal=WAL, synchronous=NORMAL, foreign_keys=ON per-conn)")
+    except Exception as e:
+        print(f"[db] pragma setup failed: {e}")
+
+
 def init_db() -> None:
     from . import models  # noqa: F401  ensure models registered
+    _apply_sqlite_pragmas()
     Base.metadata.create_all(bind=engine)
     _sync_missing_columns()
 
