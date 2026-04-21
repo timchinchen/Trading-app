@@ -156,7 +156,7 @@ export function PrerequisitesPanel() {
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="fixed bottom-4 left-4 z-40 px-3 py-2 rounded-lg panel text-xs text-muted-foreground hover:text-primary border border-border-strong"
+        className="fixed top-4 left-4 z-40 px-3 py-2 rounded-lg panel text-xs text-muted-foreground hover:text-primary border border-border-strong"
         title="Show prerequisites / setup guide"
       >
         Prerequisites & setup
@@ -166,7 +166,7 @@ export function PrerequisitesPanel() {
 
   return (
     <aside
-      className="fixed bottom-4 left-4 z-40 panel p-4 w-[380px] max-h-[85vh] overflow-auto text-xs space-y-3 border border-border-strong"
+      className="fixed top-4 left-4 z-40 panel p-4 w-[360px] max-h-[calc(100vh-2rem)] overflow-auto text-xs space-y-3 border border-border-strong"
       style={{ boxShadow: '0 8px 32px -12px rgba(0,0,0,0.6)' }}
     >
       <div className="flex items-center justify-between gap-2">

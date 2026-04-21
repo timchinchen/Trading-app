@@ -38,7 +38,7 @@ export function LoginPage() {
       <PrerequisitesPanel />
       <form
         onSubmit={submit}
-        className="w-full max-w-sm space-y-4 panel p-8"
+        className="w-full max-w-sm space-y-4 panel p-8 mx-auto"
       >
         <div className="text-center mb-2">
           <h1 className="text-3xl font-semibold tracking-tight text-transparent bg-clip-text bg-cosmic-text">
