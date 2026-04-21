@@ -6,7 +6,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 # Z droid-controlled - bumped on every droid-authored edit). Reported
 # by /health/setup so the Prerequisites panel can show the same version
 # badge the Settings page does.
-APP_VERSION_BACKEND = "1.0.3"
+APP_VERSION_BACKEND = "1.0.4"
 
 
 class Settings(BaseSettings):
@@ -119,14 +119,14 @@ class Settings(BaseSettings):
     OPENAI_MODEL: str = "gpt-4o-mini"
     OPENAI_BASE_URL: str = "https://api.openai.com/v1"
 
-    # Hugging Face Inference API (free serverless tier). Pick a chat-tuned
-    # model - DistilBERT / T5-small are NOT a good fit for JSON ticker
-    # extraction. Default is Mistral-7B-Instruct-v0.3 (free tier). First
-    # call after idle can cold-start ~20s; _chat() retries once on the
-    # "model is loading" 503.
+    # Hugging Face Inference Providers (free tier). Uses the OpenAI-compatible
+    # router at router.huggingface.co/v1 (the legacy api-inference.huggingface.co
+    # serverless endpoint was retired in early 2026). Pick a chat-tuned
+    # Instruct model. First call after idle can cold-start ~20s;
+    # _chat() retries once on the "model is loading" 503.
     HUGGINGFACE_API_KEY: str = ""
     HUGGINGFACE_MODEL: str = "mistralai/Mistral-7B-Instruct-v0.3"
-    HUGGINGFACE_BASE_URL: str = "https://api-inference.huggingface.co"
+    HUGGINGFACE_BASE_URL: str = "https://router.huggingface.co/v1"
 
     # Cohere chat API (free trial tier: 1000 calls/month, 20/min).
     # command-r-08-2024 is the cheapest useful chat model. The rate limit

@@ -125,29 +125,31 @@ async def _chat(
     if provider == "huggingface":
         if not api_key:
             raise RuntimeError("HUGGINGFACE_API_KEY is empty - configure it in Settings")
-        base = (host or "https://api-inference.huggingface.co").rstrip("/")
-        model_id = model or "mistralai/Mistral-7B-Instruct-v0.3"
-        url = f"{base}/models/{model_id}"
-        # Mistral-Instruct prompt format. Most free-tier Instruct models on
-        # HF accept [INST] wrapping; if the user picks a non-Mistral model
-        # the text still parses, the model just produces less clean JSON.
-        prompt = f"<s>[INST] <<SYS>>\n{system}\n<</SYS>>\n\n{user} [/INST]"
-        payload = {
-            "inputs": prompt,
-            "parameters": {
-                "temperature": max(0.01, temperature),
-                "return_full_text": False,
-                "max_new_tokens": 1024,
-            },
-            "options": {"wait_for_model": True},
+        # HF retired the legacy api-inference.huggingface.co/models/{id}
+        # endpoint in early 2026 and replaced it with an OpenAI-compatible
+        # router at router.huggingface.co/v1. Existing users whose host
+        # still points at the old base URL get auto-migrated here.
+        base = (host or "https://router.huggingface.co/v1").rstrip("/")
+        if "api-inference.huggingface.co" in base:
+            base = "https://router.huggingface.co/v1"
+        url = f"{base}/chat/completions"
+        payload: dict[str, Any] = {
+            "model": model or "mistralai/Mistral-7B-Instruct-v0.3",
+            "messages": [
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
+            "temperature": temperature,
+            "stream": False,
         }
+        if json_mode:
+            payload["response_format"] = {"type": "json_object"}
         headers = {
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
         }
         async with httpx.AsyncClient(timeout=timeout) as client:
-            # One retry on 503 "model is loading" (HF cold-starts after
-            # ~15 min idle).
+            # One retry on 503 "model is loading" (cold starts).
             for attempt in range(2):
                 r = await client.post(url, headers=headers, json=payload)
                 if r.status_code == 503 and attempt == 0:
@@ -156,11 +158,7 @@ async def _chat(
                 r.raise_for_status()
                 break
             data = r.json()
-            if isinstance(data, list) and data:
-                return (data[0].get("generated_text") or "").strip()
-            if isinstance(data, dict):
-                return (data.get("generated_text") or "").strip()
-            return ""
+            return (data.get("choices") or [{}])[0].get("message", {}).get("content", "") or ""
 
     if provider == "cohere":
         if not api_key:

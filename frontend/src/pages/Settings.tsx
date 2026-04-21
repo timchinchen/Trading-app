@@ -291,8 +291,10 @@ function LLMProviderCard({ s }: { s: AgentSettings }) {
                 >
                   huggingface.co/settings/tokens
                 </a>
-                . Free serverless Inference API — ~1000 req/day across all
-                models, no credit card. First call after idle may take
+                (pick a token with <code>inference.serverless.write</code>).
+                Free tier via the new OpenAI-compatible router at{' '}
+                <code>router.huggingface.co/v1</code> — ~1000 req/day across
+                all models, no credit card. First call after idle may take
                 ~15-20s (cold start). Not ideal for heavy Agent runs with
                 many tweets; better suited to occasional Deep Analysis use.
               </div>
@@ -318,7 +320,7 @@ function LLMProviderCard({ s }: { s: AgentSettings }) {
             <input
               value={hfBaseUrl}
               onChange={(e) => setHfBaseUrl(e.target.value)}
-              placeholder="https://api-inference.huggingface.co"
+              placeholder="https://router.huggingface.co/v1"
               className="px-3 py-2 rounded-md text-sm w-full max-w-md"
             />
           </div>
