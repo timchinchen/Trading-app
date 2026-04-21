@@ -158,6 +158,48 @@ export const useAgentRunNow = () => {
   })
 }
 
+export interface AutoSellCandidate {
+  symbol: string
+  qty: number
+  avg_entry_price: number
+  current_price: number
+  opened_at: string
+  held_days: number
+  over_cap: boolean
+  cap_days: number
+}
+
+export interface AutoSellPreview {
+  enabled: boolean
+  max_hold_days: number
+  mode: string
+  auto_execute: boolean
+  candidates: AutoSellCandidate[]
+  would_sell_count: number
+}
+
+export const useAutoSellPreview = () =>
+  useQuery({
+    queryKey: ['agent', 'auto-sell', 'preview'],
+    queryFn: async () =>
+      (await api.get<AutoSellPreview>('/agent/auto-sell/preview')).data,
+    refetchInterval: 60000,
+  })
+
+export const useAutoSellRunNow = () => {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (force: boolean = false) =>
+      (await api.post(`/agent/auto-sell/run-now${force ? '?force=true' : ''}`))
+        .data,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['agent'] })
+      qc.invalidateQueries({ queryKey: ['orders'] })
+      qc.invalidateQueries({ queryKey: ['positions'] })
+    },
+  })
+}
+
 export const useAgentAccountsCache = () =>
   useQuery({
     queryKey: ['agent', 'accounts-cache'],

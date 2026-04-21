@@ -74,6 +74,38 @@ class Settings(BaseSettings):
     # hunting for fresh ideas, not doubling down on the same tickets.
     AGENT_RECENT_TRADE_WINDOW_HOURS: int = 24
 
+    # ---- Swing-trading skill (1-2 week horizon) ----
+    # Master toggle. When off the agent falls back to the old tweet-sentiment
+    # + sizing-by-strength flow.
+    SWING_ENABLED: bool = True
+    # Risk-based sizing: per-trade dollar risk = SWING_RISK_PER_TRADE_PCT of
+    # total capital (AGENT_BUDGET_USD). Shares = risk / (entry - stop).
+    SWING_RISK_PER_TRADE_PCT: float = 0.01          # 1%
+    # Reject setups whose reward/risk ratio is below this.
+    SWING_MIN_RR: float = 2.0
+    # Time-stop in trading days. If a position has made no progress by then,
+    # the next run emits an EXIT proposal.
+    SWING_TIME_STOP_DAYS: int = 5
+    # Move stop to breakeven once unrealised P/L hits this fraction.
+    SWING_MOVE_STOP_BE_PCT: float = 0.08
+    # Flag partial profit-take at this gain (no auto-sell; advisor surface it).
+    SWING_PARTIAL_PCT: float = 0.05
+    # Market regime filter symbol and MA window. If price < MA or MA slope
+    # is falling we block ALL new BUYs for the run.
+    SWING_MARKET_FILTER_SYMBOL: str = "SPY"
+    SWING_MARKET_FILTER_MA: int = 50
+    # Bar lookback for technical scan (daily bars).
+    SWING_BAR_LOOKBACK_DAYS: int = 120
+
+    # ---- Auto-sell (max-hold window) ----
+    # Daily scan that closes any open position held longer than the cap.
+    # Pure risk-hygiene control: if we've been in a name for a month and
+    # nothing exciting has happened, cut it and redeploy the cash. Runs at
+    # 09:45 US/Eastern on weekdays; paper mode auto-executes, live mode
+    # proposes unless AGENT_AUTO_EXECUTE_LIVE is also on.
+    AUTO_SELL_ENABLED: bool = True
+    AUTO_SELL_MAX_HOLD_DAYS: int = 30
+
     # ---- LLM provider ----
     # "ollama" (default, local) or "openai" (hosted, requires OPENAI_API_KEY).
     # This is the default; the user can override it at runtime from the

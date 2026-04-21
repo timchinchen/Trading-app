@@ -71,6 +71,19 @@ EDITABLE_KEYS: dict[str, type] = {
     "MANUAL_ORDER_MAX_NOTIONAL": float,
     # Twitter
     "TWITTER_ACCOUNTS": str,
+    # Swing-trading skill
+    "SWING_ENABLED": bool,
+    "SWING_RISK_PER_TRADE_PCT": float,
+    "SWING_MIN_RR": float,
+    "SWING_TIME_STOP_DAYS": int,
+    "SWING_MOVE_STOP_BE_PCT": float,
+    "SWING_PARTIAL_PCT": float,
+    # Auto-sell (max-hold window)
+    "AUTO_SELL_ENABLED": bool,
+    "AUTO_SELL_MAX_HOLD_DAYS": int,
+    "SWING_MARKET_FILTER_SYMBOL": str,
+    "SWING_MARKET_FILTER_MA": int,
+    "SWING_BAR_LOOKBACK_DAYS": int,
 }
 
 # Keys whose value should be masked when the API returns the current settings.
@@ -147,6 +160,19 @@ class RuntimeSettings:
     manual_order_max_notional: float = 0.0
     # Twitter
     twitter_accounts: str = ""
+    # Swing-trading skill
+    swing_enabled: bool = True
+    swing_risk_per_trade_pct: float = 0.01
+    swing_min_rr: float = 2.0
+    swing_time_stop_days: int = 5
+    swing_move_stop_be_pct: float = 0.08
+    swing_partial_pct: float = 0.05
+    swing_market_filter_symbol: str = "SPY"
+    swing_market_filter_ma: int = 50
+    swing_bar_lookback_days: int = 120
+    # Auto-sell (max-hold window)
+    auto_sell_enabled: bool = True
+    auto_sell_max_hold_days: int = 30
     # Bookkeeping: which keys are overridden in the DB (vs env default)
     overridden: set[str] = field(default_factory=set)
 
@@ -261,6 +287,17 @@ def get_runtime_settings(db: Session | None = None) -> RuntimeSettings:
         poll_interval_seconds=int(pick("POLL_INTERVAL_SECONDS", int)),
         manual_order_max_notional=float(pick("MANUAL_ORDER_MAX_NOTIONAL", float)),
         twitter_accounts=str(pick("TWITTER_ACCOUNTS", str)),
+        swing_enabled=bool(pick("SWING_ENABLED", bool)),
+        swing_risk_per_trade_pct=float(pick("SWING_RISK_PER_TRADE_PCT", float)),
+        swing_min_rr=float(pick("SWING_MIN_RR", float)),
+        swing_time_stop_days=int(pick("SWING_TIME_STOP_DAYS", int)),
+        swing_move_stop_be_pct=float(pick("SWING_MOVE_STOP_BE_PCT", float)),
+        swing_partial_pct=float(pick("SWING_PARTIAL_PCT", float)),
+        swing_market_filter_symbol=str(pick("SWING_MARKET_FILTER_SYMBOL", str)),
+        swing_market_filter_ma=int(pick("SWING_MARKET_FILTER_MA", int)),
+        swing_bar_lookback_days=int(pick("SWING_BAR_LOOKBACK_DAYS", int)),
+        auto_sell_enabled=bool(pick("AUTO_SELL_ENABLED", bool)),
+        auto_sell_max_hold_days=int(pick("AUTO_SELL_MAX_HOLD_DAYS", int)),
         overridden={k for k, v in overrides.items() if v != ""},
     )
     return rs
@@ -359,6 +396,17 @@ def public_view(rs: RuntimeSettings) -> dict[str, Any]:
         "poll_interval_seconds": rs.poll_interval_seconds,
         "manual_order_max_notional": rs.manual_order_max_notional,
         "twitter_accounts": rs.twitter_accounts,
+        "swing_enabled": rs.swing_enabled,
+        "swing_risk_per_trade_pct": rs.swing_risk_per_trade_pct,
+        "swing_min_rr": rs.swing_min_rr,
+        "swing_time_stop_days": rs.swing_time_stop_days,
+        "swing_move_stop_be_pct": rs.swing_move_stop_be_pct,
+        "swing_partial_pct": rs.swing_partial_pct,
+        "swing_market_filter_symbol": rs.swing_market_filter_symbol,
+        "swing_market_filter_ma": rs.swing_market_filter_ma,
+        "swing_bar_lookback_days": rs.swing_bar_lookback_days,
+        "auto_sell_enabled": rs.auto_sell_enabled,
+        "auto_sell_max_hold_days": rs.auto_sell_max_hold_days,
         "overridden": sorted(rs.overridden),
     }
     return out

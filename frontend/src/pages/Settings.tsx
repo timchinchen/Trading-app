@@ -4,6 +4,8 @@ import {
   useAgentAccountsCache,
   useAgentSettings,
   useAgentStatus,
+  useAutoSellPreview,
+  useAutoSellRunNow,
   useMode,
   useUpdateAgentSettings,
 } from '../api/hooks'
@@ -1282,6 +1284,190 @@ function SwingTradingCard({ s }: { s: AgentSettings }) {
   )
 }
 
+// ----- Auto-sell (max-hold window) -----
+function AutoSellCard({ s }: { s: AgentSettings }) {
+  const upd = useUpdateAgentSettings()
+  const { data: preview } = useAutoSellPreview()
+  const runNow = useAutoSellRunNow()
+  const [enabled, setEnabled] = useState(s.auto_sell_enabled)
+  const [days, setDays] = useState(s.auto_sell_max_hold_days)
+
+  useEffect(() => {
+    setEnabled(s.auto_sell_enabled)
+    setDays(s.auto_sell_max_hold_days)
+  }, [s])
+
+  const save = () =>
+    upd.mutate({
+      AUTO_SELL_ENABLED: enabled,
+      AUTO_SELL_MAX_HOLD_DAYS: Number(days),
+    })
+
+  const candidates = preview?.candidates ?? []
+  const wouldSell = preview?.would_sell_count ?? 0
+
+  return (
+    <Card title="Auto-sell (max-hold window)">
+      <p className="text-xs text-muted-foreground mb-3">
+        Daily safety scan at <strong>09:45 US/Eastern</strong> (15 min after
+        market open): any open position held longer than the cap is closed
+        at market. Paper auto-executes; live proposes unless{' '}
+        <code className="text-primary">AGENT_AUTO_EXECUTE_LIVE</code> is also
+        true. Guardrails: we only touch long positions with a local buy
+        history, and we dedupe sells within a 6-hour window so manual
+        re-triggers don&apos;t double-fire.
+      </p>
+
+      <div className="grid grid-cols-[220px_1fr] gap-2 py-2 border-b border-border">
+        <div className="text-xs text-muted-foreground uppercase tracking-wider self-center">
+          AUTO_SELL_ENABLED
+          <OverrideBadge k="AUTO_SELL_ENABLED" overridden={s.overridden} />
+        </div>
+        <label className="flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={enabled}
+            onChange={(e) => setEnabled(e.target.checked)}
+          />
+          run the daily max-hold scan
+        </label>
+      </div>
+
+      <div className="grid grid-cols-[220px_1fr] gap-2 py-2 border-b border-border">
+        <div className="text-xs text-muted-foreground uppercase tracking-wider self-center">
+          MAX_HOLD_DAYS
+          <OverrideBadge
+            k="AUTO_SELL_MAX_HOLD_DAYS"
+            overridden={s.overridden}
+          />
+        </div>
+        <div className="flex items-center gap-2">
+          <input
+            type="number"
+            step="1"
+            min="1"
+            value={days}
+            onChange={(e) => setDays(Number(e.target.value))}
+            className="px-3 py-2 rounded-md text-sm w-24"
+          />
+          <span className="text-xs text-muted-foreground">
+            days - close anything held longer than this at the next 09:45 ET scan
+          </span>
+        </div>
+      </div>
+
+      {/* Live preview of what would be sold on the next scan */}
+      <div className="mt-3">
+        <div className="text-xs text-muted-foreground uppercase tracking-wider mb-1">
+          Next scan preview
+        </div>
+        {!preview && (
+          <div className="text-xs text-muted-foreground italic">
+            loading positions...
+          </div>
+        )}
+        {preview && candidates.length === 0 && (
+          <div className="text-xs text-muted-foreground italic">
+            no open positions - nothing to auto-sell.
+          </div>
+        )}
+        {preview && candidates.length > 0 && (
+          <div className="space-y-1">
+            <div className="text-[11px] text-muted-foreground">
+              {wouldSell === 0
+                ? `${candidates.length} open positions, none over the ${preview.max_hold_days}-day cap yet.`
+                : `${wouldSell} of ${candidates.length} positions would be sold on the next scan.`}
+            </div>
+            <div className="overflow-hidden rounded-md border border-border">
+              <table className="w-full text-xs">
+                <thead className="bg-muted/30">
+                  <tr>
+                    <th className="px-2 py-1 text-left text-muted-foreground">Symbol</th>
+                    <th className="px-2 py-1 text-right text-muted-foreground">Qty</th>
+                    <th className="px-2 py-1 text-right text-muted-foreground">Held</th>
+                    <th className="px-2 py-1 text-right text-muted-foreground">Opened</th>
+                    <th className="px-2 py-1 text-left text-muted-foreground">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {candidates.map((c) => (
+                    <tr key={c.symbol} className="border-t border-border">
+                      <td className="px-2 py-1 font-medium">{c.symbol}</td>
+                      <td className="px-2 py-1 text-right">{c.qty}</td>
+                      <td className="px-2 py-1 text-right">
+                        {c.held_days.toFixed(1)}d
+                      </td>
+                      <td className="px-2 py-1 text-right text-muted-foreground">
+                        {new Date(c.opened_at).toLocaleDateString()}
+                      </td>
+                      <td className="px-2 py-1">
+                        {c.over_cap ? (
+                          <span className="text-destructive font-medium">
+                            would sell
+                          </span>
+                        ) : (
+                          <span className="text-muted-foreground">
+                            holding
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div className="flex items-center gap-3 pt-4 flex-wrap">
+        <button
+          onClick={save}
+          disabled={upd.isPending}
+          className="btn-primary px-4 py-2 rounded-lg"
+        >
+          {upd.isPending ? 'Saving...' : 'Save'}
+        </button>
+        <button
+          onClick={() => runNow.mutate(false)}
+          disabled={runNow.isPending}
+          className="btn-secondary px-4 py-2 rounded-lg text-sm"
+          title="Run the max-hold scan right now (honours the enabled toggle)"
+        >
+          {runNow.isPending ? 'Running...' : 'Run scan now'}
+        </button>
+        <button
+          onClick={() => {
+            if (confirm('Force-run the scan even if auto-sell is disabled?'))
+              runNow.mutate(true)
+          }}
+          disabled={runNow.isPending}
+          className="btn-secondary px-4 py-2 rounded-lg text-xs"
+          title="Bypass the enabled toggle (one-off)"
+        >
+          Force run
+        </button>
+        {upd.isSuccess && !upd.isPending && (
+          <span className="text-xs text-success">saved</span>
+        )}
+        {runNow.isSuccess && !runNow.isPending && (
+          <span className="text-xs text-success">
+            scan complete: {(runNow.data as any)?.executed ?? 0} executed,{' '}
+            {(runNow.data as any)?.proposed ?? 0} proposed,{' '}
+            {(runNow.data as any)?.skipped ?? 0} skipped
+          </span>
+        )}
+        {runNow.isError && (
+          <span className="text-xs text-destructive">
+            {(runNow.error as any)?.message ?? 'scan failed'}
+          </span>
+        )}
+      </div>
+    </Card>
+  )
+}
+
+
 // ----- Manual-order safety cap (replaces MAX_ORDER_NOTIONAL) -----
 function ManualOrderSafetyCard({ s }: { s: AgentSettings }) {
   const upd = useUpdateAgentSettings()
@@ -1434,6 +1620,7 @@ export function SettingsPage() {
           <AgentBudgetCard s={agentSettings} />
           <AgentThresholdsCard s={agentSettings} />
           <SwingTradingCard s={agentSettings} />
+          <AutoSellCard s={agentSettings} />
           <ScraperCadenceCard s={agentSettings} />
           <ManualOrderSafetyCard s={agentSettings} />
           <TwitterAccountsCard s={agentSettings} />

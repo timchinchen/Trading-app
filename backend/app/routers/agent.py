@@ -14,9 +14,12 @@ from ..schemas import (
     AgentTweetAnalysisOut,
 )
 from ..security import get_current_user
+from ..services.agent.auto_sell import preview as auto_sell_preview, run_auto_sell
 from ..services.agent.runner import run_once
+from ..services.digest_store import append_entry as digest_append
 from ..services.settings_store import (
     EDITABLE_KEYS,
+    SECRET_KEYS,
     get_runtime_settings,
     public_view,
     update_settings,
@@ -35,6 +38,9 @@ def status(_user=Depends(get_current_user), db: Session = Depends(get_db)):
     last = db.query(AgentRun).order_by(AgentRun.started_at.desc()).first()
     sched = _scheduler()
     next_run = sched.next_run_at() if sched else None
+    next_auto_sell = (
+        sched.next_auto_sell_at() if sched and hasattr(sched, "next_auto_sell_at") else None
+    )
     rs = get_runtime_settings(db)
     return AgentStatusOut(
         enabled=rs.agent_enabled,
@@ -54,6 +60,9 @@ def status(_user=Depends(get_current_user), db: Session = Depends(get_db)):
         last_run_started_at=last.started_at if last else None,
         last_run_status=last.status if last else None,
         next_run_at=next_run,
+        auto_sell_enabled=rs.auto_sell_enabled,
+        auto_sell_max_hold_days=rs.auto_sell_max_hold_days,
+        next_auto_sell_at=next_auto_sell,
     )
 
 
@@ -87,6 +96,22 @@ def put_settings(
             sched.reschedule(rs.agent_cron_minutes, enabled=rs.agent_enabled)
         except Exception:
             pass
+    # Digest: record what changed (mask secret values so we don't write keys
+    # into the memory log).
+    try:
+        changed = sorted(k.upper() for k in payload.keys())
+        safe_payload = {
+            k.upper(): ("***" if k.upper() in SECRET_KEYS else v)
+            for k, v in payload.items()
+        }
+        digest_append(
+            kind="settings_change",
+            summary=f"settings updated: {', '.join(changed)[:240]}",
+            data=safe_payload,
+            db=db,
+        )
+    except Exception:
+        pass
     return public_view(rs)
 
 
@@ -144,7 +169,38 @@ async def run_now(
     broker=Depends(get_broker),
 ):
     run_id = await run_once(broker)
+    if run_id == -1:
+        # Single-flight guard: another run (cron or prior manual) is still
+        # going. Return the latest AgentRun so the UI can show its progress
+        # instead of spawning a duplicate.
+        raise HTTPException(
+            status_code=409,
+            detail="An agent run is already in progress; try again when it finishes.",
+        )
     return db.query(AgentRun).filter(AgentRun.id == run_id).first()
+
+
+@router.get("/auto-sell/preview")
+def auto_sell_preview_endpoint(
+    _user=Depends(get_current_user),
+    broker=Depends(get_broker),
+):
+    """Dry-run: list every open position with its held-days and flag the
+    ones that would be auto-sold on the next daily scan. Safe to call at
+    any time; makes no changes."""
+    return auto_sell_preview(broker)
+
+
+@router.post("/auto-sell/run-now")
+async def auto_sell_run_now(
+    force: bool = False,
+    _user=Depends(get_current_user),
+    broker=Depends(get_broker),
+):
+    """Trigger the auto-sell scan immediately. Honours AUTO_SELL_ENABLED
+    unless ?force=true is passed, in which case it runs regardless of the
+    toggle (useful for one-off cleanups)."""
+    return await run_auto_sell(broker, forced=bool(force))
 
 
 @router.get("/accounts-cache", response_model=list[AgentAccountCacheOut])

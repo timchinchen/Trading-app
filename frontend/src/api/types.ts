@@ -77,6 +77,9 @@ export interface AgentStatus {
   last_run_started_at: string | null
   last_run_status: string | null
   next_run_at: string | null
+  auto_sell_enabled: boolean
+  auto_sell_max_hold_days: number
+  next_auto_sell_at: string | null
 }
 
 export interface AgentRun {
@@ -224,6 +227,8 @@ export interface AgentSettings {
   swing_market_filter_symbol: string
   swing_market_filter_ma: number
   swing_bar_lookback_days: number
+  auto_sell_enabled: boolean
+  auto_sell_max_hold_days: number
   overridden: string[]
 }
 
@@ -276,6 +281,8 @@ export type AgentSettingsUpdate = Partial<{
   SWING_MARKET_FILTER_SYMBOL: string
   SWING_MARKET_FILTER_MA: number
   SWING_BAR_LOOKBACK_DAYS: number
+  AUTO_SELL_ENABLED: boolean
+  AUTO_SELL_MAX_HOLD_DAYS: number
 }>
 
 export interface LLMModels {

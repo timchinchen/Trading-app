@@ -124,6 +124,10 @@ class AgentStatusOut(BaseModel):
     last_run_started_at: Optional[datetime] = None
     last_run_status: Optional[str] = None
     next_run_at: Optional[datetime] = None
+    # Auto-sell (max-hold window).
+    auto_sell_enabled: bool = True
+    auto_sell_max_hold_days: int = 30
+    next_auto_sell_at: Optional[datetime] = None
 
 
 class AgentRunOut(BaseModel):

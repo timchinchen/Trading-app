@@ -18,6 +18,7 @@ from ...config import settings
 from ...db import engine
 from ..broker import AlpacaBroker
 from ..digest_store import compress_daily
+from .auto_sell import run_auto_sell
 from .runner import run_once
 
 
@@ -32,6 +33,7 @@ class AgentScheduler:
         self._job = None
         self._digest_job = None
         self._backup_job = None
+        self._auto_sell_job = None
 
     def _schedule_digest_job(self) -> None:
         """Attach the daily digest compression to the scheduler (09:30 ET).
@@ -94,6 +96,44 @@ class AgentScheduler:
         except Exception as e:
             print(f"[backup] db backup crashed: {e}")
 
+    def _schedule_auto_sell_job(self) -> None:
+        """Attach the daily auto-sell scan (09:45 ET, 15 min after open).
+
+        Runs every weekday regardless of AGENT_ENABLED, because closing old
+        positions is a safety control independent of the agent runner. If
+        AUTO_SELL_ENABLED is false at fire time the worker is a no-op, so
+        flipping the toggle takes effect on the next day without a restart.
+        """
+        if self.sched is None:
+            return
+        trig = CronTrigger(
+            day_of_week="mon-fri",
+            hour=9,
+            minute=45,
+            timezone="America/New_York",
+        )
+        if self._auto_sell_job:
+            self._auto_sell_job.reschedule(trigger=trig)
+        else:
+            self._auto_sell_job = self.sched.add_job(
+                self._auto_sell, trigger=trig, id="auto_sell_daily"
+            )
+        nr = getattr(self._auto_sell_job, "next_run_time", None)
+        print(f"[auto-sell] daily scan job armed; next: {nr or '(pending scheduler start)'}")
+
+    async def _auto_sell(self):
+        try:
+            result = await run_auto_sell(self.broker)
+            print(
+                f"[auto-sell] status={result.get('status')} "
+                f"considered={result.get('considered', 0)} "
+                f"executed={result.get('executed', 0)} "
+                f"proposed={result.get('proposed', 0)} "
+                f"skipped={result.get('skipped', 0)}"
+            )
+        except Exception as e:
+            print(f"[auto-sell] scan crashed: {e}")
+
     def start(self) -> None:
         if not settings.AGENT_ENABLED:
             print("[agent] disabled via AGENT_ENABLED=false")
@@ -114,6 +154,7 @@ class AgentScheduler:
         self.sched.start()
         self._schedule_digest_job()
         self._schedule_backup_job()
+        self._schedule_auto_sell_job()
         nr = getattr(self._job, "next_run_time", None)
         print(f"[agent] scheduler started; next run: {nr or '(pending)'}")
 
@@ -153,10 +194,11 @@ class AgentScheduler:
             self._job.reschedule(trigger=trigger)
         else:
             self._job = self.sched.add_job(self._runner, trigger=trigger, id="agent_main")
-        # Make sure the digest + backup jobs are still attached (in case the
-        # scheduler was just recreated from a disabled state).
+        # Make sure the digest + backup + auto-sell jobs are still attached
+        # (in case the scheduler was just recreated from a disabled state).
         self._schedule_digest_job()
         self._schedule_backup_job()
+        self._schedule_auto_sell_job()
         nr = getattr(self._job, "next_run_time", None)
         print(f"[agent] scheduler rescheduled every {cron_minutes}m; next: {nr or '(pending)'}")
 
@@ -164,6 +206,11 @@ class AgentScheduler:
         if self._digest_job is None:
             return None
         return self._digest_job.next_run_time
+
+    def next_auto_sell_at(self) -> Optional[datetime]:
+        if self._auto_sell_job is None:
+            return None
+        return getattr(self._auto_sell_job, "next_run_time", None)
 
     def shutdown(self) -> None:
         if self.sched:
