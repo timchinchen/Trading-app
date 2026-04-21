@@ -211,7 +211,14 @@ class RuntimeSettings:
         if p == "openai":
             return self.openai_base_url
         if p == "huggingface":
-            return self.huggingface_base_url
+            # HF retired api-inference.huggingface.co/models/{id} in early
+            # 2026. Any persisted value still pointing there is transparently
+            # redirected to the new OpenAI-compatible router, so the UI +
+            # agent pipeline both show/use the working URL.
+            base = self.huggingface_base_url or ""
+            if "api-inference.huggingface.co" in base:
+                return "https://router.huggingface.co/v1"
+            return base
         if p == "cohere":
             return self.cohere_base_url
         return self.ollama_host
@@ -275,6 +282,22 @@ def get_runtime_settings(db: Session | None = None) -> RuntimeSettings:
         db = SessionLocal()
     try:
         overrides = _load_overrides(db)  # type: ignore[arg-type]
+        # One-shot migration: HF retired the legacy serverless endpoint in
+        # early 2026. If the user still has the old value persisted (from
+        # v1.0.3), silently rewrite it to the new OpenAI-compatible router
+        # so the Settings UI stops showing a dead URL.
+        legacy_hf = "https://api-inference.huggingface.co"
+        if overrides.get("HUGGINGFACE_BASE_URL", "").startswith(legacy_hf):
+            new_url = "https://router.huggingface.co/v1"
+            row = (
+                db.query(AppSetting)  # type: ignore[union-attr]
+                .filter(AppSetting.key == "HUGGINGFACE_BASE_URL")
+                .first()
+            )
+            if row:
+                row.value = new_url
+                db.commit()  # type: ignore[union-attr]
+            overrides["HUGGINGFACE_BASE_URL"] = new_url
     finally:
         if own_session:
             db.close()  # type: ignore[union-attr]

@@ -21,9 +21,14 @@ export function ChatPage() {
 
   const listRef = useRef<HTMLDivElement | null>(null)
 
+  // Reset the selected model whenever the active provider changes. Without
+  // this, switching Settings -> Provider from (say) Cohere to Hugging Face
+  // leaves the old "command-r-08-2024" pinned here, which the HF router
+  // rejects with a 400.
   useEffect(() => {
-    if (!model && info?.default_model) setModel(info.default_model)
-  }, [info, model])
+    if (info?.default_model) setModel(info.default_model)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [info?.provider, info?.default_model])
 
   useEffect(() => {
     listRef.current?.scrollTo({ top: listRef.current.scrollHeight })
