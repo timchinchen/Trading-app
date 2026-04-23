@@ -219,6 +219,7 @@ export function DashboardPage() {
                         <Link
                           className="text-primary hover:underline"
                           to={`/symbol/${p.symbol}`}
+                          title={p.company_name || p.symbol}
                         >
                           {p.symbol}
                         </Link>
@@ -324,6 +325,7 @@ export function DashboardPage() {
                       <Link
                         className="text-primary hover:underline"
                         to={`/symbol/${w.symbol}`}
+                        title={w.company_name || w.symbol}
                       >
                         {w.symbol}
                       </Link>

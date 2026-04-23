@@ -6,7 +6,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 # Z droid-controlled - bumped on every droid-authored edit). Reported
 # by /health/setup so the Prerequisites panel can show the same version
 # badge the Settings page does.
-APP_VERSION_BACKEND = "1.0.8"
+APP_VERSION_BACKEND = "1.2.0"
 
 
 class Settings(BaseSettings):
@@ -70,9 +70,37 @@ class Settings(BaseSettings):
     # Take-profit: if a held position is up at least this fraction vs entry,
     # emit a SELL-to-close proposal (e.g. 0.10 = +10%). 0 disables.
     AGENT_TAKE_PROFIT_PCT: float = 0.10
+    # Stop-loss: if a held position is *down* at least this fraction vs entry,
+    # emit a SELL-to-close proposal (e.g. 0.05 = -5%). 0 disables. Mirrors
+    # AGENT_TAKE_PROFIT_PCT on the downside.
+    AGENT_STOP_LOSS_PCT: float = 0.05
     # Don't re-buy a symbol that was BOUGHT within the last N hours - we're
     # hunting for fresh ideas, not doubling down on the same tickets.
     AGENT_RECENT_TRADE_WINDOW_HOURS: int = 24
+
+    # ---- Source reliability weighting ----
+    # JSON object mapping handle -> weight multiplier. Missing handles get 1.0.
+    # Clamp [0.5, 2.0]. Example: '{"PeterLBrandt":1.25,"random":0.8}'
+    AGENT_HANDLE_WEIGHTS: str = "{}"
+
+    # ---- Regime-adaptive sizing ----
+    # Slot multiplier per regime tier (price vs MA + slope direction).
+    AGENT_REGIME_RISK_ON_MULT: float = 1.25   # price > MA, MA rising
+    AGENT_REGIME_NEUTRAL_MULT: float = 1.0    # price > MA or MA flat
+    AGENT_REGIME_RISK_OFF_MULT: float = 0.5   # price < MA, MA falling
+    # When True, block ALL new BUYs in risk_off regime (exits still run).
+    AGENT_RISK_OFF_BLOCK_NEW_BUYS: bool = True
+
+    # ---- Adaptive exit engine ----
+    # Arm trailing-retrace logic once unrealized gain reaches this level.
+    AGENT_TRAIL_ARM_PCT: float = 0.05         # 5% gain arms trailing
+    # Exit if current gain retraces this fraction from peak armed gain.
+    AGENT_TRAIL_RETRACE_PCT: float = 0.35     # 35% retrace from peak
+    # First partial-TP at this gain; sells PARTIAL_TAKE_FRACTION of position.
+    AGENT_PARTIAL_TAKE_PCT: float = 0.07      # 7%
+    AGENT_PARTIAL_TAKE_FRACTION: float = 0.5  # sell 50%
+    # Hard time-stop: close any position older than this many calendar days.
+    AGENT_MAX_HOLD_DAYS: int = 8
 
     # ---- Swing-trading skill (1-2 week horizon) ----
     # Master toggle. When off the agent falls back to the old tweet-sentiment

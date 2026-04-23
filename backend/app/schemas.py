@@ -35,6 +35,7 @@ class WatchlistItemOut(BaseModel):
     id: int
     symbol: str
     feed: str
+    company_name: Optional[str] = None
     open: Optional[float] = None
     prev_close: Optional[float] = None
     day_high: Optional[float] = None
@@ -90,6 +91,7 @@ class PositionOut(BaseModel):
     market_value: float
     unrealized_pl: float
     current_price: float
+    company_name: Optional[str] = None
 
 
 class QuoteOut(BaseModel):

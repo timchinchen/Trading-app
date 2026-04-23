@@ -145,6 +145,72 @@ class AlpacaBroker:
             "filled_at": getattr(o, "filled_at", None),
         }
 
+    # --- Bars (for technical analysis) ---
+    def fetch_daily_bars(self, symbols: list[str], lookback_days: int = 120) -> dict[str, list[dict]]:
+        """Fetch daily OHLCV bars for the given symbols. Returns
+        {SYM: [{t, o, h, l, c, v}, ...]} in chronological order. Silently
+        swallows errors so the swing scan can degrade gracefully."""
+        from datetime import datetime, timedelta, timezone
+
+        if not symbols or not self.configured:
+            return {}
+        try:
+            from alpaca.data.historical import StockHistoricalDataClient
+            from alpaca.data.requests import StockBarsRequest
+            from alpaca.data.timeframe import TimeFrame
+        except Exception as e:
+            print(f"[broker] bars import error: {e}")
+            return {}
+
+        key = settings.ALPACA_LIVE_KEY if self.mode == "live" else settings.ALPACA_PAPER_KEY
+        secret = settings.ALPACA_LIVE_SECRET if self.mode == "live" else settings.ALPACA_PAPER_SECRET
+        if not (key and secret):
+            return {}
+
+        # Alpaca enforces a 15-min data delay on the free feed; we ask for
+        # `lookback_days` calendar days, which is ~1.4x trading days, plus
+        # a 5-day safety margin.
+        end = datetime.now(timezone.utc)
+        start = end - timedelta(days=int(lookback_days * 1.5) + 5)
+
+        try:
+            client = StockHistoricalDataClient(key, secret)
+            req = StockBarsRequest(
+                symbol_or_symbols=[s.upper() for s in symbols],
+                timeframe=TimeFrame.Day,
+                start=start,
+                end=end,
+                limit=10000,
+            )
+            raw = client.get_stock_bars(req)
+        except Exception as e:
+            print(f"[broker] fetch_daily_bars error: {e}")
+            return {}
+
+        out: dict[str, list[dict]] = {}
+        try:
+            # alpaca-py returns a BarSet; .data is {sym: [Bar, ...]}
+            data = getattr(raw, "data", None) or {}
+            for sym, bars in data.items():
+                seq: list[dict] = []
+                for b in bars:
+                    try:
+                        seq.append({
+                            "t": b.timestamp.isoformat() if getattr(b, "timestamp", None) else None,
+                            "o": float(b.open),
+                            "h": float(b.high),
+                            "l": float(b.low),
+                            "c": float(b.close),
+                            "v": int(b.volume or 0),
+                        })
+                    except Exception:
+                        continue
+                if seq:
+                    out[sym.upper()] = seq
+        except Exception as e:
+            print(f"[broker] bar parse error: {e}")
+        return out
+
     # --- Quotes ---
     def latest_quote(self, symbol: str) -> dict:
         try:

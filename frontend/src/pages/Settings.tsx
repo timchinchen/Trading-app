@@ -917,7 +917,15 @@ function AgentBudgetCard({ s }: { s: AgentSettings }) {
   const [maxOpen, setMaxOpen] = useState(s.agent_max_open_positions)
   const [cron, setCron] = useState(s.agent_cron_minutes)
   const [intelBoost, setIntelBoost] = useState(s.agent_intel_boost)
-  const [takeProfit, setTakeProfit] = useState(s.agent_take_profit_pct)
+  // Stored as a fraction on the backend (e.g. 0.07 = 7%). The input shows
+  // whole percent to avoid the "7 vs 0.07" foot-gun; we round-trip by
+  // multiplying/dividing by 100.
+  const [takeProfitPct, setTakeProfitPct] = useState(
+    Number((s.agent_take_profit_pct * 100).toFixed(4)),
+  )
+  const [stopLossPct, setStopLossPct] = useState(
+    Number((s.agent_stop_loss_pct * 100).toFixed(4)),
+  )
   const [recentWindow, setRecentWindow] = useState(s.agent_recent_trade_window_hours)
 
   useEffect(() => {
@@ -931,7 +939,8 @@ function AgentBudgetCard({ s }: { s: AgentSettings }) {
     setMaxOpen(s.agent_max_open_positions)
     setCron(s.agent_cron_minutes)
     setIntelBoost(s.agent_intel_boost)
-    setTakeProfit(s.agent_take_profit_pct)
+    setTakeProfitPct(Number((s.agent_take_profit_pct * 100).toFixed(4)))
+    setStopLossPct(Number((s.agent_stop_loss_pct * 100).toFixed(4)))
     setRecentWindow(s.agent_recent_trade_window_hours)
   }, [s])
 
@@ -947,7 +956,9 @@ function AgentBudgetCard({ s }: { s: AgentSettings }) {
       AGENT_MAX_OPEN_POSITIONS: Number(maxOpen),
       AGENT_CRON_MINUTES: Number(cron),
       AGENT_INTEL_BOOST: Number(intelBoost),
-      AGENT_TAKE_PROFIT_PCT: Number(takeProfit),
+      // Input is whole percent (e.g. 7 = 7%). Backend stores a fraction.
+      AGENT_TAKE_PROFIT_PCT: Number(takeProfitPct) / 100,
+      AGENT_STOP_LOSS_PCT: Number(stopLossPct) / 100,
       AGENT_RECENT_TRADE_WINDOW_HOURS: Number(recentWindow),
     })
   }
@@ -1061,13 +1072,25 @@ function AgentBudgetCard({ s }: { s: AgentSettings }) {
         </div>
         <div className="grid grid-cols-[180px_1fr] gap-2 py-2 border-b border-border">
           <div className="text-xs text-muted-foreground uppercase tracking-wider self-center">
-            TAKE_PROFIT_PCT
+            TAKE_PROFIT_%
             <OverrideBadge k="AGENT_TAKE_PROFIT_PCT" overridden={s.overridden} />
           </div>
           <div className="flex items-center gap-2">
-            <NumInput value={takeProfit} onChange={setTakeProfit} step="0.01" />
+            <NumInput value={takeProfitPct} onChange={setTakeProfitPct} step="0.1" />
             <span className="text-xs text-muted-foreground">
-              = {(Number(takeProfit) * 100).toFixed(1)}% (auto-sell when up this much vs entry; 0 disables)
+              % gain vs entry at which the agent auto-sells (whole percent; e.g. 7 = 7%, 0.5 = 0.5%). 0 disables.
+            </span>
+          </div>
+        </div>
+        <div className="grid grid-cols-[180px_1fr] gap-2 py-2 border-b border-border">
+          <div className="text-xs text-muted-foreground uppercase tracking-wider self-center">
+            STOP_LOSS_%
+            <OverrideBadge k="AGENT_STOP_LOSS_PCT" overridden={s.overridden} />
+          </div>
+          <div className="flex items-center gap-2">
+            <NumInput value={stopLossPct} onChange={setStopLossPct} step="0.1" />
+            <span className="text-xs text-muted-foreground">
+              % loss vs entry at which the agent auto-sells (whole percent; e.g. 5 = -5%). 0 disables.
             </span>
           </div>
         </div>

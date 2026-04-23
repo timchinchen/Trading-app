@@ -1,23 +1,179 @@
 import { useEffect, useRef, useState } from 'react'
-import { useChat, useLLMInfo, useLLMModels } from '../api/hooks'
-import type { ChatMessage } from '../api/types'
+import { Markdown } from '../components/Markdown'
+
+// Persist chat state across navigation in sessionStorage so a round-trip to
+// the Dashboard or Settings doesn't wipe the conversation. Clears when the
+// browser tab is closed (which is the right behaviour for a private app).
+const SS_KEY = 'chat_state'
+
+function loadSession(): {
+  messages: ChatMessage[]
+  input: string
+  includeContext: boolean
+} {
+  try {
+    const raw = sessionStorage.getItem(SS_KEY)
+    if (raw) return JSON.parse(raw)
+  } catch {}
+  return { messages: [], input: '', includeContext: false }
+}
+
+function saveSession(state: {
+  messages: ChatMessage[]
+  input: string
+  includeContext: boolean
+}) {
+  try {
+    sessionStorage.setItem(SS_KEY, JSON.stringify(state))
+  } catch {}
+}
+import {
+  useAccount,
+  useAgentRuns,
+  useAgentStatus,
+  useChat,
+  useDigest,
+  useLLMInfo,
+  useLLMModels,
+  usePositions,
+} from '../api/hooks'
+import type {
+  Account,
+  AgentRun,
+  AgentStatus,
+  ChatMessage,
+  DailyDigest,
+  Position,
+} from '../api/types'
 
 const DEFAULT_SYSTEM =
   'You are a helpful assistant embedded in a personal stocks trading app. ' +
   'Keep answers concise. When users ask about markets, be balanced and note uncertainty. ' +
   'Do not invent data you do not have.'
 
+// ---------------------------------------------------------------------------
+// Context builder
+// Assembles a lean, structured text block prepended to the system prompt when
+// the user enables "include context". Deliberately excludes raw logs and tweet
+// noise - only high-signal summaries are included.
+// ---------------------------------------------------------------------------
+function buildContext({
+  account,
+  positions,
+  agentStatus,
+  runs,
+  digests,
+}: {
+  account: Account | undefined
+  positions: Position[] | undefined
+  agentStatus: AgentStatus | undefined
+  runs: AgentRun[] | undefined
+  digests: DailyDigest[] | undefined
+}): string {
+  const lines: string[] = []
+  const today = new Date().toLocaleDateString('en-AU', {
+    weekday: 'short', year: 'numeric', month: 'short', day: 'numeric',
+  })
+  lines.push(`=== TRADING APP CONTEXT (${today}) ===`)
+
+  // 1. Account snapshot
+  if (account) {
+    lines.push('')
+    lines.push('--- ACCOUNT ---')
+    lines.push(`Mode: ${account.mode.toUpperCase()}`)
+    lines.push(`Cash: $${account.cash.toFixed(2)}`)
+    lines.push(`Buying power: $${account.buying_power.toFixed(2)}`)
+    lines.push(`Portfolio value: $${account.portfolio_value.toFixed(2)}`)
+  }
+
+  // 2. Agent settings (TP, SL, budget, mode)
+  if (agentStatus) {
+    lines.push('')
+    lines.push('--- AGENT SETTINGS ---')
+    lines.push(`Agent enabled: ${agentStatus.enabled}`)
+    lines.push(`Budget: $${agentStatus.budget_usd}`)
+    lines.push(`Max open positions: ${agentStatus.max_open_positions}`)
+    lines.push(`Auto-sell (max hold): ${agentStatus.auto_sell_max_hold_days} days`)
+    if (agentStatus.next_run_at)
+      lines.push(`Next run: ${new Date(agentStatus.next_run_at).toLocaleString()}`)
+  }
+
+  // 3. Open positions
+  if (positions && positions.length > 0) {
+    lines.push('')
+    lines.push('--- OPEN POSITIONS ---')
+    for (const p of positions) {
+      const plPct =
+        p.avg_entry_price > 0
+          ? (((p.current_price - p.avg_entry_price) / p.avg_entry_price) * 100).toFixed(2)
+          : '?'
+      const name = p.company_name ? ` (${p.company_name})` : ''
+      lines.push(
+        `${p.symbol}${name}: qty=${p.qty} avg=$${p.avg_entry_price.toFixed(2)} ` +
+        `last=$${p.current_price.toFixed(2)} P/L=$${p.unrealized_pl.toFixed(2)} (${plPct}%)`
+      )
+    }
+  } else if (positions) {
+    lines.push('')
+    lines.push('--- OPEN POSITIONS ---')
+    lines.push('No open positions.')
+  }
+
+  // 4. Trading digests (weekly/daily summaries)
+  if (digests && digests.length > 0) {
+    lines.push('')
+    lines.push('--- TRADING DIGESTS (most recent first) ---')
+    for (const d of digests) {
+      lines.push(`[${d.trade_date}] ${d.text.trim()}`)
+    }
+  }
+
+  // 5. Last 20 agent run summaries
+  const recentRuns = (runs ?? [])
+    .filter((r) => r.summary || r.advice)
+    .slice(0, 20)
+  if (recentRuns.length > 0) {
+    lines.push('')
+    lines.push('--- RECENT AGENT RUNS (latest first) ---')
+    for (const r of recentRuns) {
+      const ts = new Date(r.started_at).toLocaleString()
+      const exec = `${r.trades_executed} executed / ${r.trades_proposed} proposed`
+      if (r.advice) lines.push(`[${ts}] ${exec} | Advice: ${r.advice.trim()}`)
+      else if (r.summary) lines.push(`[${ts}] ${exec} | ${r.summary.trim()}`)
+    }
+  }
+
+  lines.push('')
+  lines.push('=== END CONTEXT ===')
+  return lines.join('\n')
+}
+
 export function ChatPage() {
   const { data: info } = useLLMInfo()
   const { data: modelsData } = useLLMModels()
   const chat = useChat()
 
-  const [messages, setMessages] = useState<ChatMessage[]>([])
-  const [input, setInput] = useState('')
+  // Context data — fetched lazily once the user enables the checkbox.
+  const { data: account } = useAccount()
+  const { data: positions } = usePositions()
+  const { data: agentStatus } = useAgentStatus()
+  const { data: runs } = useAgentRuns()
+  const { data: digest } = useDigest()
+
+  // Seed from sessionStorage so navigation away and back doesn't wipe the
+  // conversation. useState lazy initialisers run once on mount only.
+  const [messages, setMessages] = useState<ChatMessage[]>(() => loadSession().messages)
+  const [input, setInput] = useState<string>(() => loadSession().input)
+  const [includeContext, setIncludeContext] = useState<boolean>(() => loadSession().includeContext)
   const [system, setSystem] = useState(DEFAULT_SYSTEM)
   const [model, setModel] = useState<string>('')
   const [temperature, setTemperature] = useState(0.3)
   const [showSettings, setShowSettings] = useState(false)
+
+  // Keep sessionStorage in sync whenever these values change.
+  useEffect(() => {
+    saveSession({ messages, input, includeContext })
+  }, [messages, input, includeContext])
 
   const listRef = useRef<HTMLDivElement | null>(null)
 
@@ -40,10 +196,24 @@ export function ChatPage() {
     const next: ChatMessage[] = [...messages, { role: 'user', content: text }]
     setMessages(next)
     setInput('')
+
+    // Build effective system prompt — append context block when enabled.
+    let effectiveSystem = system
+    if (includeContext) {
+      const ctx = buildContext({
+        account,
+        positions,
+        agentStatus,
+        runs,
+        digests: digest?.history ?? (digest?.latest ? [digest.latest] : undefined),
+      })
+      effectiveSystem = `${system}\n\n${ctx}`
+    }
+
     chat.mutate(
       {
         messages: next,
-        system,
+        system: effectiveSystem,
         model: model || undefined,
         temperature,
       },
@@ -70,7 +240,11 @@ export function ChatPage() {
     }
   }
 
-  const clear = () => setMessages([])
+  const clear = () => {
+    setMessages([])
+    setInput('')
+    saveSession({ messages: [], input: '', includeContext })
+  }
   const models = modelsData?.models ?? []
 
   return (
@@ -106,6 +280,20 @@ export function ChatPage() {
               models unavailable
             </span>
           )}
+          <label className="flex items-center gap-1.5 cursor-pointer select-none text-xs text-muted-foreground hover:text-foreground transition-colors">
+            <input
+              type="checkbox"
+              checked={includeContext}
+              onChange={(e) => setIncludeContext(e.target.checked)}
+              className="accent-primary"
+            />
+            include context
+            {includeContext && (
+              <span className="text-primary text-[10px]">
+                (portfolio · digests · agent)
+              </span>
+            )}
+          </label>
           <button
             onClick={() => setShowSettings((v) => !v)}
             className="text-xs px-3 py-1.5 rounded-md bg-muted/60 border border-border text-foreground hover:bg-muted transition-colors"
@@ -120,34 +308,52 @@ export function ChatPage() {
           </button>
         </div>
         {showSettings && (
-          <div className="mt-4 grid grid-cols-1 md:grid-cols-[1fr_220px] gap-4 pt-4 border-t border-border">
-            <div>
-              <div className="text-xs text-muted-foreground uppercase tracking-wider mb-2">
-                System prompt
+          <div className="mt-4 space-y-4 pt-4 border-t border-border">
+            <div className="grid grid-cols-1 md:grid-cols-[1fr_220px] gap-4">
+              <div>
+                <div className="text-xs text-muted-foreground uppercase tracking-wider mb-2">
+                  System prompt
+                </div>
+                <textarea
+                  value={system}
+                  onChange={(e) => setSystem(e.target.value)}
+                  rows={3}
+                  className="w-full bg-input-bg border border-border rounded-lg p-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+                />
               </div>
-              <textarea
-                value={system}
-                onChange={(e) => setSystem(e.target.value)}
-                rows={3}
-                className="w-full bg-input-bg border border-border rounded-lg p-3 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
-              />
-            </div>
-            <div>
-              <div className="text-xs text-muted-foreground uppercase tracking-wider mb-2">
-                Temperature
+              <div>
+                <div className="text-xs text-muted-foreground uppercase tracking-wider mb-2">
+                  Temperature
+                </div>
+                <div className="text-sm text-foreground mb-2">{temperature.toFixed(2)}</div>
+                <input
+                  type="range"
+                  min={0}
+                  max={1.5}
+                  step={0.05}
+                  value={temperature}
+                  onChange={(e) => setTemperature(parseFloat(e.target.value))}
+                  className="w-full"
+                  style={{ accentColor: 'var(--primary)' }}
+                />
               </div>
-              <div className="text-sm text-foreground mb-2">{temperature.toFixed(2)}</div>
-              <input
-                type="range"
-                min={0}
-                max={1.5}
-                step={0.05}
-                value={temperature}
-                onChange={(e) => setTemperature(parseFloat(e.target.value))}
-                className="w-full"
-                style={{ accentColor: 'var(--primary)' }}
-              />
             </div>
+            {includeContext && (
+              <div>
+                <div className="text-xs text-muted-foreground uppercase tracking-wider mb-2">
+                  Context preview (sent with every message)
+                </div>
+                <pre className="bg-input-bg border border-border rounded-lg p-3 text-[11px] text-muted-foreground whitespace-pre-wrap max-h-48 overflow-auto leading-relaxed">
+                  {buildContext({
+                    account,
+                    positions,
+                    agentStatus,
+                    runs,
+                    digests: digest?.history ?? (digest?.latest ? [digest.latest] : undefined),
+                  })}
+                </pre>
+              </div>
+            )}
           </div>
         )}
       </section>
@@ -206,7 +412,10 @@ export function ChatPage() {
               >
                 {m.role}
               </div>
-              {m.content}
+              {m.role === 'assistant'
+                ? <Markdown>{m.content}</Markdown>
+                : <span className="whitespace-pre-wrap">{m.content}</span>
+              }
             </div>
           </div>
         ))}

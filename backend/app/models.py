@@ -131,6 +131,11 @@ class AgentPositionPlan(Base):
     opened_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     breakeven_moved = Column(Integer, default=0, nullable=False)  # 0|1
     partial_taken = Column(Integer, default=0, nullable=False)    # 0|1
+    # Peak unrealized gain fraction seen so far (e.g. 0.12 = +12%). Updated
+    # every run while position is open. Used by the adaptive trailing-stop
+    # engine to detect momentum fade: if peak was 0.10 and current is 0.065,
+    # the retrace is 35% of peak → trailing exit fires.
+    peak_unrealized_plpc = Column(Float, default=0.0, nullable=False)
     status = Column(String, default="open", nullable=False)       # open|closed
     notes = Column(String)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)

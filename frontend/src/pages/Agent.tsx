@@ -422,6 +422,9 @@ export function AgentPage() {
                     <th className="px-4 py-3 text-left text-xs text-muted-foreground">Time</th>
                     <th className="px-4 py-3 text-left text-xs text-muted-foreground">Symbol</th>
                     <th className="px-4 py-3 text-left text-xs text-muted-foreground">Side</th>
+                    <th className="px-4 py-3 text-left text-xs text-muted-foreground">Setup</th>
+                    <th className="px-4 py-3 text-right text-xs text-muted-foreground">Entry / Stop / Tgt</th>
+                    <th className="px-4 py-3 text-right text-xs text-muted-foreground">R/R</th>
                     <th className="px-4 py-3 text-right text-xs text-muted-foreground">Qty</th>
                     <th className="px-4 py-3 text-right text-xs text-muted-foreground">Notional</th>
                     <th className="px-4 py-3 text-left text-xs text-muted-foreground">Action</th>
@@ -441,6 +444,23 @@ export function AgentPage() {
                         }`}
                       >
                         {t.side}
+                      </td>
+                      <td className="px-4 py-3 text-xs">
+                        {t.setup_type ? (
+                          <span className="px-1.5 py-0.5 rounded border border-primary/40 text-primary bg-primary/10">
+                            {t.setup_type.replace(/_/g, ' ')}
+                          </span>
+                        ) : (
+                          <span className="text-muted-foreground">-</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-xs text-right font-mono text-muted-foreground">
+                        {t.entry_price != null
+                          ? `$${t.entry_price.toFixed(2)} / $${t.stop_price?.toFixed(2) ?? '-'} / $${t.target_price?.toFixed(2) ?? '-'}`
+                          : '-'}
+                      </td>
+                      <td className="px-4 py-3 text-xs text-right font-mono">
+                        {t.risk_reward != null ? `${t.risk_reward.toFixed(2)}:1` : '-'}
                       </td>
                       <td className="px-4 py-3 text-sm text-right">{t.qty}</td>
                       <td className="px-4 py-3 text-sm text-right">
@@ -467,7 +487,7 @@ export function AgentPage() {
                   {(!trades || trades.length === 0) && (
                     <tr className="border-t border-border">
                       <td
-                        colSpan={7}
+                        colSpan={10}
                         className="px-4 py-8 text-center text-sm text-muted-foreground"
                       >
                         No trades

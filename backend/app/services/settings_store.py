@@ -62,7 +62,21 @@ EDITABLE_KEYS: dict[str, type] = {
     "AGENT_CRON_MINUTES": int,
     "AGENT_INTEL_BOOST": float,
     "AGENT_TAKE_PROFIT_PCT": float,
+    "AGENT_STOP_LOSS_PCT": float,
     "AGENT_RECENT_TRADE_WINDOW_HOURS": int,
+    # Source reliability weighting
+    "AGENT_HANDLE_WEIGHTS": str,
+    # Regime-adaptive sizing
+    "AGENT_REGIME_RISK_ON_MULT": float,
+    "AGENT_REGIME_NEUTRAL_MULT": float,
+    "AGENT_REGIME_RISK_OFF_MULT": float,
+    "AGENT_RISK_OFF_BLOCK_NEW_BUYS": bool,
+    # Adaptive exit engine
+    "AGENT_TRAIL_ARM_PCT": float,
+    "AGENT_TRAIL_RETRACE_PCT": float,
+    "AGENT_PARTIAL_TAKE_PCT": float,
+    "AGENT_PARTIAL_TAKE_FRACTION": float,
+    "AGENT_MAX_HOLD_DAYS": int,
     # Agent signal thresholds (previously hard-coded)
     "AGENT_MIN_SCORE": float,
     "AGENT_MIN_CONFIDENCE": float,
@@ -159,7 +173,21 @@ class RuntimeSettings:
     agent_cron_minutes: int = 0
     agent_intel_boost: float = 0.0
     agent_take_profit_pct: float = 0.0
+    agent_stop_loss_pct: float = 0.0
     agent_recent_trade_window_hours: int = 0
+    # Source reliability weighting
+    agent_handle_weights: str = "{}"
+    # Regime-adaptive sizing
+    agent_regime_risk_on_mult: float = 1.25
+    agent_regime_neutral_mult: float = 1.0
+    agent_regime_risk_off_mult: float = 0.5
+    agent_risk_off_block_new_buys: bool = True
+    # Adaptive exit engine
+    agent_trail_arm_pct: float = 0.05
+    agent_trail_retrace_pct: float = 0.35
+    agent_partial_take_pct: float = 0.07
+    agent_partial_take_fraction: float = 0.5
+    agent_max_hold_days: int = 8
     # Signal thresholds (allocator)
     agent_min_score: float = 0.0
     agent_min_confidence: float = 0.0
@@ -360,7 +388,18 @@ def get_runtime_settings(db: Session | None = None) -> RuntimeSettings:
         agent_cron_minutes=int(pick("AGENT_CRON_MINUTES", int)),
         agent_intel_boost=float(pick("AGENT_INTEL_BOOST", float)),
         agent_take_profit_pct=float(pick("AGENT_TAKE_PROFIT_PCT", float)),
+        agent_stop_loss_pct=float(pick("AGENT_STOP_LOSS_PCT", float)),
         agent_recent_trade_window_hours=int(pick("AGENT_RECENT_TRADE_WINDOW_HOURS", int)),
+        agent_handle_weights=str(pick("AGENT_HANDLE_WEIGHTS", str)),
+        agent_regime_risk_on_mult=max(0.1, min(2.0, float(pick("AGENT_REGIME_RISK_ON_MULT", float)))),
+        agent_regime_neutral_mult=max(0.1, min(2.0, float(pick("AGENT_REGIME_NEUTRAL_MULT", float)))),
+        agent_regime_risk_off_mult=max(0.1, min(2.0, float(pick("AGENT_REGIME_RISK_OFF_MULT", float)))),
+        agent_risk_off_block_new_buys=bool(pick("AGENT_RISK_OFF_BLOCK_NEW_BUYS", bool)),
+        agent_trail_arm_pct=max(0.0, min(1.0, float(pick("AGENT_TRAIL_ARM_PCT", float)))),
+        agent_trail_retrace_pct=max(0.0, min(1.0, float(pick("AGENT_TRAIL_RETRACE_PCT", float)))),
+        agent_partial_take_pct=max(0.0, min(1.0, float(pick("AGENT_PARTIAL_TAKE_PCT", float)))),
+        agent_partial_take_fraction=max(0.0, min(1.0, float(pick("AGENT_PARTIAL_TAKE_FRACTION", float)))),
+        agent_max_hold_days=max(1, int(pick("AGENT_MAX_HOLD_DAYS", int))),
         agent_min_score=float(pick("AGENT_MIN_SCORE", float)),
         agent_min_confidence=float(pick("AGENT_MIN_CONFIDENCE", float)),
         agent_top_n_candidates=int(pick("AGENT_TOP_N_CANDIDATES", int)),
@@ -485,7 +524,18 @@ def public_view(rs: RuntimeSettings) -> dict[str, Any]:
         "agent_cron_minutes": rs.agent_cron_minutes,
         "agent_intel_boost": rs.agent_intel_boost,
         "agent_take_profit_pct": rs.agent_take_profit_pct,
+        "agent_stop_loss_pct": rs.agent_stop_loss_pct,
         "agent_recent_trade_window_hours": rs.agent_recent_trade_window_hours,
+        "agent_handle_weights": rs.agent_handle_weights,
+        "agent_regime_risk_on_mult": rs.agent_regime_risk_on_mult,
+        "agent_regime_neutral_mult": rs.agent_regime_neutral_mult,
+        "agent_regime_risk_off_mult": rs.agent_regime_risk_off_mult,
+        "agent_risk_off_block_new_buys": rs.agent_risk_off_block_new_buys,
+        "agent_trail_arm_pct": rs.agent_trail_arm_pct,
+        "agent_trail_retrace_pct": rs.agent_trail_retrace_pct,
+        "agent_partial_take_pct": rs.agent_partial_take_pct,
+        "agent_partial_take_fraction": rs.agent_partial_take_fraction,
+        "agent_max_hold_days": rs.agent_max_hold_days,
         "agent_min_score": rs.agent_min_score,
         "agent_min_confidence": rs.agent_min_confidence,
         "agent_top_n_candidates": rs.agent_top_n_candidates,

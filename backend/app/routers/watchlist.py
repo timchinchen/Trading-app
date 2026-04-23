@@ -6,7 +6,9 @@ from ..deps import get_market_data
 from ..models import WatchlistItem
 from ..schemas import WatchlistItemIn, WatchlistItemOut
 from ..security import get_current_user
+from ..services import company_names
 from ..services.market_data import MarketDataService
+from ..services.settings_store import get_runtime_settings
 
 router = APIRouter(prefix="/watchlist", tags=["watchlist"])
 
@@ -20,7 +22,12 @@ async def list_items(
     items = db.query(WatchlistItem).filter(WatchlistItem.user_id == user.id).all()
     if not items:
         return []
-    snaps = await md.get_snapshots([w.symbol for w in items])
+    symbols = [w.symbol for w in items]
+    snaps = await md.get_snapshots(symbols)
+    # Warm the SEC ticker map so `company_names.lookup` below is a pure
+    # dict-hit. Swallows its own errors - a missing name is cosmetic.
+    rs = get_runtime_settings(db)
+    await company_names.prefetch_names(symbols, user_agent=rs.sec_user_agent)
     out: list[WatchlistItemOut] = []
     for w in items:
         snap = snaps.get(w.symbol) or {}
@@ -29,6 +36,7 @@ async def list_items(
                 id=w.id,
                 symbol=w.symbol,
                 feed=w.feed,
+                company_name=company_names.lookup(w.symbol),
                 open=snap.get("open"),
                 prev_close=snap.get("prev_close"),
                 day_high=snap.get("day_high"),

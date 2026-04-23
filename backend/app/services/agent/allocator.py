@@ -55,7 +55,17 @@ def propose_trades(
     min_confidence: float,
     top_n: int,
     recently_bought: Optional[dict[str, Any]] = None,
+    open_position_qtys: Optional[dict[str, float]] = None,
+    risk_multiplier: float = 1.0,
+    block_new_buys: bool = False,
 ) -> list[dict[str, Any]]:
+    """open_position_qtys: {symbol -> held qty} sourced from broker.positions().
+    Used to size bearish reversal SELL proposals correctly. If absent (legacy
+    callers), sells are skipped with an explicit reason instead of using qty=0.
+
+    risk_multiplier: scales the desired buy slot (clamped to existing caps).
+    block_new_buys: if True, all BUY candidates are skipped (risk-off regime).
+    """
     recently_bought = recently_bought or {}
     candidates = [
         (sym, s)
@@ -70,6 +80,14 @@ def propose_trades(
     week_budget = max(0.0, float(weekly_remaining))
 
     for sym, s in candidates[:top_n]:
+        if block_new_buys:
+            proposals.append({
+                "symbol": sym, "side": "buy", "qty": 0.0,
+                "est_price": None, "notional": 0.0,
+                "action": "skipped", "reason": "risk-off regime: new buys blocked",
+            })
+            continue
+
         if sym in open_symbols:
             proposals.append({
                 "symbol": sym, "side": "buy", "qty": 0.0,
@@ -108,6 +126,8 @@ def propose_trades(
             min_score=min_score,
             min_confidence=min_confidence,
         )
+        # Apply regime risk multiplier before final cap clamp.
+        desired = desired * max(0.1, float(risk_multiplier))
         slot = min(desired, daily_budget, week_budget, max_position_usd)
 
         if slot < min_position_usd:
@@ -158,21 +178,58 @@ def propose_trades(
         remaining_slots -= 1
 
     # Emit SELL proposals for currently-held names whose signal has turned
-    # sharply bearish this run.
+    # sharply bearish this run.  We need the actual held quantity to create an
+    # executable close-position order; qty=0 orders are blocked at execution
+    # time and silently wasted. open_position_qtys provides this from the
+    # broker; if absent we skip with an explicit reason so the log is clear.
+    qtys = open_position_qtys or {}
+    already_selling = {
+        (p["symbol"] or "").upper()
+        for p in proposals
+        if p.get("side") == "sell"
+    }
     for sym in open_symbols:
+        if sym in already_selling:
+            continue
         s = signals.get(sym)
         if not s:
             continue
-        if s["score"] <= -min_score and s["confidence"] >= min_confidence:
+        if not (s["score"] <= -min_score and s["confidence"] >= min_confidence):
+            continue
+
+        reason_base = (
+            f"bearish reversal score={s['score']:.2f} "
+            f"conf={s['confidence']:.2f} mentions={s['mentions']}"
+        )
+        held_qty = qtys.get(sym)
+        if held_qty is None:
+            # qty map not provided or symbol unexpectedly absent — skip rather
+            # than emit an unexecutable zero-qty order.
             proposals.append({
                 "symbol": sym, "side": "sell", "qty": 0.0,
                 "est_price": None, "notional": 0.0,
-                "action": "proposed",
-                "reason": (
-                    f"bearish reversal score={s['score']:.2f} "
-                    f"conf={s['confidence']:.2f} mentions={s['mentions']} "
-                    f"(close position)"
-                ),
+                "action": "skipped",
+                "reason": f"{reason_base} | skipped: held qty unknown (no position data)",
             })
+            continue
+
+        held_qty = float(held_qty)
+        if held_qty <= 0:
+            proposals.append({
+                "symbol": sym, "side": "sell", "qty": 0.0,
+                "est_price": None, "notional": 0.0,
+                "action": "skipped",
+                "reason": f"{reason_base} | skipped: held qty={held_qty} <= 0",
+            })
+            continue
+
+        price = get_price(sym)
+        notional = round(held_qty * float(price), 2) if price else 0.0
+        proposals.append({
+            "symbol": sym, "side": "sell", "qty": held_qty,
+            "est_price": price, "notional": notional,
+            "action": "proposed",
+            "reason": f"{reason_base} | closing {held_qty} shares",
+        })
 
     return proposals
