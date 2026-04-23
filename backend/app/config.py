@@ -58,10 +58,12 @@ class Settings(BaseSettings):
     AGENT_PER_ACCOUNT_TIMEOUT_S: int = 45
     # Signal thresholds (previously hard-coded in allocator.py).
     # Signals with score or confidence below these are filtered out entirely.
-    AGENT_MIN_SCORE: float = 0.30
-    AGENT_MIN_CONFIDENCE: float = 0.30
+    # Raised from 0.30 → 0.45 / 0.50: only high-conviction signals get capital.
+    AGENT_MIN_SCORE: float = 0.45
+    AGENT_MIN_CONFIDENCE: float = 0.50
     # Max number of fresh-signal candidates the allocator considers per run.
-    AGENT_TOP_N_CANDIDATES: int = 5
+    # Reduced from 5 → 3: pick fewer, better entries rather than spreading thin.
+    AGENT_TOP_N_CANDIDATES: int = 3
     # Max concurrent LLM calls when analysing tweets.
     AGENT_LLM_CONCURRENCY: int = 3
     # Market-intel corroboration: boost applied to a ticker's confidence when
@@ -93,14 +95,18 @@ class Settings(BaseSettings):
 
     # ---- Adaptive exit engine ----
     # Arm trailing-retrace logic once unrealized gain reaches this level.
-    AGENT_TRAIL_ARM_PCT: float = 0.05         # 5% gain arms trailing
+    # Tightened from 0.05 → 0.04: protect gains sooner.
+    AGENT_TRAIL_ARM_PCT: float = 0.04         # 4% gain arms trailing
     # Exit if current gain retraces this fraction from peak armed gain.
-    AGENT_TRAIL_RETRACE_PCT: float = 0.35     # 35% retrace from peak
+    # Tightened from 0.35 → 0.30: cut faster when momentum fades.
+    AGENT_TRAIL_RETRACE_PCT: float = 0.30     # 30% retrace from peak
     # First partial-TP at this gain; sells PARTIAL_TAKE_FRACTION of position.
-    AGENT_PARTIAL_TAKE_PCT: float = 0.07      # 7%
+    # Tightened from 0.07 → 0.06: bank first partial slightly earlier.
+    AGENT_PARTIAL_TAKE_PCT: float = 0.06      # 6%
     AGENT_PARTIAL_TAKE_FRACTION: float = 0.5  # sell 50%
     # Hard time-stop: close any position older than this many calendar days.
-    AGENT_MAX_HOLD_DAYS: int = 8
+    # Tightened from 8 → 7: enforce 1-week swing discipline.
+    AGENT_MAX_HOLD_DAYS: int = 7
 
     # ---- Swing-trading skill (1-2 week horizon) ----
     # Master toggle. When off the agent falls back to the old tweet-sentiment
@@ -110,7 +116,8 @@ class Settings(BaseSettings):
     # total capital (AGENT_BUDGET_USD). Shares = risk / (entry - stop).
     SWING_RISK_PER_TRADE_PCT: float = 0.01          # 1%
     # Reject setups whose reward/risk ratio is below this.
-    SWING_MIN_RR: float = 2.0
+    # Raised from 2.0 → 2.5: only take swings with good upside vs defined risk.
+    SWING_MIN_RR: float = 2.5
     # Time-stop in trading days. If a position has made no progress by then,
     # the next run emits an EXIT proposal.
     SWING_TIME_STOP_DAYS: int = 5
@@ -132,7 +139,9 @@ class Settings(BaseSettings):
     # 09:45 US/Eastern on weekdays; paper mode auto-executes, live mode
     # proposes unless AGENT_AUTO_EXECUTE_LIVE is also on.
     AUTO_SELL_ENABLED: bool = True
-    AUTO_SELL_MAX_HOLD_DAYS: int = 30
+    # Backstop auto-sell tightened from 30 → 14 days: for swing trading,
+    # a position that hasn't worked in 2 weeks is dead money.
+    AUTO_SELL_MAX_HOLD_DAYS: int = 14
 
     # ---- LLM provider ----
     # One of: "ollama" (default, local), "openai" (hosted, requires key),
