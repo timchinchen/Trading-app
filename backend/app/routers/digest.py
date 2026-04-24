@@ -3,6 +3,7 @@
 - GET /digest                  latest daily summary + recent raw entries (dashboard)
 - GET /digest/entries          paginated raw entries (debug/history)
 - GET /digest/daily            list of daily digests
+- POST /digest/run-now         run the daily compression now (normal mode)
 - POST /digest/compress        force a compression now (manual trigger)
 """
 
@@ -97,6 +98,23 @@ async def compress_now(
     """Force a daily-digest compression now (bypass the 09:30 schedule).
     Useful for smoke-testing or catching up after a downtime."""
     row = await compress_daily(force=force, db=db)
+    if row is None:
+        return None
+    return DailyDigestOut.model_validate(row)
+
+
+@router.post("/run-now", response_model=DailyDigestOut | None)
+async def run_now(
+    _user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Run today's daily-digest compression now in normal mode.
+
+    Unlike /digest/compress (force mode), this behaves like the scheduled job:
+    it creates today's digest if missing and simply returns the existing row
+    when today's digest has already been generated.
+    """
+    row = await compress_daily(force=False, db=db)
     if row is None:
         return None
     return DailyDigestOut.model_validate(row)

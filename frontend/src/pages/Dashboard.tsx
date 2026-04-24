@@ -4,6 +4,7 @@ import {
   useAccount,
   useAddWatch,
   useCompressDigest,
+  useRunDigestNow,
   useDigest,
   usePositions,
   useRemoveWatch,
@@ -42,6 +43,7 @@ function Card({
 
 function TradingMemoryCard() {
   const { data, isLoading } = useDigest()
+  const runNow = useRunDigestNow()
   const compress = useCompressDigest()
   const [showEntries, setShowEntries] = useState(false)
 
@@ -62,6 +64,13 @@ function TradingMemoryCard() {
             className="text-xs text-primary hover:underline"
           >
             {showEntries ? 'hide log' : `log (${entries.length})`}
+          </button>
+          <button
+            onClick={() => runNow.mutate()}
+            disabled={runNow.isPending}
+            className="btn-primary px-3 py-1 text-xs rounded-md disabled:opacity-50"
+          >
+            {runNow.isPending ? 'running…' : 'run now'}
           </button>
           <button
             onClick={() => compress.mutate()}
@@ -114,6 +123,10 @@ function TradingMemoryCard() {
           <p>
             No compressed digest yet. The agent will record events over the
             next few runs; the first daily summary fires at 09:30 ET.
+          </p>
+          <p>
+            You can click <strong>run now</strong> to run the daily digest
+            immediately (same behavior as the scheduled job), or
           </p>
           <p>
             You can also click <strong>compress now</strong> to force an

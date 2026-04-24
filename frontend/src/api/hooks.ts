@@ -272,6 +272,15 @@ export const useCompressDigest = () => {
   })
 }
 
+export const useRunDigestNow = () => {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async () =>
+      (await api.post<DailyDigest | null>('/digest/run-now')).data,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['digest'] }),
+  })
+}
+
 export const useChat = () =>
   useMutation({
     mutationFn: async (body: {
