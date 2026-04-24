@@ -1,4 +1,4 @@
-# Personal Stocks Trading App — v1.2.0
+# Personal Stocks Trading App — v1.2.1
 
 Self-hosted swing-trading app with **Paper** and **Live** modes, backed by Alpaca. Runs entirely on your own hardware — no cloud subscriptions, no data sold.
 
@@ -54,7 +54,7 @@ UI: `http://localhost:5173`
 - Account snapshot (cash, buying power, portfolio value)
 - Open positions with live P/L and company name hover-tips
 - Live watchlist with WebSocket / polling price feed, open price, prev close, % change
-- **Trading Memory** card — compressed daily digest of agent activity
+- **Trading Memory** card — compressed daily digest of agent activity with **Run now** and **Compress now** actions
 
 ### Symbol page
 - Live tick chart (session history)
@@ -208,6 +208,9 @@ Hover over any ticker on the Dashboard to see the full company/fund name, source
 ### Daily Trading Digest
 Rolling log of agent events compressed daily at 09:30 ET by the Deep Analysis LLM. Last 3 digests prepended to advisor prompts as long-term memory. Visible on the Dashboard.
 
+- **Run now** = run the daily compression now in normal mode (same behavior as the scheduler)
+- **Compress now** = force regeneration now (bypasses normal daily guard)
+
 ---
 
 ## Safety rails
@@ -297,6 +300,7 @@ trading-app/
 
 | Version | Highlights |
 |---------|-----------|
+| **1.2.1** | Entry/exit defaults tightened for higher-quality swing trades (`AGENT_MIN_SCORE`, `AGENT_MIN_CONFIDENCE`, `AGENT_TOP_N_CANDIDATES`, tighter trailing/partial/time-stop defaults) |
 | **1.2.0** | Source reliability weighting · regime-adaptive sizing · adaptive exit engine (time/momentum/partial TP) · take-profit/stop-loss whole-percent input · sell tab auto-fills held qty · Chat context injection · company name hover-tips · agent pipeline robustness fixes · Trading Digest |
 | 1.0.8 | Symbol detail page error boundary + chart hardening |
 | 1.0.7 | HF default model switched to Llama-3.1-8B-Instruct |
@@ -306,3 +310,11 @@ trading-app/
 | 1.0.3 | Hugging Face + Cohere LLM providers |
 | 1.0.2 | Auto-sell (30-day max-hold window) |
 | 1.0.1 | Prerequisites panel on login screen |
+
+---
+
+## Application screenshots
+
+### Agent UI
+
+![Agent UI](docs/screenshots/agent-ui.png)
