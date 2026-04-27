@@ -1,5 +1,3 @@
-# syntax=docker/dockerfile:1.7
-
 # ---------- build ----------
 # Chainguard node (dev variant) keeps npm available for `npm ci`/`npm run build`.
 FROM cgr.dev/chainguard/node:latest-dev AS builder
