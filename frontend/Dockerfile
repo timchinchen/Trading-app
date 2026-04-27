@@ -2,10 +2,13 @@
 # Chainguard node (dev variant) keeps npm available for `npm ci`/`npm run build`.
 FROM cgr.dev/chainguard/node:latest-dev AS builder
 
+USER root
 WORKDIR /app
+RUN chown -R 65532:65532 /app
+USER 65532
 
 # Install deps first (cache-friendly)
-COPY package.json package-lock.json ./
+COPY --chown=65532:65532 package.json package-lock.json ./
 RUN npm ci
 
 # Build-time configuration. With the two-port layout the browser talks
@@ -16,7 +19,7 @@ ARG VITE_WS_URL=ws://localhost:8000
 ENV VITE_API_URL=${VITE_API_URL} \
     VITE_WS_URL=${VITE_WS_URL}
 
-COPY . .
+COPY --chown=65532:65532 . .
 RUN npm run build
 
 # ---------- serve ----------
