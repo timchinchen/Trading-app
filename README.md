@@ -332,3 +332,6 @@ trading-app/
 
 ![Settings Trading 1](<docs/screenshots/TRADING APP - Settings TRADING.png>)
 ![Settings Trading 2](<docs/screenshots/TRADING APP - Settings TRADING02.png>)
+### Agent UI
+
+![Agent UI](docs/screenshots/agent-ui.png)
