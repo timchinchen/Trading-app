@@ -315,6 +315,23 @@ trading-app/
 
 ## Application screenshots
 
+### Dashboard
+
+![Dashboard](<docs/screenshots/TRADING-APP-Dashboard01.png>)
+
+### Agent
+
+![Agent UI 1](<docs/screenshots/TRADING-APP - Agent01.png>)
+![Agent UI 2](docs/screenshots/agent-ui.png)
+
+### Settings — LLM
+
+![Settings LLM](<docs/screenshots/TRADING APP - Settings LLM.png>)
+
+### Settings — Trading
+
+![Settings Trading 1](<docs/screenshots/TRADING APP - Settings TRADING.png>)
+![Settings Trading 2](<docs/screenshots/TRADING APP - Settings TRADING02.png>)
 ### Agent UI
 
 ![Agent UI](docs/screenshots/agent-ui.png)

@@ -1,7 +1,8 @@
 # syntax=docker/dockerfile:1.7
 
 # ---------- build ----------
-FROM node:20-alpine AS builder
+# Chainguard node (dev variant) keeps npm available for `npm ci`/`npm run build`.
+FROM cgr.dev/chainguard/node:latest-dev AS builder
 
 WORKDIR /app
 
@@ -21,14 +22,15 @@ COPY . .
 RUN npm run build
 
 # ---------- serve ----------
-FROM nginx:1.27-alpine AS runtime
+# Chainguard nginx runs as non-root by default and serves on 8080.
+FROM cgr.dev/chainguard/nginx:latest AS runtime
 
 # SPA-friendly config: route every unknown path back to index.html
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 
 COPY --from=builder /app/dist /usr/share/nginx/html
 
-EXPOSE 80
+EXPOSE 8080
 
 HEALTHCHECK --interval=30s --timeout=3s --retries=3 \
-    CMD wget -q --spider http://localhost/ || exit 1
+    CMD nginx -t

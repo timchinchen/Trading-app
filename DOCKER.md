@@ -5,7 +5,7 @@ Two containers:
 | Service  | Image base                                      | Port (host) | Notes                                                |
 |----------|-------------------------------------------------|-------------|------------------------------------------------------|
 | backend  | `mcr.microsoft.com/playwright/python:v1.47.0`   | `8000`      | FastAPI + Uvicorn + Playwright/Chromium              |
-| frontend | `node:20-alpine` (build) -> `nginx:1.27-alpine` | `5173`      | Static Vite bundle; browser hits backend at :8000    |
+| frontend | `cgr.dev/chainguard/node` (build) -> `cgr.dev/chainguard/nginx` | `5173`      | Static Vite bundle; browser hits backend at :8000 (served on container port 8080) |
 
 Persistent data (sqlite + twscrape cookie db) lives in the named volume
 `trading-app-data` and is mounted into the backend at `/data`.
