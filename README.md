@@ -24,6 +24,15 @@ cp .env.example .env       # fill in ALPACA_PAPER_KEY / ALPACA_PAPER_SECRET
 
 API: `http://localhost:8000` — interactive docs at `/docs`
 
+### Deploying to AWS (EC2)
+
+See [`docs/AWS_DEPLOYMENT.md`](docs/AWS_DEPLOYMENT.md) for a simple EC2 setup with:
+- **Option A:** local Ollama on the instance
+- **Option B:** remote hosted models (OpenAI / Hugging Face / Cohere)
+
+The guide also covers low-cost micro-instance sizing, safe remote console access,
+and crash/hang recovery settings.
+
 ### 2. Frontend
 
 ```bash

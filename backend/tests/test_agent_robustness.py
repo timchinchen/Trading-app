@@ -186,7 +186,7 @@ class TestBearishReversalSizing:
 
 from unittest.mock import MagicMock, patch
 from datetime import datetime, timedelta
-from app.services.agent.runner import _today_realized_pl
+from app.services.agent.runner import _today_realized_pl, recover_stale_runs
 
 
 def _trade(symbol, side, qty, price, offset_minutes=0):
@@ -267,3 +267,32 @@ class TestDailyRealizedPL:
         """Unrealised positions don't count."""
         trades = [_trade("AAPL", "buy", 2.0, 100.0)]
         assert self._run(trades) == pytest.approx(0.0)
+
+
+class TestStaleRunRecovery:
+    def test_recover_stale_runs_marks_only_old_running_rows(self):
+        stale = MagicMock()
+        stale.status = "running"
+        stale.started_at = datetime.utcnow() - timedelta(hours=12)
+        stale.summary = ""
+        stale.logs = ""
+
+        fresh = MagicMock()
+        fresh.status = "running"
+        fresh.started_at = datetime.utcnow() - timedelta(minutes=20)
+        fresh.summary = ""
+        fresh.logs = ""
+
+        db = MagicMock()
+        query_chain = db.query.return_value.filter.return_value
+        query_chain.all.return_value = [stale]
+
+        with patch("app.services.agent.runner.SessionLocal", return_value=db):
+            updated = recover_stale_runs(older_than_hours=6)
+
+        assert updated == 1
+        assert stale.status == "error"
+        assert stale.finished_at is not None
+        assert "stale run recovered after restart" in stale.summary
+        db.commit.assert_called_once()
+        db.close.assert_called_once()

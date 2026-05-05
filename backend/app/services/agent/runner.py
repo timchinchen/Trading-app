@@ -35,6 +35,10 @@ from .intel import collect_intel
 # same BUY plan. The lock serialises runs; a second caller exits early
 # with run_id=-1 and a skip line in the agent log instead of queueing up.
 _RUN_LOCK = asyncio.Lock()
+# Mark "running" rows older than this window as stale on startup. This handles
+# host/container restarts mid-run so the UI doesn't display a forever-running
+# entry.
+_STALE_RUN_RECOVERY_HOURS = 6
 
 
 def _ts() -> str:
@@ -646,7 +650,13 @@ async def run_once(broker: AlpacaBroker) -> int:
         print("[agent] run_once skipped: another run is already in progress")
         return -1
     async with _RUN_LOCK:
-        return await _run_once_impl(broker)
+        # Resolved from runtime settings so the UI can tune this without restart.
+        timeout_s = max(60, int(get_runtime_settings().agent_run_timeout_s))
+        try:
+            return await asyncio.wait_for(_run_once_impl(broker), timeout=timeout_s)
+        except asyncio.TimeoutError:
+            print(f"[agent] run_once timed out after {timeout_s}s")
+            return _mark_latest_running_as_timeout(timeout_s)
 
 
 async def _run_once_impl(broker: AlpacaBroker) -> int:
@@ -1322,6 +1332,13 @@ async def _run_once_impl(broker: AlpacaBroker) -> int:
         _save_logs()
         return run_id
 
+    except asyncio.CancelledError:
+        log.add("FATAL cancelled (likely timeout)")
+        run.status = "error"
+        run.summary = "run cancelled (likely timeout)"
+        run.finished_at = datetime.utcnow()
+        _save_logs()
+        raise
     except Exception as e:
         log.add(f"FATAL {e}")
         run.status = "error"
@@ -1335,5 +1352,75 @@ async def _run_once_impl(broker: AlpacaBroker) -> int:
         )
         _save_logs()
         return run_id
+    finally:
+        db.close()
+
+
+def recover_stale_runs(
+    *,
+    older_than_hours: int = _STALE_RUN_RECOVERY_HOURS,
+) -> int:
+    """Mark stale 'running' AgentRun rows as error after process restart."""
+    db = SessionLocal()
+    try:
+        cutoff = datetime.utcnow() - timedelta(hours=max(1, int(older_than_hours)))
+        stale = (
+            db.query(AgentRun)
+            .filter(AgentRun.status == "running", AgentRun.started_at < cutoff)
+            .all()
+        )
+        updated = 0
+        for run in stale:
+            run.status = "error"
+            run.finished_at = datetime.utcnow()
+            msg = (
+                f"stale run recovered after restart: exceeded {max(1, int(older_than_hours))}h "
+                "without completion"
+            )
+            if (run.summary or "").strip():
+                run.summary = f"{run.summary} | {msg}"[:500]
+            else:
+                run.summary = msg[:500]
+            updated += 1
+        if updated:
+            db.commit()
+            print(f"[agent] recovered {updated} stale runs older than {older_than_hours}h")
+        return updated
+    except Exception as e:
+        db.rollback()
+        print(f"[agent] stale-run recovery failed: {e}")
+        return 0
+    finally:
+        db.close()
+
+
+def _mark_latest_running_as_timeout(timeout_s: int) -> int:
+    """Best-effort fallback when wait_for cancels an overlong run."""
+    db = SessionLocal()
+    try:
+        run = (
+            db.query(AgentRun)
+            .filter(AgentRun.status == "running")
+            .order_by(AgentRun.started_at.desc())
+            .first()
+        )
+        if not run:
+            return -1
+        run.status = "error"
+        run.finished_at = datetime.utcnow()
+        msg = f"run exceeded AGENT_RUN_TIMEOUT_S={timeout_s}s and was cancelled"
+        if (run.summary or "").strip():
+            run.summary = f"{run.summary} | {msg}"[:500]
+        else:
+            run.summary = msg[:500]
+        logs = (run.logs or "").strip()
+        line = f"[{datetime.utcnow().strftime('%H:%M:%S')}] FATAL timeout after {timeout_s}s"
+        run.logs = f"{logs}\n{line}".strip()[:60000]
+        db.commit()
+        return run.id
+    except Exception as e:
+        db.rollback()
+        print(f"[agent] timeout mark failed: {e}")
+        return -1
     finally:
         db.close()
