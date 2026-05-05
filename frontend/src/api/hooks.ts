@@ -21,6 +21,7 @@ import type {
   Position,
   Quote,
   WatchlistItem,
+  SettingsExportPayload,
 } from './types'
 
 export const useMode = () =>
@@ -249,6 +250,24 @@ export const useUpdateAgentSettings = () => {
   return useMutation({
     mutationFn: async (body: AgentSettingsUpdate) =>
       (await api.put<AgentSettings>('/agent/settings', body)).data,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['agent'] })
+      qc.invalidateQueries({ queryKey: ['llm'] })
+    },
+  })
+}
+
+export const useExportAgentSettings = () =>
+  useMutation({
+    mutationFn: async () =>
+      (await api.get<SettingsExportPayload>('/agent/settings/export')).data,
+  })
+
+export const useImportAgentSettings = () => {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (payload: SettingsExportPayload | { settings: Record<string, unknown> } | Record<string, unknown>) =>
+      (await api.post<AgentSettings>('/agent/settings/import', payload)).data,
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['agent'] })
       qc.invalidateQueries({ queryKey: ['llm'] })

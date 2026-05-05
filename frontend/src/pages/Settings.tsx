@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from 'react'
 import {
   useAccount,
   useAgentAccountsCache,
+  useExportAgentSettings,
+  useImportAgentSettings,
   useAgentSettings,
   useAgentStatus,
   useAutoSellPreview,
@@ -42,6 +44,87 @@ function Card({ title, children }: { title: string; children: React.ReactNode })
       </h3>
       {children}
     </section>
+  )
+}
+
+
+function ImportExportSettingsCard() {
+  const exportMut = useExportAgentSettings()
+  const importMut = useImportAgentSettings()
+  const [status, setStatus] = useState<string>('')
+
+  const onExport = async () => {
+    setStatus('')
+    try {
+      const payload = await exportMut.mutateAsync()
+      const blob = new Blob([JSON.stringify(payload, null, 2)], {
+        type: 'application/json',
+      })
+      const ts = new Date().toISOString().replace(/[:.]/g, '-')
+      const filename = `trading-app-settings-export-${ts}.json`
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = filename
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      URL.revokeObjectURL(url)
+      setStatus('Export downloaded.')
+    } catch (e: any) {
+      setStatus(e?.response?.data?.detail || e?.message || 'Export failed.')
+    }
+  }
+
+  const onImportFile = async (ev: React.ChangeEvent<HTMLInputElement>) => {
+    const file = ev.target.files?.[0]
+    if (!file) return
+    setStatus('')
+    try {
+      const text = await file.text()
+      const parsed = JSON.parse(text)
+      await importMut.mutateAsync(parsed)
+      setStatus('Import applied. Settings refreshed.')
+    } catch (e: any) {
+      setStatus(e?.response?.data?.detail || e?.message || 'Import failed.')
+    } finally {
+      // allow selecting the same file again
+      ev.target.value = ''
+    }
+  }
+
+  return (
+    <Card title="Import / Export settings">
+      <p className="text-xs text-muted-foreground mb-3">
+        Export a full settings backup (including API keys and cookies) and import
+        it on another instance to avoid reconfiguration.
+      </p>
+      <div className="flex items-center gap-3 flex-wrap">
+        <button
+          onClick={onExport}
+          disabled={exportMut.isPending}
+          className="btn-primary px-4 py-2 rounded-lg"
+        >
+          {exportMut.isPending ? 'Exporting...' : 'Export settings JSON'}
+        </button>
+        <label className="btn-secondary px-4 py-2 rounded-lg text-sm cursor-pointer">
+          Import settings JSON
+          <input
+            type="file"
+            accept="application/json,.json"
+            className="hidden"
+            onChange={onImportFile}
+            disabled={importMut.isPending}
+          />
+        </label>
+      </div>
+      <p className="text-[11px] text-destructive mt-2">
+        Warning: export files contain secrets in plain text. Store securely.
+      </p>
+      {status && (
+        <p className="text-xs mt-2 text-muted-foreground">{status}</p>
+      )}
+    </Card>
   )
 }
 
@@ -1852,6 +1935,8 @@ export function SettingsPage() {
           </p>
         )}
       </Card>
+
+      <ImportExportSettingsCard />
 
       {agentSettings ? (
         <>
