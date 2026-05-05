@@ -176,6 +176,7 @@ export interface LLMInfo {
 }
 
 export interface AgentSettings {
+  registration_enabled: boolean
   llm_provider: LLMProvider
   ollama_host: string
   ollama_model: string
@@ -217,6 +218,7 @@ export interface AgentSettings {
   agent_daily_loss_cap_usd: number
   agent_max_open_positions: number
   agent_cron_minutes: number
+  agent_run_timeout_s: number
   agent_intel_boost: number
   agent_take_profit_pct: number
   agent_stop_loss_pct: number
@@ -246,6 +248,7 @@ export interface AgentSettings {
 }
 
 export type AgentSettingsUpdate = Partial<{
+  REGISTRATION_ENABLED: boolean
   LLM_PROVIDER: LLMProvider
   OLLAMA_HOST: string
   OLLAMA_MODEL: string

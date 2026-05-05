@@ -88,6 +88,8 @@ EDITABLE_KEYS: dict[str, type] = {
     "AGENT_LOOKBACK_HOURS": int,
     "AGENT_PER_ACCOUNT_TIMEOUT_S": int,
     "POLL_INTERVAL_SECONDS": int,
+    # Public signup gate for internet-exposed deployments.
+    "REGISTRATION_ENABLED": bool,
     # Manual order safety cap
     "MANUAL_ORDER_MAX_NOTIONAL": float,
     # Twitter
@@ -200,6 +202,7 @@ class RuntimeSettings:
     agent_lookback_hours: int = 0
     agent_per_account_timeout_s: int = 0
     poll_interval_seconds: int = 0
+    registration_enabled: bool = True
     # Manual order safety cap
     manual_order_max_notional: float = 0.0
     # Twitter
@@ -411,6 +414,7 @@ def get_runtime_settings(db: Session | None = None) -> RuntimeSettings:
         agent_lookback_hours=int(pick("AGENT_LOOKBACK_HOURS", int)),
         agent_per_account_timeout_s=int(pick("AGENT_PER_ACCOUNT_TIMEOUT_S", int)),
         poll_interval_seconds=int(pick("POLL_INTERVAL_SECONDS", int)),
+        registration_enabled=bool(pick("REGISTRATION_ENABLED", bool)),
         manual_order_max_notional=float(pick("MANUAL_ORDER_MAX_NOTIONAL", float)),
         twitter_accounts=str(pick("TWITTER_ACCOUNTS", str)),
         swing_enabled=bool(pick("SWING_ENABLED", bool)),
@@ -548,6 +552,7 @@ def public_view(rs: RuntimeSettings) -> dict[str, Any]:
         "agent_lookback_hours": rs.agent_lookback_hours,
         "agent_per_account_timeout_s": rs.agent_per_account_timeout_s,
         "poll_interval_seconds": rs.poll_interval_seconds,
+        "registration_enabled": rs.registration_enabled,
         "manual_order_max_notional": rs.manual_order_max_notional,
         "twitter_accounts": rs.twitter_accounts,
         "swing_enabled": rs.swing_enabled,

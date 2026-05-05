@@ -24,6 +24,9 @@ class Settings(BaseSettings):
 
     JWT_SECRET: str = "change_me"
     JWT_EXPIRE_MINUTES: int = 60 * 24
+    # Public signup gate. Keep true for first-time setup, then disable from
+    # Settings once your account is created if the app is internet-exposed.
+    REGISTRATION_ENABLED: bool = True
 
     # Manual-order fat-finger cap. This is checked in addition to whatever
     # buying power Alpaca reports, so even if the broker would allow a
