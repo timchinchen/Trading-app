@@ -247,6 +247,14 @@ export interface AgentSettings {
   overridden: string[]
 }
 
+export interface SettingsExportPayload {
+  schema: string
+  exported_at: string
+  app_mode: string
+  overridden_keys: string[]
+  settings: Record<string, unknown>
+}
+
 export type AgentSettingsUpdate = Partial<{
   REGISTRATION_ENABLED: boolean
   LLM_PROVIDER: LLMProvider

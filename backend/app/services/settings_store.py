@@ -571,5 +571,18 @@ def public_view(rs: RuntimeSettings) -> dict[str, Any]:
     return out
 
 
+def editable_settings_snapshot(rs: RuntimeSettings) -> dict[str, Any]:
+    """Return every editable setting key with its effective raw value.
+
+    Unlike `public_view`, this includes secret values and is intended for
+    authenticated export/import backups."""
+    out: dict[str, Any] = {}
+    for key in sorted(EDITABLE_KEYS.keys()):
+        attr = key.lower()
+        if hasattr(rs, attr):
+            out[key] = getattr(rs, attr)
+    return out
+
+
 def keys() -> Iterable[str]:
     return EDITABLE_KEYS.keys()

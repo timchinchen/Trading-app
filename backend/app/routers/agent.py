@@ -1,3 +1,5 @@
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, BackgroundTasks, Body, Depends, HTTPException
 from sqlalchemy.orm import Session
 
@@ -20,6 +22,7 @@ from ..services.digest_store import append_entry as digest_append
 from ..services.settings_store import (
     EDITABLE_KEYS,
     SECRET_KEYS,
+    editable_settings_snapshot,
     get_runtime_settings,
     public_view,
     update_settings,
@@ -107,6 +110,70 @@ def put_settings(
         digest_append(
             kind="settings_change",
             summary=f"settings updated: {', '.join(changed)[:240]}",
+            data=safe_payload,
+            db=db,
+        )
+    except Exception:
+        pass
+    return public_view(rs)
+
+
+@router.get("/settings/export")
+def export_settings(_user=Depends(get_current_user), db: Session = Depends(get_db)):
+    """Export all editable runtime settings, including secret values.
+
+    Intended for one-shot migration between self-hosted instances."""
+    rs = get_runtime_settings(db)
+    return {
+        "schema": "trading-app-settings-v1",
+        "exported_at": datetime.now(tz=timezone.utc).isoformat(),
+        "app_mode": settings.APP_MODE,
+        "overridden_keys": sorted(rs.overridden),
+        "settings": editable_settings_snapshot(rs),
+    }
+
+
+@router.post("/settings/import")
+def import_settings(
+    payload: dict = Body(...),
+    _user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Import an exported runtime-settings JSON payload.
+
+    Accepts either:
+      1) {"settings": {...}} from /agent/settings/export
+      2) a flat {"KEY": value, ...} object.
+    """
+    raw = payload.get("settings") if isinstance(payload, dict) and "settings" in payload else payload
+    if not isinstance(raw, dict):
+        raise HTTPException(status_code=400, detail="Invalid import payload: expected JSON object")
+
+    normalized = {str(k).upper(): v for k, v in raw.items()}
+    unknown = [k for k in normalized.keys() if k not in EDITABLE_KEYS]
+    if unknown:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown / non-editable keys in import: {unknown}. Allowed: {sorted(EDITABLE_KEYS)}",
+        )
+
+    rs = update_settings(db, normalized)
+    sched = _scheduler()
+    if sched and hasattr(sched, "reschedule"):
+        try:
+            sched.reschedule(rs.agent_cron_minutes, enabled=rs.agent_enabled)
+        except Exception:
+            pass
+
+    try:
+        changed = sorted(normalized.keys())
+        safe_payload = {
+            k: ("***" if k in SECRET_KEYS else v)
+            for k, v in normalized.items()
+        }
+        digest_append(
+            kind="settings_change",
+            summary=f"settings imported: {', '.join(changed)[:240]}",
             data=safe_payload,
             db=db,
         )
