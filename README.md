@@ -33,6 +33,10 @@ See [`docs/AWS_DEPLOYMENT.md`](docs/AWS_DEPLOYMENT.md) for a simple EC2 setup wi
 The guide also covers low-cost micro-instance sizing, safe remote console access,
 and crash/hang recovery settings.
 
+For a non-Docker, bare-bones single-user install (micro instance + remote LLM,
+run backend/frontend directly with nohup or systemd), see
+[`docs/AWS_DEPLOYMENT_2.md`](docs/AWS_DEPLOYMENT_2.md).
+
 ### 2. Frontend
 
 ```bash
