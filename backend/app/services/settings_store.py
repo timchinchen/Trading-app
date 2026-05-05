@@ -60,6 +60,7 @@ EDITABLE_KEYS: dict[str, type] = {
     "AGENT_DAILY_LOSS_CAP_USD": float,
     "AGENT_MAX_OPEN_POSITIONS": int,
     "AGENT_CRON_MINUTES": int,
+    "AGENT_RUN_TIMEOUT_S": int,
     "AGENT_INTEL_BOOST": float,
     "AGENT_TAKE_PROFIT_PCT": float,
     "AGENT_STOP_LOSS_PCT": float,
@@ -171,6 +172,7 @@ class RuntimeSettings:
     agent_daily_loss_cap_usd: float = 0.0
     agent_max_open_positions: int = 0
     agent_cron_minutes: int = 0
+    agent_run_timeout_s: int = 1200
     agent_intel_boost: float = 0.0
     agent_take_profit_pct: float = 0.0
     agent_stop_loss_pct: float = 0.0
@@ -386,6 +388,7 @@ def get_runtime_settings(db: Session | None = None) -> RuntimeSettings:
         agent_daily_loss_cap_usd=float(pick("AGENT_DAILY_LOSS_CAP_USD", float)),
         agent_max_open_positions=int(pick("AGENT_MAX_OPEN_POSITIONS", int)),
         agent_cron_minutes=int(pick("AGENT_CRON_MINUTES", int)),
+        agent_run_timeout_s=max(60, int(pick("AGENT_RUN_TIMEOUT_S", int))),
         agent_intel_boost=float(pick("AGENT_INTEL_BOOST", float)),
         agent_take_profit_pct=float(pick("AGENT_TAKE_PROFIT_PCT", float)),
         agent_stop_loss_pct=float(pick("AGENT_STOP_LOSS_PCT", float)),
@@ -522,6 +525,7 @@ def public_view(rs: RuntimeSettings) -> dict[str, Any]:
         "agent_daily_loss_cap_usd": rs.agent_daily_loss_cap_usd,
         "agent_max_open_positions": rs.agent_max_open_positions,
         "agent_cron_minutes": rs.agent_cron_minutes,
+        "agent_run_timeout_s": rs.agent_run_timeout_s,
         "agent_intel_boost": rs.agent_intel_boost,
         "agent_take_profit_pct": rs.agent_take_profit_pct,
         "agent_stop_loss_pct": rs.agent_stop_loss_pct,

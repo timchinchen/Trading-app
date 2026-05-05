@@ -30,6 +30,7 @@ from .db import init_db
 from .deps import get_broker, get_market_data
 from .routers import account, agent, auth, digest, llm, orders, quotes, watchlist, ws
 from .routers import health as health_router
+from .services.agent.runner import recover_stale_runs
 from .services.agent.scheduler import AgentScheduler
 
 agent_scheduler: AgentScheduler | None = None
@@ -47,6 +48,9 @@ async def lifespan(app: FastAPI):
             "Set a random 32+ char value in backend/.env before starting."
         )
     init_db()
+    # If the host/container restarted mid-run, stale rows can remain "running"
+    # forever. Recover them at startup so status cards don't hang indefinitely.
+    recover_stale_runs()
     md = get_market_data()
     await md.start()
     print(f"[startup] APP_MODE={settings.APP_MODE}  MARKET_DATA_MODE={settings.MARKET_DATA_MODE}")

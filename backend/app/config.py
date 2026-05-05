@@ -53,6 +53,9 @@ class Settings(BaseSettings):
     AGENT_MAX_OPEN_POSITIONS: int = 6
     # Cadence / fetch windows.
     AGENT_CRON_MINUTES: int = 30
+    # Hard timeout for a single agent run (seconds). If exceeded, the run is
+    # cancelled and marked error so it doesn't sit in "running" forever.
+    AGENT_RUN_TIMEOUT_S: int = 1200
     AGENT_MAX_TWEETS_PER_ACCOUNT: int = 20
     AGENT_LOOKBACK_HOURS: int = 24
     AGENT_PER_ACCOUNT_TIMEOUT_S: int = 45
