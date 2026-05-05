@@ -7,12 +7,19 @@ from ..db import get_db
 from ..models import User
 from ..schemas import RegisterIn, TokenOut, UserOut
 from ..security import create_access_token, hash_password, verify_password, get_current_user
+from ..services.settings_store import get_runtime_settings
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
 @router.post("/register", response_model=UserOut)
 def register(body: RegisterIn, db: Session = Depends(get_db)):
+    rs = get_runtime_settings(db)
+    if not rs.registration_enabled:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="New registrations are currently disabled by the operator",
+        )
     if db.query(User).filter(User.email == body.email).first():
         raise HTTPException(status_code=400, detail="Email already registered")
     user = User(email=body.email, password_hash=hash_password(body.password))

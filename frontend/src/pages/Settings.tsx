@@ -904,6 +904,57 @@ function TwitterAccountsCard({ s }: { s: AgentSettings }) {
   )
 }
 
+// ----- Public registration gate -----
+function RegistrationAccessCard({ s }: { s: AgentSettings }) {
+  const upd = useUpdateAgentSettings()
+  const [enabled, setEnabled] = useState(s.registration_enabled)
+
+  useEffect(() => {
+    setEnabled(s.registration_enabled)
+  }, [s.registration_enabled])
+
+  const save = () =>
+    upd.mutate({
+      REGISTRATION_ENABLED: enabled,
+    })
+
+  return (
+    <Card title="Public registration access">
+      <p className="text-xs text-muted-foreground mb-3">
+        Controls whether new users can create accounts from the login screen.
+        Recommended flow for internet exposure: leave this on for initial setup,
+        create your account, then disable it to prevent open signups.
+      </p>
+      <div className="grid grid-cols-[220px_1fr] gap-2 py-2 border-b border-border">
+        <div className="text-xs text-muted-foreground uppercase tracking-wider self-center">
+          REGISTRATION_ENABLED
+          <OverrideBadge k="REGISTRATION_ENABLED" overridden={s.overridden} />
+        </div>
+        <label className="flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={enabled}
+            onChange={(e) => setEnabled(e.target.checked)}
+          />
+          allow new account registrations
+        </label>
+      </div>
+      <div className="flex items-center gap-3 pt-4">
+        <button
+          onClick={save}
+          disabled={upd.isPending}
+          className="btn-primary px-4 py-2 rounded-lg"
+        >
+          {upd.isPending ? 'Saving...' : 'Save registration access'}
+        </button>
+        {upd.isSuccess && !upd.isPending && (
+          <span className="text-xs text-success">saved</span>
+        )}
+      </div>
+    </Card>
+  )
+}
+
 // ----- Agent budget / cadence (editable) -----
 function AgentBudgetCard({ s }: { s: AgentSettings }) {
   const upd = useUpdateAgentSettings()
@@ -1808,6 +1859,7 @@ export function SettingsPage() {
           <DeepAnalysisLLMCard s={agentSettings} />
           <DataEnrichmentCard s={agentSettings} />
           <StocktwitsCard s={agentSettings} />
+          <RegistrationAccessCard s={agentSettings} />
           <AgentBudgetCard s={agentSettings} />
           <AgentThresholdsCard s={agentSettings} />
           <SwingTradingCard s={agentSettings} />

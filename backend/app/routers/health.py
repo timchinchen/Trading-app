@@ -190,6 +190,14 @@ def setup_health() -> dict[str, Any]:
     return {
         "backend": {"ok": True, "detail": f"v{APP_VERSION_BACKEND}"},
         "mode": {"ok": True, "detail": settings.APP_MODE},
+        "registration": {
+            "ok": bool(rs.registration_enabled) if "rs" in locals() else bool(settings.REGISTRATION_ENABLED),
+            "detail": (
+                "new registrations enabled"
+                if (bool(rs.registration_enabled) if "rs" in locals() else bool(settings.REGISTRATION_ENABLED))
+                else "new registrations disabled"
+            ),
+        },
         "db": _run_with_timeout(_check_db),
         "jwt_secret": _check_jwt(),
         "alpaca": _run_with_timeout(_check_alpaca),
