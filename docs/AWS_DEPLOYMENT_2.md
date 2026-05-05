@@ -85,10 +85,46 @@ Create your account first, then disable it in Settings after first login.
 
 ## 4) Install backend deps and run backend (nohup)
 
+### 4a) Recommended dependency install path on tiny instances
+
+On some fresh Ubuntu images (for example, resolute with Python 3.14),
+older pinned pydantic versions may try to build `pydantic-core` from source
+with Rust, which can fail on micro due to RAM/disk limits.
+
+Use this safer sequence:
+
 ```bash
 cd /home/ubuntu/trading-app/backend
 python3 -m venv .venv
-.venv/bin/pip install -r requirements.txt
+source .venv/bin/activate
+pip install --upgrade pip setuptools wheel
+
+# Keep repo up to date (includes twscrape pin fixes)
+cd /home/ubuntu/trading-app
+git pull
+cd backend
+
+# Remove only pydantic pins from temp requirements so newer compatible wheels are used
+grep -vE '^pydantic(\[email\])?==|^pydantic-settings==' requirements.txt > /tmp/req.txt
+pip install --only-binary=:all: -U "pydantic[email]" "pydantic-settings"
+pip install --only-binary=:all: -r /tmp/req.txt
+```
+
+If pip fails with no space left / SIGKILL, clear caches and retry:
+
+```bash
+deactivate 2>/dev/null || true
+rm -rf /home/ubuntu/trading-app/backend/.venv
+rm -rf ~/.cache/pip ~/.cache/puccinialin ~/.cargo ~/.rustup
+sudo apt-get clean
+sudo rm -rf /var/cache/apt/archives/*
+df -h
+```
+
+### 4b) Start backend (nohup)
+
+```bash
+cd /home/ubuntu/trading-app/backend
 nohup .venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000 > ../backend.log 2>&1 &
 ```
 
@@ -134,6 +170,12 @@ ps -ef | rg "uvicorn|vite|node"
 ```bash
 tail -f /home/ubuntu/trading-app/backend.log
 tail -f /home/ubuntu/trading-app/frontend.log
+```
+
+To get your prompt back after `tail -f`, press:
+
+```bash
+Ctrl + C
 ```
 
 ### Restart quickly
