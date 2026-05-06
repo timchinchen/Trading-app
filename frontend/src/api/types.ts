@@ -40,6 +40,7 @@ export interface Order {
   total_cost?: number | null
   current_price?: number | null
   pct_change?: number | null
+  realized_pl?: number | null
 }
 
 export interface WatchlistItem {
