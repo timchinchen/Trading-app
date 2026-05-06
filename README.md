@@ -37,6 +37,9 @@ For a non-Docker, bare-bones single-user install (micro instance + remote LLM,
 run backend/frontend directly with nohup or systemd), see
 [`docs/AWS_DEPLOYMENT_2.md`](docs/AWS_DEPLOYMENT_2.md).
 
+For Raspberry Pi (Pi 4/5) with remote LLM only (no local Ollama),
+see [`docs/RASPBERRY_PI_DEPLOYMENT.md`](docs/RASPBERRY_PI_DEPLOYMENT.md).
+
 ### 2. Frontend
 
 ```bash
