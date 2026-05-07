@@ -5,6 +5,7 @@ import { Nav } from './components/Nav'
 import { AgentPage } from './pages/Agent'
 import { ChatPage } from './pages/Chat'
 import { DashboardPage } from './pages/Dashboard'
+import { DiagnosticsPage } from './pages/Diagnostics'
 import { LoginPage } from './pages/Login'
 import { OrdersPage } from './pages/Orders'
 import { SettingsPage } from './pages/Settings'
@@ -38,6 +39,10 @@ export default function App() {
           <Route
             path="/agent"
             element={<RouteBoundary label="Agent"><AgentPage /></RouteBoundary>}
+          />
+          <Route
+            path="/diagnostics"
+            element={<RouteBoundary label="Diagnostics"><DiagnosticsPage /></RouteBoundary>}
           />
           <Route
             path="/chat"

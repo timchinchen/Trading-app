@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+from typing import Any
 
 from fastapi import APIRouter, BackgroundTasks, Body, Depends, HTTPException
 from sqlalchemy.orm import Session
@@ -17,6 +18,7 @@ from ..schemas import (
 )
 from ..security import get_current_user
 from ..services.agent.auto_sell import preview as auto_sell_preview, run_auto_sell
+from ..services.agent import llm as agent_llm
 from ..services.agent.runner import run_once
 from ..services.digest_store import append_entry as digest_append
 from ..services.settings_store import (
@@ -34,6 +36,102 @@ router = APIRouter(prefix="/agent", tags=["agent"])
 def _scheduler():
     from .. import main as _m
     return getattr(_m, "agent_scheduler", None)
+
+
+def _diagnostic_assumptions(rs) -> list[dict[str, Any]]:
+    """Human-readable snapshot of the assumptions the trading logic uses."""
+    return [
+        {
+            "name": "Trading horizon",
+            "value": "1-2 week swings (3-10 trading days)",
+            "source": "agent llm role preamble",
+        },
+        {
+            "name": "Approved buy setups",
+            "value": "trend_pullback, breakout, oversold_bounce, news_momentum",
+            "source": "swing_analyzer.classify priority rules",
+        },
+        {
+            "name": "Market regime buy gate",
+            "value": (
+                f"{rs.swing_market_filter_symbol} above SMA{rs.swing_market_filter_ma}, "
+                "MA rising, and above SMA20 for GO"
+            ),
+            "source": "swing_analyzer.market_regime + swing_runner.build_swing_proposals",
+        },
+        {
+            "name": "Risk per trade",
+            "value": f"{rs.swing_risk_per_trade_pct * 100:.2f}% of capital",
+            "source": "swing_analyzer.size_plan",
+        },
+        {
+            "name": "Minimum reward/risk",
+            "value": f"R/R >= {rs.swing_min_rr:.2f}",
+            "source": "swing_analyzer.size_plan",
+        },
+        {
+            "name": "No-progress time stop",
+            "value": f"{rs.swing_time_stop_days} trading-day proxy",
+            "source": "swing_runner.trade_management_pass",
+        },
+        {
+            "name": "Hard max hold",
+            "value": f"{rs.agent_max_hold_days} calendar days",
+            "source": "runner._adaptive_exit_proposals",
+        },
+        {
+            "name": "Partial take profit",
+            "value": (
+                f"{rs.agent_partial_take_fraction * 100:.0f}% size at "
+                f"+{rs.agent_partial_take_pct * 100:.1f}%"
+            ),
+            "source": "runner._adaptive_exit_proposals",
+        },
+        {
+            "name": "Trailing momentum exit",
+            "value": (
+                f"arm at +{rs.agent_trail_arm_pct * 100:.1f}% then exit on "
+                f"{rs.agent_trail_retrace_pct * 100:.0f}% retrace from peak"
+            ),
+            "source": "runner._adaptive_exit_proposals",
+        },
+        {
+            "name": "Static TP/SL fallback",
+            "value": (
+                f"take-profit +{rs.agent_take_profit_pct * 100:.1f}% | "
+                f"stop-loss -{rs.agent_stop_loss_pct * 100:.1f}%"
+            ),
+            "source": "runner._take_profit_proposals",
+        },
+        {
+            "name": "Position and allocation caps",
+            "value": (
+                f"max open {rs.agent_max_open_positions}, slot "
+                f"${rs.agent_min_position_usd:.0f}-${rs.agent_max_position_usd:.0f}"
+            ),
+            "source": "allocator.propose_trades + swing_runner.build_swing_proposals",
+        },
+        {
+            "name": "Risk-off behavior",
+            "value": (
+                f"risk multipliers on/neutral/off = "
+                f"{rs.agent_regime_risk_on_mult:.2f}/"
+                f"{rs.agent_regime_neutral_mult:.2f}/"
+                f"{rs.agent_regime_risk_off_mult:.2f}; "
+                f"block_new_buys={rs.agent_risk_off_block_new_buys}"
+            ),
+            "source": "runner._classify_regime + allocator.propose_trades",
+        },
+        {
+            "name": "Legacy signal thresholds (fallback allocator)",
+            "value": (
+                f"min_score={rs.agent_min_score:.2f}, "
+                f"min_confidence={rs.agent_min_confidence:.2f}, "
+                f"top_n={rs.agent_top_n_candidates}"
+            ),
+            "source": "allocator.propose_trades",
+        },
+    ]
 
 
 @router.get("/status", response_model=AgentStatusOut)
@@ -74,6 +172,19 @@ def get_settings(_user=Depends(get_current_user), db: Session = Depends(get_db))
     """Return the current runtime settings (env defaults + DB overrides).
     OPENAI_API_KEY is masked - the UI sees only a preview + a 'set' flag."""
     return public_view(get_runtime_settings(db))
+
+
+@router.get("/diagnostics")
+def diagnostics(_user=Depends(get_current_user), db: Session = Depends(get_db)):
+    rs = get_runtime_settings(db)
+    return {
+        "prompts": {
+            "role_preamble": agent_llm.ROLE_PREAMBLE,
+            "tweet_system_prompt": agent_llm.SYSTEM_PROMPT,
+            "advisor_system_prompt": agent_llm.ADVISOR_SYSTEM,
+        },
+        "assumptions": _diagnostic_assumptions(rs),
+    }
 
 
 @router.put("/settings")

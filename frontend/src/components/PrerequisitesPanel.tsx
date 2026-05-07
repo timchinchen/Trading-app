@@ -11,12 +11,12 @@ import { APP_VERSION } from '../version'
  * The Login page mounts it as a sibling of the form.
  */
 
-type Probe = { ok: boolean; detail?: string }
+export type Probe = { ok: boolean; detail?: string }
 type Health = Record<string, Probe>
 
-type RowKind = 'required' | 'optional'
+export type RowKind = 'required' | 'optional'
 
-const ROWS: { key: string; label: string; kind: RowKind }[] = [
+export const SETUP_HEALTH_ROWS: { key: string; label: string; kind: RowKind }[] = [
   { key: 'backend', label: 'Backend', kind: 'required' },
   { key: 'db', label: 'Database', kind: 'required' },
   { key: 'jwt_secret', label: 'JWT secret', kind: 'required' },
@@ -97,13 +97,13 @@ function Step({ n, label, cmd }: { n: number; label: string; cmd?: string }) {
   )
 }
 
-const REQUIRED_ENV = `APP_MODE=paper
+export const REQUIRED_ENV = `APP_MODE=paper
 ALPACA_PAPER_KEY=
 ALPACA_PAPER_SECRET=
 JWT_SECRET=
 CORS_ORIGIN=http://localhost:5173`
 
-const OPTIONAL_ENV = `AGENT_ENABLED=false
+export const OPTIONAL_ENV = `AGENT_ENABLED=false
 OLLAMA_HOST=http://localhost:11434
 OLLAMA_MODEL=llama3.1:8b
 OPENAI_API_KEY=
@@ -306,7 +306,7 @@ export function PrerequisitesPanel() {
         )}
         {health && (
           <ul className="space-y-1">
-            {ROWS.map((r) => {
+            {SETUP_HEALTH_ROWS.map((r) => {
               const p: Probe = health[r.key] || { ok: false }
               return (
                 <li
