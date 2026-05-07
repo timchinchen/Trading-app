@@ -48,6 +48,7 @@ EDITABLE_KEYS: dict[str, type] = {
     # Per-ticker enrichment
     "FMP_API_KEY": str,
     "FMP_BASE_URL": str,
+    "ALPHA_VANTAGE_API_KEY": str,
     "SEC_USER_AGENT": str,
     "STOCKTWITS_COOKIES": str,
     # Agent budget / cadence
@@ -115,6 +116,7 @@ SECRET_KEYS = {
     "HUGGINGFACE_API_KEY",
     "COHERE_API_KEY",
     "FMP_API_KEY",
+    "ALPHA_VANTAGE_API_KEY",
     "STOCKTWITS_COOKIES",
     "DEEP_LLM_OPENAI_API_KEY",
 }
@@ -162,6 +164,7 @@ class RuntimeSettings:
     # Enrichment
     fmp_api_key: str = ""
     fmp_base_url: str = ""
+    alpha_vantage_api_key: str = ""
     sec_user_agent: str = ""
     stocktwits_cookies: str = ""
     # Agent
@@ -380,6 +383,7 @@ def get_runtime_settings(db: Session | None = None) -> RuntimeSettings:
         deep_llm_openai_base_url=str(pick("DEEP_LLM_OPENAI_BASE_URL", str)),
         fmp_api_key=str(pick("FMP_API_KEY", str)),
         fmp_base_url=str(pick("FMP_BASE_URL", str)),
+        alpha_vantage_api_key=str(pick("ALPHA_VANTAGE_API_KEY", str)),
         sec_user_agent=str(pick("SEC_USER_AGENT", str)),
         stocktwits_cookies=str(pick("STOCKTWITS_COOKIES", str)),
         agent_enabled=bool(pick("AGENT_ENABLED", bool)),
@@ -512,6 +516,12 @@ def public_view(rs: RuntimeSettings) -> dict[str, Any]:
             (rs.fmp_api_key[:6] + "..." + rs.fmp_api_key[-4:])
             if len(rs.fmp_api_key) >= 12
             else ("set" if rs.fmp_api_key else "")
+        ),
+        "alpha_vantage_api_key_set": bool(rs.alpha_vantage_api_key),
+        "alpha_vantage_api_key_preview": (
+            (rs.alpha_vantage_api_key[:6] + "..." + rs.alpha_vantage_api_key[-4:])
+            if len(rs.alpha_vantage_api_key) >= 12
+            else ("set" if rs.alpha_vantage_api_key else "")
         ),
         "sec_user_agent": rs.sec_user_agent,
         "stocktwits_cookies_set": bool(rs.stocktwits_cookies),

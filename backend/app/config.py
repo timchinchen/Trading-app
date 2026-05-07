@@ -203,6 +203,9 @@ class Settings(BaseSettings):
     # Free tier is 250 calls/day. Leave empty to disable.
     FMP_API_KEY: str = ""
     FMP_BASE_URL: str = "https://financialmodelingprep.com/api/v3"
+    # Alpha Vantage fundamentals + quote enrichment. Free tier = 25 calls/day.
+    # Grab a key at https://www.alphavantage.co/support/#api-key
+    ALPHA_VANTAGE_API_KEY: str = ""
     # SEC EDGAR full-text search (free). The SEC requires a User-Agent
     # identifying the caller - put a contact email here.
     SEC_USER_AGENT: str = "TradingApp (personal use) noreply@example.com"

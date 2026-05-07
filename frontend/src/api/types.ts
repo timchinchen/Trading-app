@@ -207,6 +207,8 @@ export interface AgentSettings {
   fmp_base_url: string
   fmp_api_key_set: boolean
   fmp_api_key_preview: string
+  alpha_vantage_api_key_set: boolean
+  alpha_vantage_api_key_preview: string
   sec_user_agent: string
   stocktwits_cookies_set: boolean
   stocktwits_cookies_preview: string
@@ -279,6 +281,7 @@ export type AgentSettingsUpdate = Partial<{
   DEEP_LLM_OPENAI_BASE_URL: string
   FMP_API_KEY: string
   FMP_BASE_URL: string
+  ALPHA_VANTAGE_API_KEY: string
   SEC_USER_AGENT: string
   STOCKTWITS_COOKIES: string
   AGENT_ENABLED: boolean
