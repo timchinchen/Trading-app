@@ -28,6 +28,26 @@ _DB_BACKUP_KEEP_DAYS = 14
 _ET_TZ = ZoneInfo("America/New_York")
 _MARKET_OPEN_MIN = 9 * 60
 _MARKET_CLOSE_MIN = 16 * 60  # exclusive (16:00)
+_DEFAULT_AGENT_CRON_MINUTES = max(1, int(getattr(settings, "AGENT_CRON_MINUTES", 30) or 30))
+
+
+def _safe_cron_step_minutes(raw: object) -> int:
+    """Return a positive minute interval, falling back to a safe default."""
+    try:
+        n = int(float(raw))  # type: ignore[arg-type]
+    except Exception:
+        print(
+            f"[agent] invalid cron minutes {raw!r}; "
+            f"using default {_DEFAULT_AGENT_CRON_MINUTES}"
+        )
+        return _DEFAULT_AGENT_CRON_MINUTES
+    if n >= 1:
+        return n
+    print(
+        f"[agent] out-of-range cron minutes {n}; expected >= 1, "
+        f"using default {_DEFAULT_AGENT_CRON_MINUTES}"
+    )
+    return _DEFAULT_AGENT_CRON_MINUTES
 
 
 def _is_market_session_minute(now_et: datetime) -> bool:
@@ -60,7 +80,7 @@ class AgentScheduler:
         self._digest_job = None
         self._backup_job = None
         self._auto_sell_job = None
-        self._cron_minutes = max(1, int(settings.AGENT_CRON_MINUTES))
+        self._cron_minutes = _safe_cron_step_minutes(settings.AGENT_CRON_MINUTES)
 
     def _schedule_digest_job(self) -> None:
         """Attach the daily digest compression to the scheduler (09:30 ET).
@@ -165,7 +185,7 @@ class AgentScheduler:
         if not settings.AGENT_ENABLED:
             print("[agent] disabled via AGENT_ENABLED=false")
             return
-        self._cron_minutes = max(1, int(settings.AGENT_CRON_MINUTES))
+        self._cron_minutes = _safe_cron_step_minutes(settings.AGENT_CRON_MINUTES)
         self.sched = AsyncIOScheduler(timezone="America/New_York")
         # Tick every minute during market hours; _runner applies the actual
         # N-minute cadence so values >59 (e.g. 90) are supported.
@@ -225,7 +245,7 @@ class AgentScheduler:
         if self.sched is None:
             self.sched = AsyncIOScheduler(timezone="America/New_York")
             self.sched.start()
-        self._cron_minutes = max(1, int(cron_minutes))
+        self._cron_minutes = _safe_cron_step_minutes(cron_minutes)
         # Keep the minute-level tick; cadence gate happens in _runner.
         trigger = CronTrigger(
             day_of_week="mon-fri",

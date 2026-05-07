@@ -22,14 +22,13 @@ from ..db import SessionLocal
 from ..models import AppSetting
 
 _AGENT_CRON_MINUTES_MIN = 1
-_AGENT_CRON_MINUTES_MAX = 59
-_AGENT_CRON_MINUTES_DEFAULT = max(
-    _AGENT_CRON_MINUTES_MIN,
-    min(
-        _AGENT_CRON_MINUTES_MAX,
+try:
+    _AGENT_CRON_MINUTES_DEFAULT = max(
+        _AGENT_CRON_MINUTES_MIN,
         int(getattr(env_settings, "AGENT_CRON_MINUTES", 30) or 30),
-    ),
-)
+    )
+except Exception:
+    _AGENT_CRON_MINUTES_DEFAULT = 30
 
 
 # Keys that the Settings UI is allowed to read/write. Anything else is rejected.
@@ -148,10 +147,7 @@ def _load_overrides(db: Session) -> dict[str, str]:
 
 
 def _safe_agent_cron_minutes(raw: Any, *, source: str) -> int:
-    """Validate AGENT_CRON_MINUTES for APScheduler cron minute expressions.
-
-    Cron minute steps must be 1..59. Invalid values are downgraded to a
-    sensible default so startup/reschedule never crash."""
+    """Validate AGENT_CRON_MINUTES as a positive integer interval."""
     try:
         value = int(float(raw))
     except Exception:
@@ -160,11 +156,11 @@ def _safe_agent_cron_minutes(raw: Any, *, source: str) -> int:
             f"using default {_AGENT_CRON_MINUTES_DEFAULT}"
         )
         return _AGENT_CRON_MINUTES_DEFAULT
-    if _AGENT_CRON_MINUTES_MIN <= value <= _AGENT_CRON_MINUTES_MAX:
+    if value >= _AGENT_CRON_MINUTES_MIN:
         return value
     print(
         f"[settings] out-of-range AGENT_CRON_MINUTES from {source}: {value}; "
-        f"expected {_AGENT_CRON_MINUTES_MIN}-{_AGENT_CRON_MINUTES_MAX}, "
+        f"expected >= {_AGENT_CRON_MINUTES_MIN}, "
         f"using default {_AGENT_CRON_MINUTES_DEFAULT}"
     )
     return _AGENT_CRON_MINUTES_DEFAULT
