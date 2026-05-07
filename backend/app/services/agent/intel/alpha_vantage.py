@@ -136,8 +136,6 @@ async def fetch_one(
                 elif k == "earnings":
                     quarterly = data.get("quarterlyEarnings") or []
                     latest = quarterly[0] if quarterly else {}
-                    upcoming = quarterly[0] if quarterly else {}
-                    # The first entry is the most recent reported quarter.
                     out["earnings"] = {
                         "latest_quarter": latest.get("fiscalDateEnding"),
                         "reported_eps": _safe_float(latest.get("reportedEPS")),
@@ -155,14 +153,21 @@ async def fetch_many(
     *,
     api_key: str,
 ) -> dict[str, dict[str, Any]]:
-    """Fetch enrichment for each symbol. Returns {SYM: payload}."""
+    """Fetch enrichment for each symbol. Returns {SYM: payload}.
+
+    Uses return_exceptions=True so one symbol's failure never blocks the rest.
+    """
     if not api_key:
         return {}
     results = await asyncio.gather(
         *(fetch_one(s, api_key=api_key) for s in symbols),
-        return_exceptions=False,
+        return_exceptions=True,
     )
-    return {r.get("symbol"): r for r in results if r and r.get("symbol")}
+    return {
+        r.get("symbol"): r
+        for r in results
+        if isinstance(r, dict) and r.get("symbol")
+    }
 
 
 def brief_line(payload: dict[str, Any]) -> str:

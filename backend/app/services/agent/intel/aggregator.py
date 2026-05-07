@@ -166,10 +166,28 @@ class MarketIntel:
         else:
             st_task = None
 
-        fmp_map = await fmp_task
-        av_map = await av_task if av_task else {}
-        sec_map = await sec_task
-        st_result = await st_task if st_task else None
+        # Await each source independently — one provider crashing must never
+        # prevent the others from contributing their already-fetched data.
+        try:
+            fmp_map = await fmp_task
+        except Exception as exc:
+            fmp_map = {}
+            self.errors["fmp"] = f"fetch crashed: {exc}"
+        try:
+            av_map = (await av_task) if av_task else {}
+        except Exception as exc:
+            av_map = {}
+            self.errors["alpha_vantage"] = f"fetch crashed: {exc}"
+        try:
+            sec_map = await sec_task
+        except Exception as exc:
+            sec_map = {}
+            self.errors["sec"] = f"fetch crashed: {exc}"
+        try:
+            st_result = (await st_task) if st_task else None
+        except Exception as exc:
+            st_result = None
+            self.errors["stocktwits"] = f"fetch crashed: {exc}"
 
         for sym in syms:
             slot = self.enrichment.setdefault(sym, {})
