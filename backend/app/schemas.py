@@ -72,6 +72,9 @@ class OrderOut(BaseModel):
     # Orders tab doesn't cost extra Alpaca round-trips).
     current_price: Optional[float] = None
     pct_change: Optional[float] = None       # (current - fill) / fill * 100
+    # FIFO realized P/L for completed SELL orders (None for buys/open sells or
+    # when local basis history is incomplete).
+    realized_pl: Optional[float] = None
     class Config:
         from_attributes = True
 

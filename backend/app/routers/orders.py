@@ -1,4 +1,6 @@
+from collections import defaultdict, deque
 from datetime import datetime
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
@@ -25,6 +27,61 @@ _RECONCILE_STATUSES = {
     "pending_new",
     "partially_filled",
 }
+
+
+def _order_fill_qty(r: Order) -> float:
+    """Return executed quantity for an order row (0 if unknown)."""
+    try:
+        q = r.filled_qty if r.filled_qty is not None else r.qty
+        return float(q or 0.0)
+    except Exception:
+        return 0.0
+
+
+def _compute_realized_sell_pl(rows: list[Order]) -> dict[int, Optional[float]]:
+    """Compute FIFO realized P/L per SELL order id from local filled history.
+
+    Returns {order_id: pnl_or_none}. None means basis is incomplete (e.g. sell
+    quantity exceeds known local buy lots for that symbol/mode), so we cannot
+    claim a true realized figure from local data."""
+    lots: dict[str, deque[list[float]]] = defaultdict(deque)
+    realized_by_order: dict[int, Optional[float]] = {}
+
+    for r in rows:
+        side = (r.side or "").lower()
+        sym = (r.symbol or "").upper()
+        if not sym:
+            continue
+        if r.filled_avg_price is None:
+            continue
+        qty = _order_fill_qty(r)
+        if qty <= 0:
+            continue
+        px = float(r.filled_avg_price)
+
+        if side == "buy":
+            lots[sym].append([qty, px])  # [remaining_qty, fill_price]
+            continue
+        if side != "sell":
+            continue
+
+        remaining = qty
+        pnl = 0.0
+        sym_lots = lots[sym]
+        while remaining > 1e-12 and sym_lots:
+            lot_qty, lot_px = sym_lots[0]
+            matched = min(lot_qty, remaining)
+            pnl += matched * (px - lot_px)
+            lot_qty -= matched
+            remaining -= matched
+            if lot_qty <= 1e-12:
+                sym_lots.popleft()
+            else:
+                sym_lots[0][0] = lot_qty
+
+        realized_by_order[r.id] = None if remaining > 1e-12 else pnl
+
+    return realized_by_order
 
 
 @router.get("", response_model=list[OrderOut])
@@ -88,6 +145,23 @@ async def list_orders(
     # last live WS tick, so `last` is as fresh as the price stream.
     symbols = sorted({r.symbol for r in rows})
     snaps = await md.get_snapshots(symbols)
+    # 3) Realized P/L for completed SELL orders using FIFO over local filled
+    # order history (same mode). This is separate from "move since fill", which
+    # is mark-to-market from each row's fill vs current.
+    filled_history = (
+        db.query(Order)
+        .filter(
+            Order.mode == settings.APP_MODE,
+            Order.filled_avg_price.isnot(None),
+        )
+        .order_by(
+            Order.filled_at.asc(),
+            Order.submitted_at.asc(),
+            Order.id.asc(),
+        )
+        .all()
+    )
+    realized_by_id = _compute_realized_sell_pl(filled_history)
 
     out: list[OrderOut] = []
     for r in rows:
@@ -99,6 +173,9 @@ async def list_orders(
         pct_change = None
         if current and fill_px:
             pct_change = (current - fill_px) / fill_px * 100.0
+        realized_pl = None
+        if (r.side or "").lower() == "sell" and (r.status or "").lower() == "filled":
+            realized_pl = realized_by_id.get(r.id)
 
         out.append(
             OrderOut(
@@ -118,6 +195,7 @@ async def list_orders(
                 total_cost=total_cost,
                 current_price=current,
                 pct_change=pct_change,
+                realized_pl=realized_pl,
             )
         )
     return out

@@ -27,7 +27,12 @@ export function OrdersPage() {
                 <th className="px-4 py-3 text-right text-xs text-muted-foreground">Fill Px</th>
                 <th className="px-4 py-3 text-right text-xs text-muted-foreground">Total</th>
                 <th className="px-4 py-3 text-right text-xs text-muted-foreground">Current</th>
-                <th className="px-4 py-3 text-right text-xs text-muted-foreground">% Chg</th>
+                <th className="px-4 py-3 text-right text-xs text-muted-foreground">
+                  Move since fill
+                </th>
+                <th className="px-4 py-3 text-right text-xs text-muted-foreground">
+                  Realized P/L
+                </th>
                 <th className="px-4 py-3 text-left text-xs text-muted-foreground">Status</th>
                 <th className="px-4 py-3 text-left text-xs text-muted-foreground">Mode</th>
                 <th className="px-4 py-3 text-right text-xs text-muted-foreground"></th>
@@ -49,6 +54,13 @@ export function OrdersPage() {
                 const sideAwarePctClass = o.side === 'sell'
                   ? 'text-muted-foreground'
                   : pctClass
+                const realized = o.realized_pl
+                const realizedClass =
+                  realized == null
+                    ? 'text-muted-foreground'
+                    : realized >= 0
+                      ? 'text-success'
+                      : 'text-danger'
 
                 return (
                   <tr
@@ -85,6 +97,9 @@ export function OrdersPage() {
                     >
                       {fmtPct(pct)}
                     </td>
+                    <td className={`px-4 py-3 text-sm text-right font-mono ${realizedClass}`}>
+                      {fmtUsd(realized)}
+                    </td>
                     <td className="px-4 py-3 text-sm">
                       <span className="px-2 py-0.5 rounded-md bg-muted/50 border border-border text-xs">
                         {o.status}
@@ -109,7 +124,7 @@ export function OrdersPage() {
               {(!orders || orders.length === 0) && (
                 <tr className="border-t border-border">
                   <td
-                    colSpan={13}
+                    colSpan={14}
                     className="px-4 py-12 text-center text-sm text-muted-foreground"
                   >
                     No orders
