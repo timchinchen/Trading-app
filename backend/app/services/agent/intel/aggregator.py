@@ -12,7 +12,7 @@ import asyncio
 from dataclasses import dataclass, field
 from typing import Any, Callable, Optional
 
-from . import fmp, sec_edgar, stockanalysis, stocktwits, tradingview
+from . import alpha_vantage, fmp, sec_edgar, stockanalysis, stocktwits, tradingview
 
 LogFn = Callable[[str], None]
 
@@ -97,6 +97,9 @@ class MarketIntel:
                 fmp_line = fmp.brief_line(payload.get("fmp") or {})
                 if fmp_line:
                     parts.append(f"FMP: {fmp_line}")
+                av_line = alpha_vantage.brief_line(payload.get("alpha_vantage") or {})
+                if av_line:
+                    parts.append(f"AV: {av_line}")
                 sec_line = sec_edgar.brief_line(payload.get("sec") or {})
                 if sec_line:
                     parts.append(f"SEC: {sec_line}")
@@ -122,14 +125,15 @@ class MarketIntel:
         *,
         fmp_api_key: str,
         fmp_base_url: str,
+        alpha_vantage_api_key: str = "",
         sec_user_agent: str,
         stocktwits_cookies: str = "",
         log: Optional[LogFn] = None,
     ) -> None:
-        """Pull FMP + SEC EDGAR + Stocktwits data for a small list of tickers
-        and stash it on `self.enrichment`. Idempotent - re-calling with new
-        symbols only enriches the new ones. Best-effort; failures are
-        tracked in `errors`."""
+        """Pull FMP + Alpha Vantage + SEC EDGAR + Stocktwits data for a small
+        list of tickers and stash it on `self.enrichment`. Idempotent -
+        re-calling with new symbols only enriches the new ones. Best-effort;
+        failures are tracked in `errors`."""
         syms = sorted({s.upper().strip() for s in symbols if s and s.strip()})
         if not syms:
             return
@@ -141,9 +145,16 @@ class MarketIntel:
                 except Exception:
                     pass
 
-        # Parallel FMP + SEC + Stocktwits
+        # Parallel FMP + Alpha Vantage + SEC + Stocktwits
         fmp_task = asyncio.create_task(
             fmp.fetch_many(syms, api_key=fmp_api_key, base_url=fmp_base_url)
+        )
+        av_task = (
+            asyncio.create_task(
+                alpha_vantage.fetch_many(syms, api_key=alpha_vantage_api_key)
+            )
+            if alpha_vantage_api_key
+            else None
         )
         sec_task = asyncio.create_task(
             sec_edgar.fetch_many(syms, user_agent=sec_user_agent)
@@ -156,6 +167,7 @@ class MarketIntel:
             st_task = None
 
         fmp_map = await fmp_task
+        av_map = await av_task if av_task else {}
         sec_map = await sec_task
         st_result = await st_task if st_task else None
 
@@ -163,23 +175,23 @@ class MarketIntel:
             slot = self.enrichment.setdefault(sym, {})
             if fmp_map.get(sym):
                 slot["fmp"] = fmp_map[sym]
+            if av_map.get(sym):
+                slot["alpha_vantage"] = av_map[sym]
             if sec_map.get(sym):
                 slot["sec"] = sec_map[sym]
             if st_result and st_result.sentiment.get(sym):
                 slot["stocktwits"] = st_result.sentiment[sym]
 
         if st_result:
-            # Merge any news headlines from stocktwits into the top-level list.
             if st_result.news:
                 self.stocktwits_news.extend(st_result.news)
             if st_result.watchers:
-                # Replace rather than append: the leaderboard is always a
-                # full, freshly-ranked snapshot.
                 self.stocktwits_watchers = st_result.watchers
             for k, v in st_result.errors.items():
                 self.errors[k] = v
 
         fmp_ok = sum(1 for s in syms if fmp_map.get(s) and not fmp_map[s].get("error"))
+        av_ok = sum(1 for s in syms if av_map.get(s) and not av_map[s].get("error"))
         sec_ok = sum(1 for s in syms if sec_map.get(s) and not sec_map[s].get("error"))
         st_ok = (
             sum(
@@ -193,7 +205,9 @@ class MarketIntel:
             else 0
         )
         _log(
-            f"enrichment: fmp_ok={fmp_ok}/{len(syms)} sec_ok={sec_ok}/{len(syms)} "
+            f"enrichment: fmp_ok={fmp_ok}/{len(syms)} "
+            f"av_ok={av_ok}/{len(syms)} "
+            f"sec_ok={sec_ok}/{len(syms)} "
             f"stocktwits_ok={st_ok}/{len(syms)} "
             f"news={len(st_result.news) if st_result else 0} "
             f"watchers={len(st_result.watchers) if st_result else 0} "
@@ -201,6 +215,8 @@ class MarketIntel:
         )
         if fmp_api_key == "":
             self.errors["fmp"] = "FMP_API_KEY not set"
+        if not alpha_vantage_api_key:
+            self.errors["alpha_vantage"] = "ALPHA_VANTAGE_API_KEY not set"
         if not stocktwits_cookies:
             self.errors["stocktwits"] = "STOCKTWITS_COOKIES not set"
 

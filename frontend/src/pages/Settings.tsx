@@ -732,6 +732,8 @@ function DataEnrichmentCard({ s }: { s: AgentSettings }) {
   const [fmpKey, setFmpKey] = useState('')
   const [clearFmpKey, setClearFmpKey] = useState(false)
   const [fmpBaseUrl, setFmpBaseUrl] = useState(s.fmp_base_url)
+  const [avKey, setAvKey] = useState('')
+  const [clearAvKey, setClearAvKey] = useState(false)
   const [secUa, setSecUa] = useState(s.sec_user_agent)
 
   useEffect(() => {
@@ -749,10 +751,17 @@ function DataEnrichmentCard({ s }: { s: AgentSettings }) {
     } else if (fmpKey.trim()) {
       body.FMP_API_KEY = fmpKey.trim()
     }
+    if (clearAvKey) {
+      body.ALPHA_VANTAGE_API_KEY = ''
+    } else if (avKey.trim()) {
+      body.ALPHA_VANTAGE_API_KEY = avKey.trim()
+    }
     upd.mutate(body, {
       onSuccess: () => {
         setFmpKey('')
         setClearFmpKey(false)
+        setAvKey('')
+        setClearAvKey(false)
       },
     })
   }
@@ -816,6 +825,47 @@ function DataEnrichmentCard({ s }: { s: AgentSettings }) {
           placeholder="https://financialmodelingprep.com/api/v3"
           className="px-3 py-2 rounded-md text-sm w-full max-w-md"
         />
+      </div>
+
+      <div className="grid grid-cols-[220px_1fr] gap-3 py-2 border-b border-border">
+        <div className="text-xs text-muted-foreground uppercase tracking-wider">
+          ALPHA_VANTAGE_API_KEY
+          <OverrideBadge k="ALPHA_VANTAGE_API_KEY" overridden={s.overridden} />
+        </div>
+        <div className="space-y-1">
+          <input
+            type="password"
+            value={avKey}
+            onChange={(e) => setAvKey(e.target.value)}
+            placeholder={
+              s.alpha_vantage_api_key_set
+                ? `current: ${s.alpha_vantage_api_key_preview} (leave blank to keep)`
+                : 'Alpha Vantage API key'
+            }
+            className="px-3 py-2 rounded-md text-sm w-full max-w-md font-mono"
+          />
+          <label className="flex items-center gap-2 text-xs text-muted-foreground">
+            <input
+              type="checkbox"
+              checked={clearAvKey}
+              onChange={(e) => setClearAvKey(e.target.checked)}
+            />
+            clear stored key (disables Alpha Vantage enrichment)
+          </label>
+          <div className="text-[11px] text-muted-foreground">
+            Free key at{' '}
+            <a
+              href="https://www.alphavantage.co/support/#api-key"
+              target="_blank"
+              rel="noreferrer"
+              className="text-primary hover:underline"
+            >
+              alphavantage.co/support
+            </a>{' '}
+            (25 calls/day free tier). Pulls company overview + quote + earnings per
+            ticker. Premium tiers (75-1200 req/min) remove the daily cap.
+          </div>
+        </div>
       </div>
 
       <div className="grid grid-cols-[220px_1fr] gap-3 py-2 border-b border-border">

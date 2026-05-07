@@ -1109,6 +1109,7 @@ async def _run_once_impl(broker: AlpacaBroker) -> int:
                     shortlist,
                     fmp_api_key=rs.fmp_api_key,
                     fmp_base_url=rs.fmp_base_url,
+                    alpha_vantage_api_key=rs.alpha_vantage_api_key,
                     sec_user_agent=rs.sec_user_agent,
                     stocktwits_cookies=rs.stocktwits_cookies,
                     log=_tw_log,

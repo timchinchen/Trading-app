@@ -182,9 +182,11 @@ def setup_health() -> dict[str, Any]:
     try:
         rs = get_runtime_settings()
         fmp_ok = bool(rs.fmp_api_key)
+        av_ok = bool(rs.alpha_vantage_api_key)
         st_ok = bool(rs.stocktwits_cookies)
     except Exception:
         fmp_ok = bool(settings.FMP_API_KEY)
+        av_ok = bool(settings.ALPHA_VANTAGE_API_KEY)
         st_ok = bool(settings.STOCKTWITS_COOKIES)
 
     return {
@@ -207,6 +209,7 @@ def setup_health() -> dict[str, Any]:
         "cohere": _check_cohere_key(),
         "playwright": _check_playwright(),
         "fmp": {"ok": fmp_ok, "detail": "key set" if fmp_ok else "not set (optional)"},
+        "alpha_vantage": {"ok": av_ok, "detail": "key set" if av_ok else "not set (optional)"},
         "stocktwits": {
             "ok": st_ok,
             "detail": "cookies set" if st_ok else "not set (optional)",
