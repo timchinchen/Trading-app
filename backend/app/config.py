@@ -111,8 +111,8 @@ class Settings(BaseSettings):
     AGENT_PARTIAL_TAKE_PCT: float = 0.06      # 6%
     AGENT_PARTIAL_TAKE_FRACTION: float = 0.5  # sell 50%
     # Hard time-stop: close any position older than this many calendar days.
-    # Tightened from 8 → 7: enforce 1-week swing discipline.
-    AGENT_MAX_HOLD_DAYS: int = 7
+    # Set to 14 days so default exits align with a 2-3 week swing horizon.
+    AGENT_MAX_HOLD_DAYS: int = 14
 
     # ---- Swing-trading skill (1-2 week horizon) ----
     # Master toggle. When off the agent falls back to the old tweet-sentiment
@@ -126,7 +126,7 @@ class Settings(BaseSettings):
     SWING_MIN_RR: float = 2.5
     # Time-stop in trading days. If a position has made no progress by then,
     # the next run emits an EXIT proposal.
-    SWING_TIME_STOP_DAYS: int = 5
+    SWING_TIME_STOP_DAYS: int = 10
     # Move stop to breakeven once unrealised P/L hits this fraction.
     SWING_MOVE_STOP_BE_PCT: float = 0.08
     # Flag partial profit-take at this gain (no auto-sell; advisor surface it).

@@ -191,7 +191,7 @@ class RuntimeSettings:
     agent_trail_retrace_pct: float = 0.35
     agent_partial_take_pct: float = 0.07
     agent_partial_take_fraction: float = 0.5
-    agent_max_hold_days: int = 8
+    agent_max_hold_days: int = 14
     # Signal thresholds (allocator)
     agent_min_score: float = 0.0
     agent_min_confidence: float = 0.0
@@ -210,8 +210,8 @@ class RuntimeSettings:
     # Swing-trading skill
     swing_enabled: bool = True
     swing_risk_per_trade_pct: float = 0.01
-    swing_min_rr: float = 2.0
-    swing_time_stop_days: int = 5
+    swing_min_rr: float = 2.5
+    swing_time_stop_days: int = 10
     swing_move_stop_be_pct: float = 0.08
     swing_partial_pct: float = 0.05
     swing_market_filter_symbol: str = "SPY"

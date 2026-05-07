@@ -297,8 +297,7 @@ def _classify_regime(
     if not bars or len(bars) < ma_period + 5:
         return "neutral", neutral_mult
 
-    from . import swing_analyzer as sa
-    from .technicals import T
+    from . import technicals as T
     cs = T.closes(bars)
     sma = T.sma(cs, ma_period)
     sma_prev = T.sma(cs[:-5], ma_period) if len(cs) >= ma_period + 5 else None
