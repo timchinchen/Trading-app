@@ -3,6 +3,7 @@ import { api } from './client'
 import type {
   Account,
   AgentAccountCache,
+  AgentDiagnostics,
   AgentRun,
   AgentSettings,
   AgentSettingsUpdate,
@@ -20,6 +21,7 @@ import type {
   Order,
   Position,
   Quote,
+  SetupHealth,
   WatchlistItem,
   SettingsExportPayload,
 } from './types'
@@ -122,6 +124,19 @@ export const useAgentStatus = () =>
     queryKey: ['agent', 'status'],
     queryFn: async () => (await api.get<AgentStatus>('/agent/status')).data,
     refetchInterval: 10000,
+  })
+
+export const useSetupHealth = () =>
+  useQuery({
+    queryKey: ['health', 'setup'],
+    queryFn: async () => (await api.get<SetupHealth>('/health/setup')).data,
+    refetchInterval: 10000,
+  })
+
+export const useAgentDiagnostics = () =>
+  useQuery({
+    queryKey: ['agent', 'diagnostics'],
+    queryFn: async () => (await api.get<AgentDiagnostics>('/agent/diagnostics')).data,
   })
 
 export const useAgentRuns = () =>

@@ -321,6 +321,28 @@ export interface LLMModels {
   error?: string
 }
 
+export interface SetupProbe {
+  ok: boolean
+  detail?: string
+}
+
+export type SetupHealth = Record<string, SetupProbe>
+
+export interface AgentDiagnosticAssumption {
+  name: string
+  value: string
+  source: string
+}
+
+export interface AgentDiagnostics {
+  prompts: {
+    role_preamble: string
+    tweet_system_prompt: string
+    advisor_system_prompt: string
+  }
+  assumptions: AgentDiagnosticAssumption[]
+}
+
 export interface DigestEntry {
   id: number
   created_at: string

@@ -4,6 +4,7 @@ import { useAuth } from '../store/auth'
 const TABS: { to: string; label: string }[] = [
   { to: '/', label: 'Dashboard' },
   { to: '/agent', label: 'Agent' },
+  { to: '/diagnostics', label: 'Diagnostics' },
   { to: '/chat', label: 'Chat' },
   { to: '/orders', label: 'Orders' },
   { to: '/settings', label: 'Settings' },
