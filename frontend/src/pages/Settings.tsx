@@ -1151,14 +1151,20 @@ function AgentBudgetCard({ s }: { s: AgentSettings }) {
     value,
     onChange,
     step = '1',
+    min,
+    max,
   }: {
     value: number
     onChange: (n: number) => void
     step?: string
+    min?: number
+    max?: number
   }) => (
     <input
       type="number"
       step={step}
+      min={min}
+      max={max}
       value={value}
       onChange={(e) => onChange(Number(e.target.value))}
       className="px-3 py-2 rounded-md text-sm w-32"
@@ -1245,7 +1251,10 @@ function AgentBudgetCard({ s }: { s: AgentSettings }) {
             CRON_MINUTES
             <OverrideBadge k="AGENT_CRON_MINUTES" overridden={s.overridden} />
           </div>
-          <NumInput value={cron} onChange={setCron} step="1" />
+          <div className="flex items-center gap-2">
+            <NumInput value={cron} onChange={setCron} step="1" min={1} max={59} />
+            <span className="text-xs text-muted-foreground">1-59 minutes</span>
+          </div>
         </div>
         <div className="grid grid-cols-[180px_1fr] gap-2 py-2 border-b border-border">
           <div className="text-xs text-muted-foreground uppercase tracking-wider self-center">

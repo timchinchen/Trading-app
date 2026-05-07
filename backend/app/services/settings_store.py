@@ -21,6 +21,16 @@ from ..config import settings as env_settings
 from ..db import SessionLocal
 from ..models import AppSetting
 
+_AGENT_CRON_MINUTES_MIN = 1
+_AGENT_CRON_MINUTES_MAX = 59
+_AGENT_CRON_MINUTES_DEFAULT = max(
+    _AGENT_CRON_MINUTES_MIN,
+    min(
+        _AGENT_CRON_MINUTES_MAX,
+        int(getattr(env_settings, "AGENT_CRON_MINUTES", 30) or 30),
+    ),
+)
+
 
 # Keys that the Settings UI is allowed to read/write. Anything else is rejected.
 EDITABLE_KEYS: dict[str, type] = {
@@ -135,6 +145,29 @@ def _coerce(raw: str, target: type) -> Any:
 def _load_overrides(db: Session) -> dict[str, str]:
     rows = db.query(AppSetting).all()
     return {r.key: r.value for r in rows}
+
+
+def _safe_agent_cron_minutes(raw: Any, *, source: str) -> int:
+    """Validate AGENT_CRON_MINUTES for APScheduler cron minute expressions.
+
+    Cron minute steps must be 1..59. Invalid values are downgraded to a
+    sensible default so startup/reschedule never crash."""
+    try:
+        value = int(float(raw))
+    except Exception:
+        print(
+            f"[settings] invalid AGENT_CRON_MINUTES from {source}: {raw!r}; "
+            f"using default {_AGENT_CRON_MINUTES_DEFAULT}"
+        )
+        return _AGENT_CRON_MINUTES_DEFAULT
+    if _AGENT_CRON_MINUTES_MIN <= value <= _AGENT_CRON_MINUTES_MAX:
+        return value
+    print(
+        f"[settings] out-of-range AGENT_CRON_MINUTES from {source}: {value}; "
+        f"expected {_AGENT_CRON_MINUTES_MIN}-{_AGENT_CRON_MINUTES_MAX}, "
+        f"using default {_AGENT_CRON_MINUTES_DEFAULT}"
+    )
+    return _AGENT_CRON_MINUTES_DEFAULT
 
 
 @dataclass
@@ -394,7 +427,10 @@ def get_runtime_settings(db: Session | None = None) -> RuntimeSettings:
         agent_max_position_usd=float(pick("AGENT_MAX_POSITION_USD", float)),
         agent_daily_loss_cap_usd=float(pick("AGENT_DAILY_LOSS_CAP_USD", float)),
         agent_max_open_positions=int(pick("AGENT_MAX_OPEN_POSITIONS", int)),
-        agent_cron_minutes=int(pick("AGENT_CRON_MINUTES", int)),
+        agent_cron_minutes=_safe_agent_cron_minutes(
+            pick("AGENT_CRON_MINUTES", int),
+            source="runtime settings",
+        ),
         agent_run_timeout_s=max(60, int(pick("AGENT_RUN_TIMEOUT_S", int))),
         agent_intel_boost=float(pick("AGENT_INTEL_BOOST", float)),
         agent_take_profit_pct=float(pick("AGENT_TAKE_PROFIT_PCT", float)),
@@ -451,6 +487,8 @@ def update_settings(db: Session, updates: dict[str, Any]) -> RuntimeSettings:
                 db.delete(row)
             continue
         # Stringify whatever we got (we always store as TEXT)
+        if key == "AGENT_CRON_MINUTES":
+            raw_value = _safe_agent_cron_minutes(raw_value, source="settings update")
         if isinstance(raw_value, bool):
             value_s = "true" if raw_value else "false"
         else:

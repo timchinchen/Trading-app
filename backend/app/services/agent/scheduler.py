@@ -24,6 +24,29 @@ from .runner import run_once
 
 # How many daily SQLite backups we keep before rotating the oldest out.
 _DB_BACKUP_KEEP_DAYS = 14
+_DEFAULT_AGENT_CRON_MINUTES = 30
+
+
+def _safe_cron_step_minutes(raw: object) -> int:
+    """Return a valid cron minute step (1..59), else fallback default.
+
+    APScheduler rejects values like */90 with ValueError during startup, so we
+    guard here as a final safety net even if a bad value slips through."""
+    try:
+        n = int(float(raw))  # type: ignore[arg-type]
+    except Exception:
+        print(
+            f"[agent] invalid cron minutes {raw!r}; "
+            f"using default {_DEFAULT_AGENT_CRON_MINUTES}"
+        )
+        return _DEFAULT_AGENT_CRON_MINUTES
+    if 1 <= n <= 59:
+        return n
+    print(
+        f"[agent] out-of-range cron minutes {n}; expected 1-59, "
+        f"using default {_DEFAULT_AGENT_CRON_MINUTES}"
+    )
+    return _DEFAULT_AGENT_CRON_MINUTES
 
 
 class AgentScheduler:
@@ -139,7 +162,8 @@ class AgentScheduler:
             print("[agent] disabled via AGENT_ENABLED=false")
             return
         self.sched = AsyncIOScheduler(timezone="America/New_York")
-        minute_expr = f"*/{max(1, settings.AGENT_CRON_MINUTES)}"
+        minute_step = _safe_cron_step_minutes(settings.AGENT_CRON_MINUTES)
+        minute_expr = f"*/{minute_step}"
         trigger = CronTrigger(
             day_of_week="mon-fri",
             hour="9-15",
@@ -156,7 +180,10 @@ class AgentScheduler:
         self._schedule_backup_job()
         self._schedule_auto_sell_job()
         nr = getattr(self._job, "next_run_time", None)
-        print(f"[agent] scheduler started; next run: {nr or '(pending)'}")
+        print(
+            f"[agent] scheduler started (every {minute_step}m); "
+            f"next run: {nr or '(pending)'}"
+        )
 
     async def _runner(self):
         try:
@@ -183,7 +210,8 @@ class AgentScheduler:
         if self.sched is None:
             self.sched = AsyncIOScheduler(timezone="America/New_York")
             self.sched.start()
-        minute_expr = f"*/{max(1, int(cron_minutes))}"
+        minute_step = _safe_cron_step_minutes(cron_minutes)
+        minute_expr = f"*/{minute_step}"
         trigger = CronTrigger(
             day_of_week="mon-fri",
             hour="9-15",
@@ -200,7 +228,10 @@ class AgentScheduler:
         self._schedule_backup_job()
         self._schedule_auto_sell_job()
         nr = getattr(self._job, "next_run_time", None)
-        print(f"[agent] scheduler rescheduled every {cron_minutes}m; next: {nr or '(pending)'}")
+        print(
+            f"[agent] scheduler rescheduled every {minute_step}m; "
+            f"next: {nr or '(pending)'}"
+        )
 
     def next_digest_at(self) -> Optional[datetime]:
         if self._digest_job is None:
