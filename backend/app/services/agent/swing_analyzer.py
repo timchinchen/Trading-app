@@ -211,8 +211,10 @@ def _oversold(sym: str, bars: list[dict], snap: dict) -> Optional[SetupPlan]:
     if not (today["c"] > today["o"] and today["c"] > prev_close):
         return None
     entry = last
-    stop = _clamp_stop(entry, swing_low_10, 0.03, 0.05)
-    target = entry * 1.06        # conservative bounce target (3-8% band)
+    # Keep risk tight for bounce trades so the default SWING_MIN_RR (2.5)
+    # can still accept this setup when the reclaim is strong enough.
+    stop = _clamp_stop(entry, swing_low_10, 0.03, 0.04)
+    target = entry * 1.10
     risk = entry - stop
     reward = target - entry
     rr = (reward / risk) if risk > 0 else 0.0
