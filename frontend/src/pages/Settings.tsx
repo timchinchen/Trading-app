@@ -769,9 +769,9 @@ function DataEnrichmentCard({ s }: { s: AgentSettings }) {
   return (
     <Card title="Data enrichment APIs (editable)">
       <p className="text-xs text-muted-foreground mb-4">
-        Per-ticker fundamentals + filings data used to corroborate Twitter signals.
-        The agent enriches only the shortlist of tickers it wants to trade each run,
-        so the free tiers are plenty.
+        Per-ticker fundamentals + earnings + filings data used to corroborate
+        Twitter signals. The agent enriches only the shortlist of tickers it
+        wants to trade each run, so free tiers are usually enough.
       </p>
 
       <div className="grid grid-cols-[220px_1fr] gap-3 py-2 border-b border-border">
@@ -860,10 +860,10 @@ function DataEnrichmentCard({ s }: { s: AgentSettings }) {
               rel="noreferrer"
               className="text-primary hover:underline"
             >
-              alphavantage.co/support
+              alphavantage.co/support/#api-key
             </a>{' '}
-            (25 calls/day free tier). Pulls company overview + quote + earnings per
-            ticker. Premium tiers (75-1200 req/min) remove the daily cap.
+            (free tier is rate-limited). Pulls earnings calendar context
+            (upcoming report date + estimated EPS) for shortlist tickers.
           </div>
         </div>
       </div>

@@ -1,52 +1,42 @@
-"""Alpha Vantage per-ticker enrichment.
+"""Alpha Vantage earnings-focused enrichment.
 
-Three lightweight calls per symbol (all on the free tier at 25 req/day):
-  GLOBAL_QUOTE      - price, change%, volume, 52-week hi/lo
-  OVERVIEW          - sector, industry, market cap, PE, EPS, dividend yield
-  EARNINGS          - next / most-recent quarterly EPS + surprise
+We use the EARNINGS_CALENDAR endpoint for the whole market (12-month horizon),
+cache it in-memory, and then filter it down to the shortlist symbols.
 
-All calls swallow their errors and return an empty dict on failure (so an
-expired key or a 429 never breaks an agent run). Caller passes the API key
-from runtime settings; if the key is empty we short-circuit to an empty
-payload.
-
-Free tier = 25 calls/day. Enriching a ~5 ticker shortlist with 3 calls each
-is ~15 calls/run, leaving room for roughly 1 full run per day. If you have a
-premium key the 75-1200 calls/min tiers remove this constraint entirely.
+This keeps call volume low on free-tier keys while giving actionable context:
+  - next report date
+  - days until report
+  - fiscal period end
+  - estimated EPS
 """
 
 from __future__ import annotations
 
-import asyncio
+import csv
+import io
+import json
+from datetime import datetime, date, timedelta
 from typing import Any
 
 import httpx
 
 _BASE = "https://www.alphavantage.co/query"
-_SEM = asyncio.Semaphore(3)
+_CACHE_TTL = timedelta(hours=6)
+
+# Shared cache of the all-symbol earnings calendar.
+_CALENDAR_CACHE: dict[str, Any] = {
+    "expires_at": datetime.min,
+    "rows_by_symbol": {},
+}
 
 
-async def _get(
-    client: httpx.AsyncClient,
-    *,
-    api_key: str,
-    params: dict[str, str],
-) -> Any:
-    async with _SEM:
-        r = await client.get(
-            _BASE,
-            params={**params, "apikey": api_key},
-            timeout=15,
-        )
-    r.raise_for_status()
-    data = r.json()
-    if "Error Message" in data:
-        raise ValueError(data["Error Message"])
-    if "Note" in data:
-        raise ValueError(data["Note"])
-    if "Information" in data:
-        raise ValueError(data["Information"])
-    return data
+def _parse_date(s: str | None) -> date | None:
+    if not s:
+        return None
+    try:
+        return date.fromisoformat(s.strip())
+    except Exception:
+        return None
 
 
 def _safe_float(val: Any) -> float | None:
@@ -58,164 +48,156 @@ def _safe_float(val: Any) -> float | None:
         return None
 
 
-async def fetch_one(
-    symbol: str,
-    *,
-    api_key: str,
-) -> dict[str, Any]:
-    """Return an enrichment dict for one symbol. Empty dict on any failure."""
+def _parse_calendar_csv(text: str) -> dict[str, list[dict[str, str]]]:
+    out: dict[str, list[dict[str, str]]] = {}
+    reader = csv.DictReader(io.StringIO(text))
+    for raw in reader:
+        sym = (raw.get("symbol") or "").upper().strip()
+        if not sym:
+            continue
+        row = {
+            "symbol": sym,
+            "name": (raw.get("name") or "").strip(),
+            "reportDate": (raw.get("reportDate") or "").strip(),
+            "fiscalDateEnding": (raw.get("fiscalDateEnding") or "").strip(),
+            "estimate": (raw.get("estimate") or "").strip(),
+            "currency": (raw.get("currency") or "").strip(),
+        }
+        out.setdefault(sym, []).append(row)
+    for sym, rows in out.items():
+        rows.sort(key=lambda r: (r.get("reportDate") or "9999-12-31"))
+        out[sym] = rows
+    return out
+
+
+def _build_symbol_payload(symbol: str, rows: list[dict[str, str]]) -> dict[str, Any]:
+    today = date.today()
     sym = (symbol or "").upper().strip()
-    if not sym or not api_key:
-        return {}
-
     out: dict[str, Any] = {"symbol": sym}
-    try:
-        async with httpx.AsyncClient(headers={"User-Agent": "TradingApp/1.0"}) as c:
-            tasks = {
-                "quote": asyncio.create_task(
-                    _get(c, api_key=api_key, params={
-                        "function": "GLOBAL_QUOTE",
-                        "symbol": sym,
-                    })
-                ),
-                "overview": asyncio.create_task(
-                    _get(c, api_key=api_key, params={
-                        "function": "OVERVIEW",
-                        "symbol": sym,
-                    })
-                ),
-                "earnings": asyncio.create_task(
-                    _get(c, api_key=api_key, params={
-                        "function": "EARNINGS",
-                        "symbol": sym,
-                    })
-                ),
-            }
+    if not rows:
+        return out
 
-            for k, t in tasks.items():
-                try:
-                    data = await t
-                except httpx.HTTPStatusError as e:
-                    out[f"{k}_error"] = f"HTTP {e.response.status_code}"
-                    continue
-                except Exception as e:
-                    out[f"{k}_error"] = str(e)[:200]
-                    continue
+    upcoming: dict[str, str] | None = None
+    previous: dict[str, str] | None = None
+    for row in rows:
+        rd = _parse_date(row.get("reportDate"))
+        if rd is None:
+            continue
+        if rd >= today and upcoming is None:
+            upcoming = row
+        if rd < today:
+            previous = row
 
-                if k == "quote":
-                    gq = data.get("Global Quote") or {}
-                    out["quote"] = {
-                        "price": _safe_float(gq.get("05. price")),
-                        "change_pct": _safe_float(
-                            (gq.get("10. change percent") or "").rstrip("%")
-                        ),
-                        "volume": _safe_float(gq.get("06. volume")),
-                        "prev_close": _safe_float(gq.get("08. previous close")),
-                        "open": _safe_float(gq.get("02. open")),
-                        "high": _safe_float(gq.get("03. high")),
-                        "low": _safe_float(gq.get("04. low")),
-                    }
-                elif k == "overview":
-                    out["overview"] = {
-                        "company_name": data.get("Name"),
-                        "sector": data.get("Sector"),
-                        "industry": data.get("Industry"),
-                        "country": data.get("Country"),
-                        "exchange": data.get("Exchange"),
-                        "market_cap": _safe_float(data.get("MarketCapitalization")),
-                        "pe_ratio": _safe_float(data.get("PERatio")),
-                        "eps": _safe_float(data.get("EPS")),
-                        "dividend_yield": _safe_float(data.get("DividendYield")),
-                        "52_week_high": _safe_float(data.get("52WeekHigh")),
-                        "52_week_low": _safe_float(data.get("52WeekLow")),
-                        "50_day_ma": _safe_float(data.get("50DayMovingAverage")),
-                        "200_day_ma": _safe_float(data.get("200DayMovingAverage")),
-                        "beta": _safe_float(data.get("Beta")),
-                        "description": (data.get("Description") or "")[:600],
-                    }
-                elif k == "earnings":
-                    quarterly = data.get("quarterlyEarnings") or []
-                    latest = quarterly[0] if quarterly else {}
-                    out["earnings"] = {
-                        "latest_quarter": latest.get("fiscalDateEnding"),
-                        "reported_eps": _safe_float(latest.get("reportedEPS")),
-                        "estimated_eps": _safe_float(latest.get("estimatedEPS")),
-                        "surprise_pct": _safe_float(latest.get("surprisePercentage")),
-                    }
-    except Exception as e:
-        out["error"] = str(e)[:300]
+    sample = upcoming or previous or rows[0]
+    out["company_name"] = sample.get("name") or None
+
+    if upcoming:
+        rd = _parse_date(upcoming.get("reportDate"))
+        if rd:
+            out["upcoming_report_date"] = rd.isoformat()
+            out["days_to_report"] = (rd - today).days
+        out["fiscal_date_ending"] = upcoming.get("fiscalDateEnding") or None
+        out["estimate_eps"] = _safe_float(upcoming.get("estimate"))
+        out["currency"] = upcoming.get("currency") or None
+
+    if previous:
+        rd = _parse_date(previous.get("reportDate"))
+        if rd:
+            out["last_report_date"] = rd.isoformat()
 
     return out
 
 
-async def fetch_many(
-    symbols: list[str],
+async def _fetch_calendar_rows(
     *,
     api_key: str,
-) -> dict[str, dict[str, Any]]:
-    """Fetch enrichment for each symbol. Returns {SYM: payload}.
+    horizon: str = "12month",
+) -> tuple[dict[str, list[dict[str, str]]], str | None]:
+    now = datetime.utcnow()
+    if (
+        _CALENDAR_CACHE.get("rows_by_symbol")
+        and _CALENDAR_CACHE.get("expires_at")
+        and now < _CALENDAR_CACHE["expires_at"]
+    ):
+        return _CALENDAR_CACHE["rows_by_symbol"], None
 
-    Uses return_exceptions=True so one symbol's failure never blocks the rest.
-    """
+    params = {
+        "function": "EARNINGS_CALENDAR",
+        "horizon": horizon,
+        "apikey": api_key,
+    }
+    try:
+        async with httpx.AsyncClient(timeout=20.0) as c:
+            r = await c.get(_BASE, params=params)
+            r.raise_for_status()
+            txt = r.text or ""
+    except Exception as e:
+        return {}, f"http: {e}"
+
+    stripped = txt.strip()
+    if stripped.startswith("{"):
+        try:
+            payload = json.loads(stripped)
+        except Exception:
+            payload = {}
+        msg = (
+            payload.get("Note")
+            or payload.get("Information")
+            or payload.get("Error Message")
+            or "unexpected JSON response from EARNINGS_CALENDAR"
+        )
+        return {}, str(msg)[:240]
+
+    rows_by_symbol = _parse_calendar_csv(txt)
+    _CALENDAR_CACHE["rows_by_symbol"] = rows_by_symbol
+    _CALENDAR_CACHE["expires_at"] = now + _CACHE_TTL
+    return rows_by_symbol, None
+
+
+async def fetch_many(symbols: list[str], *, api_key: str) -> dict[str, dict[str, Any]]:
+    """Fetch earnings-calendar context for each symbol."""
     if not api_key:
         return {}
-    results = await asyncio.gather(
-        *(fetch_one(s, api_key=api_key) for s in symbols),
-        return_exceptions=True,
+
+    syms = sorted({(s or "").upper().strip() for s in symbols if s and s.strip()})
+    if not syms:
+        return {}
+
+    rows_by_symbol, err = await _fetch_calendar_rows(
+        api_key=api_key,
+        horizon="12month",
     )
-    return {
-        r.get("symbol"): r
-        for r in results
-        if isinstance(r, dict) and r.get("symbol")
-    }
+    out: dict[str, dict[str, Any]] = {}
+    for sym in syms:
+        payload = _build_symbol_payload(sym, rows_by_symbol.get(sym) or [])
+        if err and len(payload.keys()) <= 1:
+            payload["error"] = err
+        out[sym] = payload
+    return out
 
 
 def brief_line(payload: dict[str, Any]) -> str:
     """One-line summary for a prompt/context. Empty string if nothing usable."""
     bits: list[str] = []
-    overview = payload.get("overview") or {}
-    quote = payload.get("quote") or {}
-    earnings = payload.get("earnings") or {}
+    up = payload.get("upcoming_report_date")
+    days = payload.get("days_to_report")
+    est = payload.get("estimate_eps")
+    if up:
+        if isinstance(days, int):
+            bits.append(f"next earnings {up} ({days}d)")
+        else:
+            bits.append(f"next earnings {up}")
+        if est is not None:
+            try:
+                bits.append(f"est EPS {float(est):.2f}")
+            except Exception:
+                bits.append(f"est EPS {est}")
 
-    if overview.get("sector") or overview.get("industry"):
-        bits.append(f"{overview.get('sector') or '?'} / {overview.get('industry') or '?'}")
-    mc = overview.get("market_cap")
-    if mc:
-        bits.append(f"mcap ${_fmt_big(mc)}")
-    pe = overview.get("pe_ratio")
-    if pe is not None:
-        try:
-            bits.append(f"P/E {float(pe):.1f}")
-        except Exception:
-            pass
-    eps = overview.get("eps")
-    if eps is not None:
-        try:
-            bits.append(f"EPS ${float(eps):.2f}")
-        except Exception:
-            pass
-    if quote.get("change_pct") is not None:
-        try:
-            bits.append(f"today {float(quote['change_pct']):+.2f}%")
-        except Exception:
-            pass
-    surprise = earnings.get("surprise_pct")
-    if surprise is not None:
-        try:
-            bits.append(f"EPS surprise {float(surprise):+.1f}%")
-        except Exception:
-            pass
-    return " · ".join(bits)
+    last = payload.get("last_report_date")
+    if last:
+        bits.append(f"last report {last}")
 
+    if not bits and payload.get("error"):
+        bits.append(f"error: {str(payload.get('error'))[:80]}")
 
-def _fmt_big(n: float | int | None) -> str:
-    if n is None:
-        return "?"
-    try:
-        n = float(n)
-    except Exception:
-        return "?"
-    for unit, div in (("T", 1e12), ("B", 1e9), ("M", 1e6), ("K", 1e3)):
-        if abs(n) >= div:
-            return f"{n / div:.1f}{unit}"
-    return f"{n:.0f}"
+    return " | ".join(bits)
