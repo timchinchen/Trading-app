@@ -10,6 +10,7 @@ import os
 import shutil
 from datetime import datetime, timedelta
 from typing import Optional
+from zoneinfo import ZoneInfo
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -24,29 +25,31 @@ from .runner import run_once
 
 # How many daily SQLite backups we keep before rotating the oldest out.
 _DB_BACKUP_KEEP_DAYS = 14
-_DEFAULT_AGENT_CRON_MINUTES = 30
+_ET_TZ = ZoneInfo("America/New_York")
+_MARKET_OPEN_MIN = 9 * 60
+_MARKET_CLOSE_MIN = 16 * 60  # exclusive (16:00)
 
 
-def _safe_cron_step_minutes(raw: object) -> int:
-    """Return a valid cron minute step (1..59), else fallback default.
+def _is_market_session_minute(now_et: datetime) -> bool:
+    """True during regular session minutes (Mon-Fri 09:00-15:59 ET)."""
+    if now_et.weekday() > 4:
+        return False
+    m = now_et.hour * 60 + now_et.minute
+    return _MARKET_OPEN_MIN <= m < _MARKET_CLOSE_MIN
 
-    APScheduler rejects values like */90 with ValueError during startup, so we
-    guard here as a final safety net even if a bad value slips through."""
-    try:
-        n = int(float(raw))  # type: ignore[arg-type]
-    except Exception:
-        print(
-            f"[agent] invalid cron minutes {raw!r}; "
-            f"using default {_DEFAULT_AGENT_CRON_MINUTES}"
-        )
-        return _DEFAULT_AGENT_CRON_MINUTES
-    if 1 <= n <= 59:
-        return n
-    print(
-        f"[agent] out-of-range cron minutes {n}; expected 1-59, "
-        f"using default {_DEFAULT_AGENT_CRON_MINUTES}"
-    )
-    return _DEFAULT_AGENT_CRON_MINUTES
+
+def _is_scheduled_tick(now_et: datetime, interval_minutes: int) -> bool:
+    """Run only on N-minute boundaries anchored to 09:00 ET.
+
+    Examples:
+      interval=30 -> 09:00, 09:30, 10:00, ...
+      interval=90 -> 09:00, 10:30, 12:00, 13:30, 15:00
+    """
+    if not _is_market_session_minute(now_et):
+        return False
+    step = max(1, int(interval_minutes))
+    since_open = (now_et.hour * 60 + now_et.minute) - _MARKET_OPEN_MIN
+    return (since_open % step) == 0
 
 
 class AgentScheduler:
@@ -57,6 +60,7 @@ class AgentScheduler:
         self._digest_job = None
         self._backup_job = None
         self._auto_sell_job = None
+        self._cron_minutes = max(1, int(settings.AGENT_CRON_MINUTES))
 
     def _schedule_digest_job(self) -> None:
         """Attach the daily digest compression to the scheduler (09:30 ET).
@@ -161,13 +165,14 @@ class AgentScheduler:
         if not settings.AGENT_ENABLED:
             print("[agent] disabled via AGENT_ENABLED=false")
             return
+        self._cron_minutes = max(1, int(settings.AGENT_CRON_MINUTES))
         self.sched = AsyncIOScheduler(timezone="America/New_York")
-        minute_step = _safe_cron_step_minutes(settings.AGENT_CRON_MINUTES)
-        minute_expr = f"*/{minute_step}"
+        # Tick every minute during market hours; _runner applies the actual
+        # N-minute cadence so values >59 (e.g. 90) are supported.
         trigger = CronTrigger(
             day_of_week="mon-fri",
             hour="9-15",
-            minute=minute_expr,
+            minute="*",
             timezone="America/New_York",
         )
         self._job = self.sched.add_job(self._runner, trigger=trigger, id="agent_main")
@@ -179,13 +184,16 @@ class AgentScheduler:
         self._schedule_digest_job()
         self._schedule_backup_job()
         self._schedule_auto_sell_job()
-        nr = getattr(self._job, "next_run_time", None)
+        nr = self.next_run_at()
         print(
-            f"[agent] scheduler started (every {minute_step}m); "
+            f"[agent] scheduler started (every {self._cron_minutes}m); "
             f"next run: {nr or '(pending)'}"
         )
 
     async def _runner(self):
+        now_et = datetime.now(_ET_TZ)
+        if not _is_scheduled_tick(now_et, self._cron_minutes):
+            return
         try:
             await run_once(self.broker)
         except Exception as e:
@@ -194,7 +202,14 @@ class AgentScheduler:
     def next_run_at(self) -> Optional[datetime]:
         if self._job is None:
             return None
-        return self._job.next_run_time
+        now = datetime.now(_ET_TZ).replace(second=0, microsecond=0) + timedelta(minutes=1)
+        # Find the next effective run boundary (bounded search; <= 7 days).
+        for _ in range(7 * 24 * 60):
+            if _is_scheduled_tick(now, self._cron_minutes):
+                return now
+            now += timedelta(minutes=1)
+        # Fallback should be unreachable; return scheduler's own next tick.
+        return getattr(self._job, "next_run_time", None)
 
     def reschedule(self, cron_minutes: int, *, enabled: bool = True) -> None:
         """Apply a new cron interval (or fully start/stop) at runtime.
@@ -210,12 +225,12 @@ class AgentScheduler:
         if self.sched is None:
             self.sched = AsyncIOScheduler(timezone="America/New_York")
             self.sched.start()
-        minute_step = _safe_cron_step_minutes(cron_minutes)
-        minute_expr = f"*/{minute_step}"
+        self._cron_minutes = max(1, int(cron_minutes))
+        # Keep the minute-level tick; cadence gate happens in _runner.
         trigger = CronTrigger(
             day_of_week="mon-fri",
             hour="9-15",
-            minute=minute_expr,
+            minute="*",
             timezone="America/New_York",
         )
         if self._job:
@@ -227,9 +242,9 @@ class AgentScheduler:
         self._schedule_digest_job()
         self._schedule_backup_job()
         self._schedule_auto_sell_job()
-        nr = getattr(self._job, "next_run_time", None)
+        nr = self.next_run_at()
         print(
-            f"[agent] scheduler rescheduled every {minute_step}m; "
+            f"[agent] scheduler rescheduled every {self._cron_minutes}m; "
             f"next: {nr or '(pending)'}"
         )
 
