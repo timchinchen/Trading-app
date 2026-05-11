@@ -53,7 +53,11 @@ async def lifespan(app: FastAPI):
     recover_stale_runs()
     md = get_market_data()
     await md.start()
-    print(f"[startup] APP_MODE={settings.APP_MODE}  MARKET_DATA_MODE={settings.MARKET_DATA_MODE}")
+    ws_cap = settings.WS_MAX_SYMBOLS
+    print(
+        f"[startup] APP_MODE={settings.APP_MODE}  MARKET_DATA_MODE={settings.MARKET_DATA_MODE}  "
+        f"WS_MAX_SYMBOLS={ws_cap or 'unlimited'}"
+    )
 
     # Re-subscribe every persisted watchlist row so the Dashboard shows live
     # prices immediately when the user loads the app - including any symbols
@@ -71,7 +75,13 @@ async def lifespan(app: FastAPI):
                 except Exception as e:
                     print(f"[startup] watchlist resubscribe failed for {r.symbol}: {e}")
             if rows:
-                print(f"[startup] resubscribed {len(rows)} watchlist symbols")
+                routes = md.routes()
+                ws_n = sum(1 for f in routes.values() if f == "ws")
+                poll_n = sum(1 for f in routes.values() if f == "poll")
+                print(
+                    f"[startup] resubscribed {len(rows)} watchlist symbols "
+                    f"(ws={ws_n}, poll={poll_n})"
+                )
         finally:
             _db.close()
     except Exception as e:

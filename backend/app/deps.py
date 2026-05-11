@@ -18,4 +18,5 @@ def get_market_data() -> MarketDataService:
         api_secret=settings.alpaca_secret,
         paper=settings.is_paper,
         poll_interval=settings.POLL_INTERVAL_SECONDS,
+        ws_max_symbols=settings.WS_MAX_SYMBOLS,
     )

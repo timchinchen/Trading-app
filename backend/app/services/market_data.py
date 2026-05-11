@@ -18,13 +18,21 @@ class MarketDataService:
       - "ws"    : everything via websocket
       - "poll"  : everything via REST polling
       - "mixed" : per-symbol routing (default "ws" unless caller overrides)
+
+    ws_max_symbols:
+      Alpaca's free-tier IEX stream caps at 30 concurrent symbols. When
+      the WS roster is full, new symbols that would normally go to WS are
+      transparently served via REST polling instead, so the user always
+      gets quotes.  Set to 0 to disable the cap (paid plans).
     """
 
     def __init__(self, mode: Literal["ws", "poll", "mixed"], api_key: str,
-                 api_secret: str, paper: bool, poll_interval: int = 5):
+                 api_secret: str, paper: bool, poll_interval: int = 5,
+                 ws_max_symbols: int = 30):
         self.mode = mode
         self.ws = AlpacaWsProvider(api_key, api_secret)
         self.rest = AlpacaRestProvider(api_key, api_secret, poll_interval=poll_interval)
+        self._ws_max = ws_max_symbols
 
         self._routes: dict[str, str] = {}     # symbol -> "ws" | "poll"
         self._listeners: set[asyncio.Queue] = set()
@@ -39,19 +47,24 @@ class MarketDataService:
             return
         self._started = True
         await self.ws.start(self._broadcast)
-        if self.mode in ("poll", "mixed"):
-            self._poll_task = asyncio.create_task(
-                self.rest.poll_loop(self._poll_symbols, self._broadcast)
-            )
+        # Always run the poll loop so overflow symbols get quotes even in
+        # "ws" or "mixed" mode when the WS symbol cap is hit.
+        self._poll_task = asyncio.create_task(
+            self.rest.poll_loop(self._poll_symbols, self._broadcast)
+        )
+
+    def _ws_count(self) -> int:
+        return sum(1 for f in self._routes.values() if f == "ws")
+
+    def _ws_full(self) -> bool:
+        if self._ws_max <= 0:
+            return False
+        return self._ws_count() >= self._ws_max
 
     def _poll_symbols(self) -> set[str]:
         return {s for s, feed in self._routes.items() if feed == "poll"}
 
     async def _broadcast(self, quote: dict):
-        # Memoise last-seen price per symbol so the Orders tab (and any other
-        # non-streaming consumer) can grab it for free without another REST
-        # call. We prefer `last` over `ask` which matches the provider
-        # convention.
         sym = quote.get("symbol")
         last_px = quote.get("last") or quote.get("ask") or quote.get("bid")
         if sym and last_px:
@@ -62,9 +75,6 @@ class MarketDataService:
                     payload = {**payload, "last": float(last_px)}
                     self._snapshots[sym] = (exp, payload)
             else:
-                # No session context yet, but remember the live last price so
-                # we can still answer Orders-tab lookups. TTL is the normal
-                # snapshot TTL so it gets refreshed eventually.
                 self._snapshots[sym] = (
                     time.time() + _SNAPSHOT_TTL_S,
                     {"last": float(last_px)},
@@ -88,10 +98,10 @@ class MarketDataService:
         self._listeners.discard(q)
 
     def _resolve_feed(self, requested: str | None) -> str:
-        if self.mode == "ws":
-            return "ws"
         if self.mode == "poll":
             return "poll"
+        if self.mode == "ws":
+            return "ws"
         # mixed
         return requested or "ws"
 
@@ -99,6 +109,11 @@ class MarketDataService:
         symbol = symbol.upper()
         feed_resolved = self._resolve_feed(feed)
         prev = self._routes.get(symbol)
+
+        # If the caller wants WS but the roster is full, spill to polling.
+        if feed_resolved == "ws" and prev != "ws" and self._ws_full():
+            feed_resolved = "poll"
+
         self._routes[symbol] = feed_resolved
         if feed_resolved == "ws":
             if prev == "poll":
