@@ -21,6 +21,9 @@ class Settings(BaseSettings):
 
     MARKET_DATA_MODE: Literal["ws", "poll", "mixed"] = "mixed"
     POLL_INTERVAL_SECONDS: int = 5
+    # Alpaca free-tier IEX WS caps at 30 symbols. Symbols beyond this limit
+    # are automatically served via REST polling. Set 0 for unlimited (paid).
+    WS_MAX_SYMBOLS: int = 30
 
     JWT_SECRET: str = "change_me"
     JWT_EXPIRE_MINUTES: int = 60 * 24
