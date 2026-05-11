@@ -25,7 +25,8 @@ class MarketIntel:
     screener: list[dict[str, Any]] = field(default_factory=list)
     headlines: list[dict[str, Any]] = field(default_factory=list)
     # Per-ticker enrichment populated lazily when runner calls enrich_symbols().
-    # Shape: {SYM: {"fmp": {...}, "sec": {...}, "stocktwits": {...}}}
+    # Shape: {SYM: {"fmp": {...}, "alpha_vantage": {...}, "sec": {...},
+    #               "stocktwits": {...}}}
     enrichment: dict[str, dict[str, Any]] = field(default_factory=dict)
     # Stocktwits-wide news headlines (not per-symbol). Merged in alongside
     # tradingview headlines for advisor context.
