@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
+from ..config import settings
 from ..db import get_db
 from ..deps import get_market_data
 from ..models import WatchlistItem
@@ -65,6 +66,14 @@ async def add_item(
         db.refresh(existing)
         await md.set_feed(sym, body.feed)
         return existing
+    cap = settings.WATCHLIST_MAX_SYMBOLS
+    if cap > 0:
+        count = db.query(WatchlistItem).filter(WatchlistItem.user_id == user.id).count()
+        if count >= cap:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Watchlist full ({count}/{cap}). Remove a symbol first.",
+            )
     item = WatchlistItem(user_id=user.id, symbol=sym, feed=body.feed)
     db.add(item)
     db.commit()

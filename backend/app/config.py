@@ -21,6 +21,12 @@ class Settings(BaseSettings):
 
     MARKET_DATA_MODE: Literal["ws", "poll", "mixed"] = "mixed"
     POLL_INTERVAL_SECONDS: int = 5
+    # Alpaca free-tier IEX WS caps at 30 symbols. Symbols beyond this limit
+    # are automatically served via REST polling. Set 0 for unlimited (paid).
+    WS_MAX_SYMBOLS: int = 30
+    # Hard cap on watchlist size. Prevents unbounded growth from the agent
+    # auto-adding symbols every run. 0 = unlimited.
+    WATCHLIST_MAX_SYMBOLS: int = 60
 
     JWT_SECRET: str = "change_me"
     JWT_EXPIRE_MINUTES: int = 60 * 24
@@ -203,8 +209,8 @@ class Settings(BaseSettings):
     # Free tier is 250 calls/day. Leave empty to disable.
     FMP_API_KEY: str = ""
     FMP_BASE_URL: str = "https://financialmodelingprep.com/api/v3"
-    # Alpha Vantage earnings calendar enrichment. Free tier is rate-limited,
-    # so we only enrich the small shortlist of symbols each run.
+    # Alpha Vantage fundamentals + quote enrichment. Free tier = 25 calls/day.
+    # Grab a key at https://www.alphavantage.co/support/#api-key
     ALPHA_VANTAGE_API_KEY: str = ""
     # SEC EDGAR full-text search (free). The SEC requires a User-Agent
     # identifying the caller - put a contact email here.

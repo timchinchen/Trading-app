@@ -860,10 +860,10 @@ function DataEnrichmentCard({ s }: { s: AgentSettings }) {
               rel="noreferrer"
               className="text-primary hover:underline"
             >
-              alphavantage.co/support/#api-key
+              alphavantage.co/support
             </a>{' '}
-            (free tier is rate-limited). Pulls earnings calendar context
-            (upcoming report date + estimated EPS) for shortlist tickers.
+            (25 calls/day free tier). Pulls company overview + quote + earnings per
+            ticker. Premium tiers (75-1200 req/min) remove the daily cap.
           </div>
         </div>
       </div>
