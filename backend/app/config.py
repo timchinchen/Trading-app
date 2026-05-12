@@ -24,6 +24,9 @@ class Settings(BaseSettings):
     # Alpaca free-tier IEX WS caps at 30 symbols. Symbols beyond this limit
     # are automatically served via REST polling. Set 0 for unlimited (paid).
     WS_MAX_SYMBOLS: int = 30
+    # Hard cap on watchlist size. Prevents unbounded growth from the agent
+    # auto-adding symbols every run. 0 = unlimited.
+    WATCHLIST_MAX_SYMBOLS: int = 60
 
     JWT_SECRET: str = "change_me"
     JWT_EXPIRE_MINUTES: int = 60 * 24

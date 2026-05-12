@@ -613,13 +613,21 @@ def _take_profit_proposals(
 
 def _ensure_watchlisted(db: Session, symbols: list[str]) -> list[str]:
     """Make sure every symbol the agent is interested in lives in the primary
-    user's watchlist. Returns the list of symbols newly added."""
+    user's watchlist. Returns the list of symbols newly added.
+
+    Respects WATCHLIST_MAX_SYMBOLS so the agent can't grow the list without
+    bound. Once the cap is hit, remaining symbols are silently skipped.
+    """
     if not symbols:
         return []
-    # Single-user app: the first registered user owns the dashboard.
     user = db.query(User).order_by(User.id.asc()).first()
     if not user:
         return []
+    cap = settings.WATCHLIST_MAX_SYMBOLS
+    current_count = (
+        db.query(WatchlistItem).filter(WatchlistItem.user_id == user.id).count()
+        if cap > 0 else 0
+    )
     added: list[str] = []
     for raw in symbols:
         sym = (raw or "").upper().strip()
@@ -632,6 +640,8 @@ def _ensure_watchlisted(db: Session, symbols: list[str]) -> list[str]:
         )
         if existing:
             continue
+        if cap > 0 and (current_count + len(added)) >= cap:
+            break
         db.add(WatchlistItem(user_id=user.id, symbol=sym, feed="ws"))
         added.append(sym)
     if added:
