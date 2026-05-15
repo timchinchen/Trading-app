@@ -1212,6 +1212,7 @@ async def _run_once_impl(broker: AlpacaBroker) -> int:
                 db.flush()
                 at.order_id = order.id
                 at.action = "executed"
+                p["action"] = "executed"
                 executed_count += 1
                 log.add(f"EXEC {p['symbol']} {p['side']} qty={p['qty']} alpaca_id={order.alpaca_id}")
                 digest_append(
@@ -1248,6 +1249,7 @@ async def _run_once_impl(broker: AlpacaBroker) -> int:
             except Exception as e:
                 at.action = "skipped"
                 at.reason = (at.reason or "") + f" | exec failed: {e}"
+                p["action"] = "skipped"
                 log.add(f"EXEC FAILED {p['symbol']}: {e}")
 
         run.trades_proposed = proposed_count
@@ -1374,6 +1376,7 @@ async def _run_once_impl(broker: AlpacaBroker) -> int:
                         db.flush()
                         at.order_id = order.id
                         at.action = "executed"
+                        p["action"] = "executed"
                         second_pass_executed += 1
                         log.add(f"EXEC 2nd-pass {p['symbol']} {p['side']} qty={p['qty']} alpaca_id={order.alpaca_id}")
                         digest_append(
@@ -1409,6 +1412,7 @@ async def _run_once_impl(broker: AlpacaBroker) -> int:
                     except Exception as e:
                         at.action = "skipped"
                         at.reason = (at.reason or "") + f" | exec failed: {e}"
+                        p["action"] = "skipped"
                         log.add(f"EXEC FAILED 2nd-pass {p['symbol']}: {e}")
 
                 db.commit()
