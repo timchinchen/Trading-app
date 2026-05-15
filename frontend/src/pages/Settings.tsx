@@ -1111,6 +1111,7 @@ function AgentBudgetCard({ s }: { s: AgentSettings }) {
     Number((s.agent_stop_loss_pct * 100).toFixed(4)),
   )
   const [recentWindow, setRecentWindow] = useState(s.agent_recent_trade_window_hours)
+  const [netBudget, setNetBudget] = useState(s.agent_net_budget_accounting)
 
   useEffect(() => {
     setEnabled(s.agent_enabled)
@@ -1126,6 +1127,7 @@ function AgentBudgetCard({ s }: { s: AgentSettings }) {
     setTakeProfitPct(Number((s.agent_take_profit_pct * 100).toFixed(4)))
     setStopLossPct(Number((s.agent_stop_loss_pct * 100).toFixed(4)))
     setRecentWindow(s.agent_recent_trade_window_hours)
+    setNetBudget(s.agent_net_budget_accounting)
   }, [s])
 
   const save = () => {
@@ -1144,6 +1146,7 @@ function AgentBudgetCard({ s }: { s: AgentSettings }) {
       AGENT_TAKE_PROFIT_PCT: Number(takeProfitPct) / 100,
       AGENT_STOP_LOSS_PCT: Number(stopLossPct) / 100,
       AGENT_RECENT_TRADE_WINDOW_HOURS: Number(recentWindow),
+      AGENT_NET_BUDGET_ACCOUNTING: netBudget,
     })
   }
 
@@ -1298,6 +1301,22 @@ function AgentBudgetCard({ s }: { s: AgentSettings }) {
               hours - skip re-buying any symbol bought within this window
             </span>
           </div>
+        </div>
+        <div className="grid grid-cols-[180px_1fr] gap-2 py-2 border-b border-border">
+          <div className="text-xs text-muted-foreground uppercase tracking-wider self-center">
+            NET_BUDGET
+            <OverrideBadge k="AGENT_NET_BUDGET_ACCOUNTING" overridden={s.overridden} />
+          </div>
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={netBudget}
+              onChange={(e) => setNetBudget(e.target.checked)}
+            />
+            <span>
+              sell proceeds free budget for same-day redeployment
+            </span>
+          </label>
         </div>
       </div>
       <div className="flex items-center gap-3 pt-4">

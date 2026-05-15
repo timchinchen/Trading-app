@@ -186,7 +186,7 @@ class TestBearishReversalSizing:
 
 from unittest.mock import MagicMock, patch
 from datetime import datetime, timedelta
-from app.services.agent.runner import _today_realized_pl, recover_stale_runs
+from app.services.agent.runner import _today_realized_pl, recover_stale_runs, _remaining_budget, _weekly_deployed
 
 
 def _trade(symbol, side, qty, price, offset_minutes=0):
@@ -296,3 +296,87 @@ class TestStaleRunRecovery:
         assert "stale run recovered after restart" in stale.summary
         db.commit.assert_called_once()
         db.close.assert_called_once()
+
+
+class TestNetBudgetAccounting:
+    """Tests for net budget accounting (sell proceeds redeployment)."""
+
+    def _mock_trade(self, symbol, side, notional, offset_minutes=0):
+        t = MagicMock()
+        t.symbol = symbol
+        t.side = side
+        t.notional = notional
+        t.action = "executed"
+        t.mode = "paper"
+        t.created_at = datetime.utcnow().replace(
+            hour=9, minute=0, second=0, microsecond=0
+        ) + timedelta(minutes=offset_minutes)
+        return t
+
+    def _run_budget(self, trades, budget_usd=200.0, net_accounting=True):
+        db = MagicMock()
+        query_chain = db.query.return_value.filter.return_value
+        query_chain.all.return_value = trades
+        return _remaining_budget(db, "paper", budget_usd, net_accounting)
+
+    def _run_weekly(self, trades, net_accounting=True):
+        db = MagicMock()
+        query_chain = db.query.return_value.filter.return_value
+        query_chain.all.return_value = trades
+        return _weekly_deployed(db, "paper", net_accounting)
+
+    def test_remaining_budget_buys_only(self):
+        """Net == gross when no sells exist."""
+        trades = [
+            self._mock_trade("AAPL", "buy", 40.0, 0),
+            self._mock_trade("TSLA", "buy", 30.0, 30),
+        ]
+        result = self._run_budget(trades, budget_usd=200.0, net_accounting=True)
+        assert result == pytest.approx(130.0)
+
+    def test_remaining_budget_buys_and_sells(self):
+        """Net accounting reduces used budget by sell proceeds."""
+        trades = [
+            self._mock_trade("AAPL", "buy", 40.0, 0),
+            self._mock_trade("TSLA", "buy", 30.0, 30),
+            self._mock_trade("AAPL", "sell", 45.0, 60),
+        ]
+        result = self._run_budget(trades, budget_usd=200.0, net_accounting=True)
+        assert result == pytest.approx(175.0)
+
+    def test_remaining_budget_sells_exceed_buys(self):
+        """When sells > buys, budget snaps back to full cap."""
+        trades = [
+            self._mock_trade("AAPL", "buy", 20.0, 0),
+            self._mock_trade("TSLA", "sell", 50.0, 30),
+        ]
+        result = self._run_budget(trades, budget_usd=200.0, net_accounting=True)
+        assert result == pytest.approx(200.0)
+
+    def test_remaining_budget_gross_mode_ignores_sells(self):
+        """Gross mode does not credit sell proceeds."""
+        trades = [
+            self._mock_trade("AAPL", "buy", 40.0, 0),
+            self._mock_trade("AAPL", "sell", 45.0, 60),
+        ]
+        result = self._run_budget(trades, budget_usd=200.0, net_accounting=False)
+        assert result == pytest.approx(160.0)
+
+    def test_weekly_deployed_net_accounting(self):
+        """Weekly deployed returns net buys when net_accounting=True."""
+        trades = [
+            self._mock_trade("AAPL", "buy", 40.0, 0),
+            self._mock_trade("TSLA", "buy", 30.0, 60),
+            self._mock_trade("AAPL", "sell", 45.0, 120),
+        ]
+        result = self._run_weekly(trades, net_accounting=True)
+        assert result == pytest.approx(25.0)
+
+    def test_weekly_deployed_gross_mode(self):
+        """Weekly deployed returns gross buys when net_accounting=False."""
+        trades = [
+            self._mock_trade("AAPL", "buy", 40.0, 0),
+            self._mock_trade("AAPL", "sell", 45.0, 60),
+        ]
+        result = self._run_weekly(trades, net_accounting=False)
+        assert result == pytest.approx(40.0)

@@ -75,6 +75,7 @@ EDITABLE_KEYS: dict[str, type] = {
     "AGENT_TAKE_PROFIT_PCT": float,
     "AGENT_STOP_LOSS_PCT": float,
     "AGENT_RECENT_TRADE_WINDOW_HOURS": int,
+    "AGENT_NET_BUDGET_ACCOUNTING": bool,
     # Source reliability weighting
     "AGENT_HANDLE_WEIGHTS": str,
     # Regime-adaptive sizing
@@ -211,6 +212,7 @@ class RuntimeSettings:
     agent_take_profit_pct: float = 0.0
     agent_stop_loss_pct: float = 0.0
     agent_recent_trade_window_hours: int = 0
+    agent_net_budget_accounting: bool = True
     # Source reliability weighting
     agent_handle_weights: str = "{}"
     # Regime-adaptive sizing
@@ -432,6 +434,7 @@ def get_runtime_settings(db: Session | None = None) -> RuntimeSettings:
         agent_take_profit_pct=float(pick("AGENT_TAKE_PROFIT_PCT", float)),
         agent_stop_loss_pct=float(pick("AGENT_STOP_LOSS_PCT", float)),
         agent_recent_trade_window_hours=int(pick("AGENT_RECENT_TRADE_WINDOW_HOURS", int)),
+        agent_net_budget_accounting=bool(pick("AGENT_NET_BUDGET_ACCOUNTING", bool)),
         agent_handle_weights=str(pick("AGENT_HANDLE_WEIGHTS", str)),
         agent_regime_risk_on_mult=max(0.1, min(2.0, float(pick("AGENT_REGIME_RISK_ON_MULT", float)))),
         agent_regime_neutral_mult=max(0.1, min(2.0, float(pick("AGENT_REGIME_NEUTRAL_MULT", float)))),
@@ -578,6 +581,7 @@ def public_view(rs: RuntimeSettings) -> dict[str, Any]:
         "agent_take_profit_pct": rs.agent_take_profit_pct,
         "agent_stop_loss_pct": rs.agent_stop_loss_pct,
         "agent_recent_trade_window_hours": rs.agent_recent_trade_window_hours,
+        "agent_net_budget_accounting": rs.agent_net_budget_accounting,
         "agent_handle_weights": rs.agent_handle_weights,
         "agent_regime_risk_on_mult": rs.agent_regime_risk_on_mult,
         "agent_regime_neutral_mult": rs.agent_regime_neutral_mult,

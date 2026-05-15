@@ -6,7 +6,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 # Z droid-controlled - bumped on every droid-authored edit). Reported
 # by /health/setup so the Prerequisites panel can show the same version
 # badge the Settings page does.
-APP_VERSION_BACKEND = "1.2.0"
+APP_VERSION_BACKEND = "1.2.1"
 
 
 class Settings(BaseSettings):
@@ -91,6 +91,9 @@ class Settings(BaseSettings):
     # Don't re-buy a symbol that was BOUGHT within the last N hours - we're
     # hunting for fresh ideas, not doubling down on the same tickets.
     AGENT_RECENT_TRADE_WINDOW_HOURS: int = 24
+    # When True (default), sell proceeds are subtracted from "used" budget,
+    # allowing same-day redeployment. When False, budget tracks gross buys only.
+    AGENT_NET_BUDGET_ACCOUNTING: bool = True
 
     # ---- Source reliability weighting ----
     # JSON object mapping handle -> weight multiplier. Missing handles get 1.0.

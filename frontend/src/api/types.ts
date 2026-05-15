@@ -226,6 +226,7 @@ export interface AgentSettings {
   agent_take_profit_pct: number
   agent_stop_loss_pct: number
   agent_recent_trade_window_hours: number
+  agent_net_budget_accounting: boolean
   agent_min_score: number
   agent_min_confidence: number
   agent_top_n_candidates: number
@@ -297,6 +298,7 @@ export type AgentSettingsUpdate = Partial<{
   AGENT_TAKE_PROFIT_PCT: number
   AGENT_STOP_LOSS_PCT: number
   AGENT_RECENT_TRADE_WINDOW_HOURS: number
+  AGENT_NET_BUDGET_ACCOUNTING: boolean
   AGENT_MIN_SCORE: number
   AGENT_MIN_CONFIDENCE: number
   AGENT_TOP_N_CANDIDATES: number
