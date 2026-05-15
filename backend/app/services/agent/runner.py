@@ -117,25 +117,48 @@ def _today_realized_pl(db: Session, mode: str) -> float:
     return round(realized, 4)
 
 
-def _remaining_budget(db: Session, mode: str, budget_usd: float) -> float:
-    """Budget remaining = `budget_usd` minus gross notional of today's
-    agent BUY trades. `budget_usd` is sourced from runtime settings so
-    Settings UI edits take effect on the next run."""
+def _remaining_budget(db: Session, mode: str, budget_usd: float, net_accounting: bool = True) -> float:
+    """Budget remaining = `budget_usd` minus net notional of today's
+    agent trades (buys minus sells). When net_accounting=False, tracks
+    gross buys only (legacy behavior)."""
     start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
-    used = 0.0
+    buys = 0.0
+    sells = 0.0
     rows = (
         db.query(AgentTrade)
         .filter(
             AgentTrade.mode == mode,
             AgentTrade.action == "executed",
-            AgentTrade.side == "buy",
             AgentTrade.created_at >= start,
         )
         .all()
     )
     for r in rows:
-        used += (r.notional or 0.0)
-    return max(0.0, float(budget_usd) - used)
+        if r.side == "buy":
+            buys += (r.notional or 0.0)
+        elif r.side == "sell":
+            sells += (r.notional or 0.0)
+    if net_accounting:
+        net_used = max(0.0, buys - sells)
+    else:
+        net_used = buys
+    return max(0.0, float(budget_usd) - net_used)
+
+
+def _today_sell_proceeds(db: Session, mode: str) -> float:
+    """Total notional of executed SELL trades today."""
+    start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+    rows = (
+        db.query(AgentTrade)
+        .filter(
+            AgentTrade.mode == mode,
+            AgentTrade.action == "executed",
+            AgentTrade.side == "sell",
+            AgentTrade.created_at >= start,
+        )
+        .all()
+    )
+    return sum(r.notional or 0.0 for r in rows)
 
 
 def _week_start_utc(now: datetime | None = None) -> datetime:
@@ -145,23 +168,29 @@ def _week_start_utc(now: datetime | None = None) -> datetime:
     return monday.replace(hour=0, minute=0, second=0, microsecond=0)
 
 
-def _weekly_deployed(db: Session, mode: str) -> float:
-    """Gross notional of agent BUY trades executed since Monday 00:00 UTC."""
+def _weekly_deployed(db: Session, mode: str, net_accounting: bool = True) -> float:
+    """Net notional of agent trades executed since Monday 00:00 UTC.
+    When net_accounting=False, returns gross buys only."""
     start = _week_start_utc()
-    used = 0.0
+    buys = 0.0
+    sells = 0.0
     rows = (
         db.query(AgentTrade)
         .filter(
             AgentTrade.mode == mode,
             AgentTrade.action == "executed",
-            AgentTrade.side == "buy",
             AgentTrade.created_at >= start,
         )
         .all()
     )
     for r in rows:
-        used += (r.notional or 0.0)
-    return used
+        if r.side == "buy":
+            buys += (r.notional or 0.0)
+        elif r.side == "sell":
+            sells += (r.notional or 0.0)
+    if net_accounting:
+        return max(0.0, buys - sells)
+    return buys
 
 
 def _portfolio_brief(broker: AlpacaBroker) -> tuple[str, list[dict[str, Any]]]:
@@ -907,13 +936,16 @@ async def _run_once_impl(broker: AlpacaBroker) -> int:
         open_position_qtys: dict[str, float] = {
             p["symbol"]: float(p.get("qty") or 0.0) for p in raw_positions
         }
-        daily_budget = _remaining_budget(db, settings.APP_MODE, rs.agent_budget_usd)
-        weekly_used = _weekly_deployed(db, settings.APP_MODE)
+        daily_budget = _remaining_budget(db, settings.APP_MODE, rs.agent_budget_usd, rs.agent_net_budget_accounting)
+        weekly_used = _weekly_deployed(db, settings.APP_MODE, rs.agent_net_budget_accounting)
         weekly_remaining = max(0.0, rs.agent_weekly_budget_usd - weekly_used)
+        sell_proceeds = _today_sell_proceeds(db, settings.APP_MODE)
         log.add(
             f"budget: daily_remaining=${daily_budget:.2f} | "
             f"weekly_used=${weekly_used:.2f}/${rs.agent_weekly_budget_usd:.2f} "
             f"(remaining=${weekly_remaining:.2f}) | "
+            f"net_accounting={rs.agent_net_budget_accounting} "
+            f"today_sells=${sell_proceeds:.2f} | "
             f"open={len(open_positions)}/{rs.agent_max_open_positions} "
             f"slot=${rs.agent_min_position_usd:.0f}-${rs.agent_max_position_usd:.0f}"
         )
@@ -1222,6 +1254,171 @@ async def _run_once_impl(broker: AlpacaBroker) -> int:
         run.trades_executed = executed_count
         db.commit()
         _save_logs()
+
+        # 5a. Same-run budget redeployment: if net accounting is on and we
+        # executed sells, run a second allocation pass so the freed capital
+        # can be deployed into BUYs that were skipped due to budget in the
+        # first pass. Re-allocates from existing swing plans + tweet signals
+        # without re-scanning the market.
+        second_pass_executed = 0
+        second_pass_proposed = 0
+        if rs.agent_net_budget_accounting:
+            sells_this_run = [
+                p for p in proposals
+                if p.get("side") == "sell" and p.get("action") == "executed"
+            ]
+            skipped_buys = [
+                p for p in proposals
+                if p.get("side") == "buy" and p.get("action") == "skipped"
+                and "budget" in (p.get("reason") or "").lower()
+            ]
+            if sells_this_run and skipped_buys:
+                log.add("second-pass: sell proceeds freed, re-allocating skipped BUYs ...")
+                daily_budget = _remaining_budget(
+                    db, settings.APP_MODE, rs.agent_budget_usd, True,
+                )
+                weekly_remaining = max(0.0, rs.agent_weekly_budget_usd - _weekly_deployed(
+                    db, settings.APP_MODE, True,
+                ))
+
+                executed_symbols = {
+                    (p["symbol"] or "").upper()
+                    for p in proposals
+                    if p.get("action") in ("executed", "proposed")
+                }
+
+                second_swing = swing_runner.build_swing_proposals(
+                    swing_plans,
+                    signals=signals,
+                    open_symbols=open_positions | executed_symbols,
+                    recently_bought=recently_bought,
+                    budget_remaining=daily_budget,
+                    weekly_remaining=weekly_remaining,
+                    total_capital_usd=rs.agent_budget_usd,
+                    risk_pct=rs.swing_risk_per_trade_pct,
+                    min_rr=rs.swing_min_rr,
+                    min_position_usd=rs.agent_min_position_usd,
+                    max_position_usd=rs.agent_max_position_usd,
+                    max_open_positions=rs.agent_max_open_positions,
+                    regime_go=bool(regime.get("go")),
+                ) if rs.swing_enabled else []
+
+                second_swing_buy_syms = {
+                    (p["symbol"] or "").upper()
+                    for p in second_swing
+                    if p.get("side") == "buy" and p.get("action") == "proposed"
+                }
+                second_effective_open = open_positions | executed_symbols | second_swing_buy_syms
+                second_tweet = allocator.propose_trades(
+                    signals=signals,
+                    open_symbols=second_effective_open,
+                    budget_remaining=daily_budget - sum(
+                        p.get("notional") or 0.0 for p in second_swing
+                        if p.get("action") == "proposed" and p.get("side") == "buy"
+                    ),
+                    weekly_remaining=weekly_remaining - sum(
+                        p.get("notional") or 0.0 for p in second_swing
+                        if p.get("action") == "proposed" and p.get("side") == "buy"
+                    ),
+                    min_position_usd=rs.agent_min_position_usd,
+                    max_position_usd=rs.agent_max_position_usd,
+                    max_open_positions=rs.agent_max_open_positions,
+                    get_price=_price,
+                    min_score=rs.agent_min_score,
+                    min_confidence=rs.agent_min_confidence,
+                    top_n=rs.agent_top_n_candidates,
+                    recently_bought=recently_bought,
+                    open_position_qtys=open_position_qtys,
+                    risk_multiplier=risk_mult,
+                    block_new_buys=block_buys,
+                ) if not rs.swing_enabled or not regime.get("go") else []
+
+                second_pass_proposals = [
+                    p for p in second_swing + second_tweet
+                    if p.get("side") == "buy" and p.get("action") == "proposed"
+                ]
+
+                for p in second_pass_proposals:
+                    at = AgentTrade(
+                        run_id=run_id, symbol=p["symbol"], side=p["side"], qty=p["qty"],
+                        est_price=p["est_price"], notional=p["notional"],
+                        action=p["action"], reason=p.get("reason") + " [second-pass]",
+                        mode=settings.APP_MODE,
+                        setup_type=p.get("setup_type"),
+                        entry_price=p.get("entry_price"),
+                        stop_price=p.get("stop_price"),
+                        target_price=p.get("target_price"),
+                        risk_reward=p.get("risk_reward"),
+                    )
+                    db.add(at)
+                    db.flush()
+
+                    if not auto_execute or not broker.configured or p["qty"] <= 0:
+                        at.action = "proposed"
+                        second_pass_proposed += 1
+                        continue
+                    try:
+                        result = broker.place_order(
+                            symbol=p["symbol"], qty=p["qty"],
+                            side=p["side"], type_="market",
+                        )
+                        order = Order(
+                            alpaca_id=result.get("alpaca_id"),
+                            symbol=result["symbol"], qty=result["qty"],
+                            side=result["side"], type=result["type"],
+                            limit_price=result.get("limit_price"),
+                            status=result.get("status", "new"),
+                            mode=settings.APP_MODE,
+                        )
+                        db.add(order)
+                        db.flush()
+                        at.order_id = order.id
+                        at.action = "executed"
+                        second_pass_executed += 1
+                        log.add(f"EXEC 2nd-pass {p['symbol']} {p['side']} qty={p['qty']} alpaca_id={order.alpaca_id}")
+                        digest_append(
+                            kind="trade_exec",
+                            symbol=p["symbol"],
+                            summary=(
+                                f"{p['side'].upper()} {p['qty']} {p['symbol']} "
+                                f"~${p.get('notional', 0):.2f} "
+                                f"({p.get('setup_type') or 'signal'}) [second-pass]"
+                            ),
+                            data={
+                                "run_id": run_id,
+                                "side": p["side"],
+                                "qty": p["qty"],
+                                "notional": p.get("notional"),
+                                "entry": p.get("entry_price"),
+                                "stop": p.get("stop_price"),
+                                "target": p.get("target_price"),
+                                "rr": p.get("risk_reward"),
+                                "setup": p.get("setup_type"),
+                                "reason": (p.get("reason") or "")[:200],
+                            },
+                            db=db,
+                        )
+                        plan = swing_plans.get(p["symbol"])
+                        if plan:
+                            try:
+                                swing_runner.persist_position_plan(
+                                    db, plan, run_id=run_id, mode=settings.APP_MODE,
+                                )
+                            except Exception as e:
+                                log.add(f"swing: could not persist plan for {p['symbol']}: {e}")
+                    except Exception as e:
+                        at.action = "skipped"
+                        at.reason = (at.reason or "") + f" | exec failed: {e}"
+                        log.add(f"EXEC FAILED 2nd-pass {p['symbol']}: {e}")
+
+                db.commit()
+                proposed_count += second_pass_proposed
+                executed_count += second_pass_executed
+                if second_pass_proposed:
+                    log.add(
+                        f"second-pass: proposed={second_pass_proposed} "
+                        f"executed={second_pass_executed}"
+                    )
 
         # 5b. Auto-watchlist: every symbol we took an interest in this run
         # (executed, proposed, or even skipped-due-to-budget) is added to the

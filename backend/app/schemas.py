@@ -133,6 +133,7 @@ class AgentStatusOut(BaseModel):
     auto_sell_enabled: bool = True
     auto_sell_max_hold_days: int = 30
     next_auto_sell_at: Optional[datetime] = None
+    agent_net_budget_accounting: bool = True
 
 
 class AgentRunOut(BaseModel):
