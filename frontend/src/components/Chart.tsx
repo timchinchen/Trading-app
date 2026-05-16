@@ -7,7 +7,18 @@ import {
   UTCTimestamp,
 } from 'lightweight-charts'
 
-export function PriceChart({ data }: { data: { time: number; value: number }[] }) {
+export function PriceChart({
+  data,
+  height = 320,
+  lineColor = '#d45d79',
+  lineWidth = 2 as const,
+}: {
+  data: { time: number; value: number }[]
+  /** Chart height in CSS pixels (default 320). */
+  height?: number
+  lineColor?: string
+  lineWidth?: 1 | 2 | 3 | 4
+}) {
   const ref = useRef<HTMLDivElement>(null)
   const chartRef = useRef<IChartApi | null>(null)
   const seriesRef = useRef<ISeriesApi<'Line'> | null>(null)
@@ -27,9 +38,9 @@ export function PriceChart({ data }: { data: { time: number; value: number }[] }
         // hasn't laid out yet). Fall back to a sane default so
         // lightweight-charts doesn't throw on a zero-width canvas.
         width: host.clientWidth || 600,
-        height: 320,
+        height,
       })
-      const series = chart.addLineSeries({ color: '#d45d79', lineWidth: 2 })
+      const series = chart.addLineSeries({ color: lineColor, lineWidth })
       chartRef.current = chart
       seriesRef.current = series
     } catch (e) {
@@ -57,7 +68,17 @@ export function PriceChart({ data }: { data: { time: number; value: number }[] }
       chartRef.current = null
       seriesRef.current = null
     }
-  }, [])
+  }, [height]) // eslint-disable-line react-hooks/exhaustive-deps -- lineColor/lineWidth applied in a follow-up effect
+
+  useEffect(() => {
+    const series = seriesRef.current
+    if (!series) return
+    try {
+      series.applyOptions({ color: lineColor, lineWidth })
+    } catch {
+      /* series disposed */
+    }
+  }, [lineColor, lineWidth])
 
   useEffect(() => {
     const series = seriesRef.current
@@ -73,5 +94,11 @@ export function PriceChart({ data }: { data: { time: number; value: number }[] }
     }
   }, [data])
 
-  return <div ref={ref} className="w-full min-h-[320px]" />
+  return (
+    <div
+      ref={ref}
+      className="w-full"
+      style={{ minHeight: height }}
+    />
+  )
 }
