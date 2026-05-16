@@ -8,6 +8,7 @@ import { DashboardPage } from './pages/Dashboard'
 import { DiagnosticsPage } from './pages/Diagnostics'
 import { LoginPage } from './pages/Login'
 import { OrdersPage } from './pages/Orders'
+import { PortfolioPage } from './pages/Portfolio'
 import { SettingsPage } from './pages/Settings'
 import { SymbolPage } from './pages/Symbol'
 import { useAuth } from './store/auth'
@@ -51,6 +52,10 @@ export default function App() {
           <Route
             path="/orders"
             element={<RouteBoundary label="Orders"><OrdersPage /></RouteBoundary>}
+          />
+          <Route
+            path="/portfolio"
+            element={<RouteBoundary label="Portfolio"><PortfolioPage /></RouteBoundary>}
           />
           <Route
             path="/settings"
