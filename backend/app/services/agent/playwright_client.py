@@ -73,11 +73,27 @@ def _load_cookies(db_path: str) -> list[dict[str, Any]]:
     return out
 
 
+def _resolved_per_account_timeout_s(raw: int) -> int:
+    """X.com navigation + hydration routinely exceeds very tight budgets."""
+    t = int(raw or 0)
+    if t < 30:
+        return 45
+    return t
+
+
+def _navigation_timeout_ms(per_account_s: int) -> int:
+    """page.goto budget; must stay below asyncio.wait_for(per_account_s)."""
+    pat = _resolved_per_account_timeout_s(per_account_s)
+    # Leave ~12s for post-goto waits (hydrate + tweet selector + scroll loop).
+    return max(40_000, min(110_000, pat * 1000 - 12_000))
+
+
 @dataclass
 class _FetchConfig:
     lookback_hours: int
     max_per_account: int
     per_account_timeout_s: int
+    navigation_timeout_ms: int
     headless: bool = True
 
 
@@ -97,7 +113,9 @@ async def _fetch_handle(
     async def _route(r):
         try:
             t = r.request.resource_type
-            if t in ("image", "media", "font"):
+            # Do not block "media" — X sometimes classifies XHR/fetch oddly; blocking media
+            # has been linked to hung navigations in headless profiles.
+            if t in ("image", "font"):
                 await r.abort()
             else:
                 await r.continue_()
@@ -107,14 +125,30 @@ async def _fetch_handle(
     await page.route("**/*", _route)
 
     try:
+        async def _goto_profile() -> None:
+            """X often never reaches domcontentloaded in headless; try commit first."""
+            last_err: BaseException | None = None
+            for mode in ("commit", "domcontentloaded"):
+                try:
+                    await page.goto(
+                        url,
+                        wait_until=mode,  # type: ignore[arg-type]
+                        timeout=cfg.navigation_timeout_ms,
+                    )
+                    return
+                except BaseException as e:
+                    last_err = e
+            assert last_err is not None
+            raise last_err
+
         async def _do_fetch():
-            await page.goto(url, wait_until="domcontentloaded", timeout=25_000)
+            await _goto_profile()
             # Let React hydrate + timeline request fire.
             await page.wait_for_timeout(4000)
 
             try:
                 await page.wait_for_selector(
-                    "article[data-testid='tweet']", timeout=15_000
+                    "article[data-testid='tweet']", timeout=18_000
                 )
             except Exception:
                 # Page rendered but no tweets (private / suspended / empty)
@@ -212,10 +246,24 @@ async def fetch_recent_tweets(
     cookies = _load_cookies(db_path)
     _log(log, f"playwright: loaded {len(cookies)} cookies from twscrape db")
 
+    pat = _resolved_per_account_timeout_s(per_account_timeout_s)
+    nav_ms = _navigation_timeout_ms(pat)
+    if int(per_account_timeout_s or 0) < 30:
+        _log(
+            log,
+            f"playwright: per-account timeout was {int(per_account_timeout_s or 0)}s; "
+            f"raised to {pat}s minimum for X reliability",
+        )
+    _log(
+        log,
+        f"playwright: outer deadline {pat}s per handle, navigation timeout {nav_ms / 1000:.0f}s",
+    )
+
     cfg = _FetchConfig(
         lookback_hours=lookback_hours,
         max_per_account=max_per_account,
-        per_account_timeout_s=per_account_timeout_s,
+        per_account_timeout_s=pat,
+        navigation_timeout_ms=nav_ms,
         headless=headless,
     )
     cutoff = datetime.now(tz=timezone.utc) - timedelta(hours=lookback_hours)
@@ -225,7 +273,15 @@ async def fetch_recent_tweets(
 
     async with async_playwright() as pw:
         try:
-            browser = await pw.chromium.launch(headless=headless)
+            browser = await pw.chromium.launch(
+                headless=headless,
+                args=[
+                    "--disable-blink-features=AutomationControlled",
+                    # Common in containers / low-memory hosts where Chromium can hang on /dev/shm.
+                    "--disable-dev-shm-usage",
+                    "--no-sandbox",
+                ],
+            )
         except Exception as e:
             raise PlaywrightNotInstalledError(
                 f"failed to launch chromium: {e}. Run `playwright install chromium`."
@@ -239,7 +295,9 @@ async def fetch_recent_tweets(
                 ),
                 viewport={"width": 1280, "height": 1000},
                 locale="en-US",
+                timezone_id="Etc/UTC",
             )
+            ctx.set_default_navigation_timeout(nav_ms)
             await ctx.add_cookies(cookies)
 
             for idx, h in enumerate(handles, start=1):
