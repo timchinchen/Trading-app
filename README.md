@@ -146,12 +146,75 @@ cd backend
 .venv/bin/playwright install chromium
 ```
 
-**3. X cookies** — create a throwaway X account, log in from a real browser, copy `auth_token` and `ct0` from DevTools:
+**3. X (Twitter) session cookies — manual setup (required for the agent)**
+
+The agent’s **Playwright** scraper reads **`auth_token`** and **`ct0`** from a local **twscrape** SQLite DB (`TWSCRAPE_DB` in `.env`, default `./twscrape.db` under `backend/`). There is **no Settings UI** for these cookies — you refresh them from your machine with the CLI below whenever X expires the session (symptoms: `0 tweets`, Playwright timeouts, or login / “Something went wrong” in a headed test).
+
+**What to copy**
+
+| Cookie       | Purpose |
+|-------------|---------|
+| `auth_token` | Session token (long string). |
+| `ct0`        | CSRF token (shorter alphanumeric). |
+
+Both must come from a normal **logged-in** browser session on **`https://x.com`** (same throwaway account you use for the agent). Copy only the **Value** column, not the name.
+
+**Chrome / Edge**
+
+1. Log in at `https://x.com` with your throwaway account (complete any 2FA / email code).
+2. Open **DevTools** → **Application** (Chrome) or **Storage** (Edge).
+3. In the left tree: **Storage** → **Cookies** → `https://x.com`.
+4. Find rows named **`auth_token`** and **`ct0`**, double-click **Value**, copy the full string for each.
+
+**Firefox**
+
+1. Log in at `https://x.com`.
+2. **F12** → **Storage** tab → **Cookies** → `https://x.com` → copy **`auth_token`** and **`ct0`** values.
+
+**Install into the app (interactive — recommended)**
+
+From the `backend` directory (venv activated):
+
 ```bash
 cd backend
 .venv/bin/python -m app.services.agent.setup add_cookies
+```
+
+The wizard asks for your X **username** (no `@`), placeholder password/email (twscrape still stores a row), then paste **`auth_token`** and **`ct0`** when prompted. It writes/updates `twscrape.db` and marks the account **active**.
+
+**Verify**
+
+```bash
 .venv/bin/python -m app.services.agent.setup list
 ```
+
+You should see your account; the agent uses the **first active** account’s cookies.
+
+**Docker**
+
+If the backend runs in Compose (DB usually at `/data/twscrape.db` inside the container):
+
+```bash
+docker compose exec backend python -m app.services.agent.setup add_cookies
+docker compose exec backend python -m app.services.agent.setup list
+```
+
+**When to repeat `add_cookies`**
+
+- Agent logs show **0 tweets** for every handle, or Playwright **timeouts** / navigation errors.
+- You changed the X password or X forced a re-login.
+- After long downtime (sessions go stale).
+
+**twscrape account locks (fallback path)**
+
+If you use the **twscrape** API fallback and see pool-exhausted errors:
+
+```bash
+cd backend
+.venv/bin/twscrape --db ./twscrape.db reset_locks   # path must match TWSCRAPE_DB
+```
+
+Then re-run **`add_cookies`** if the session was invalid.
 
 **4. Enable in `.env`**
 ```env
