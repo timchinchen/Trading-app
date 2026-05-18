@@ -75,8 +75,26 @@ class OrderOut(BaseModel):
     # FIFO realized P/L for completed SELL orders (None for buys/open sells or
     # when local basis history is incomplete).
     realized_pl: Optional[float] = None
+    # When this order was created by the agent runner, surface the persisted
+    # trade reason + run id (manual orders leave these null).
+    agent_trade_reason: Optional[str] = None
+    agent_trade_run_id: Optional[int] = None
+
     class Config:
         from_attributes = True
+
+
+class EarningsEventOut(BaseModel):
+    """One earnings row (scheduled and/or reported) from FMP."""
+
+    date: str
+    symbol: str
+    time: Optional[str] = None
+    eps_actual: Optional[float] = None
+    eps_estimate: Optional[float] = None
+    revenue_actual: Optional[float] = None
+    revenue_estimate: Optional[float] = None
+    fiscal_date_ending: Optional[str] = None
 
 
 class AccountOut(BaseModel):

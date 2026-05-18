@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from './client'
 import type {
   Account,
@@ -15,6 +15,7 @@ import type {
   ChatResponse,
   DailyDigest,
   DigestSummary,
+  EarningsEvent,
   LLMInfo,
   LLMModels,
   Mode,
@@ -53,6 +54,29 @@ export const useOrders = () =>
     queryFn: async () => (await api.get<Order[]>('/orders')).data,
     refetchInterval: 5000,
   })
+
+/** FMP-backed earnings rows for one symbol (empty when API key unset or upstream errors). */
+export const useEarningsCalendar = (symbol: string) =>
+  useQuery({
+    queryKey: ['earnings', symbol],
+    queryFn: async () =>
+      (await api.get<EarningsEvent[]>(`/earnings/${encodeURIComponent(symbol)}`)).data,
+    enabled: !!symbol,
+    staleTime: 120_000,
+  })
+
+export function useEarningsCalendars(symbols: readonly string[]) {
+  const uniq = [...new Set(symbols.map((s) => s.toUpperCase()))].filter(Boolean)
+  const results = useQueries({
+    queries: uniq.map((symbol) => ({
+      queryKey: ['earnings', symbol],
+      queryFn: async () =>
+        (await api.get<EarningsEvent[]>(`/earnings/${encodeURIComponent(symbol)}`)).data,
+      staleTime: 120_000,
+    })),
+  })
+  return { symbols: uniq, results }
+}
 
 export const useWatchlist = () =>
   useQuery({

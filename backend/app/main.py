@@ -28,7 +28,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from .config import settings
 from .db import init_db
 from .deps import get_broker, get_market_data
-from .routers import account, agent, auth, digest, llm, orders, quotes, watchlist, ws
+from .routers import account, agent, auth, digest, earnings, llm, orders, quotes, watchlist, ws
 from .routers import health as health_router
 from .services.agent.runner import recover_stale_runs
 from .services.agent.scheduler import AgentScheduler
@@ -114,6 +114,7 @@ def health():
 app.include_router(auth.router)
 app.include_router(account.router)
 app.include_router(orders.router)
+app.include_router(earnings.router)
 app.include_router(quotes.router)
 app.include_router(watchlist.router)
 app.include_router(ws.router)

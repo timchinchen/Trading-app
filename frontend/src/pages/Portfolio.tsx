@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
-import { useAccount, usePositions } from '../api/hooks'
+import { useAccount, useAgentSettings, useEarningsCalendars, useOrders, usePositions } from '../api/hooks'
 import { PriceChart } from '../components/Chart'
 import { usePriceStream } from '../hooks/usePriceStream'
-import type { Position } from '../api/types'
+import type { EarningsEvent, Order, Position } from '../api/types'
 
 function Card({
   title,
@@ -40,6 +40,28 @@ function usd(n: number, opts?: { showPlus?: boolean }) {
   if (n < 0) return `-$${s}`
   if (n > 0 && opts?.showPlus) return `+$${s}`
   return `$${s}`
+}
+
+const WEEK_MS = 7 * 24 * 60 * 60 * 1000
+
+function orderFillTs(o: Pick<Order, 'filled_at' | 'submitted_at'>) {
+  return new Date(o.filled_at ?? o.submitted_at).getTime()
+}
+
+function fmtCompactUsd(n?: number | null) {
+  if (n == null || !Number.isFinite(n)) return '—'
+  const abs = Math.abs(n)
+  if (abs >= 1e12) return `$${(n / 1e12).toFixed(2)}T`
+  if (abs >= 1e9) return `$${(n / 1e9).toFixed(2)}B`
+  if (abs >= 1e6) return `$${(n / 1e6).toFixed(2)}M`
+  if (abs >= 1e3) return `$${(n / 1e3).toFixed(0)}K`
+  return `$${n.toFixed(0)}`
+}
+
+function epsSurprisePct(act?: number | null, est?: number | null) {
+  if (act == null || est == null || !Number.isFinite(act) || !Number.isFinite(est)) return null
+  if (est === 0) return null
+  return ((act - est) / Math.abs(est)) * 100
 }
 
 type Enriched = Position & {
@@ -140,8 +162,50 @@ export function PortfolioPage() {
   const qc = useQueryClient()
   const accountQuery = useAccount()
   const positionsQuery = usePositions()
+  const ordersQuery = useOrders()
+  const orders = ordersQuery.data
+  const { data: agentSettings } = useAgentSettings()
   const account = accountQuery.data
   const positions = positionsQuery.data ?? []
+
+  const recentSells = useMemo(() => {
+    if (!orders?.length) return []
+    const cutoff = Date.now() - WEEK_MS
+    return orders
+      .filter((o) => {
+        if (o.side !== 'sell') return false
+        if (o.filled_avg_price == null) return false
+        const st = (o.status || '').toLowerCase()
+        if (st !== 'filled' && st !== 'partially_filled') return false
+        return orderFillTs(o) >= cutoff
+      })
+      .sort((a, b) => orderFillTs(b) - orderFillTs(a))
+  }, [orders])
+
+  const earningsSymbols = useMemo(() => {
+    const s = new Set<string>()
+    positions.forEach((p) => s.add(p.symbol))
+    recentSells.forEach((o) => s.add(o.symbol))
+    return [...s].slice(0, 24)
+  }, [positions, recentSells])
+
+  const fmpReady = !!agentSettings?.fmp_api_key_set
+  const { symbols: earningsSymList, results: earningsResults } = useEarningsCalendars(
+    fmpReady ? earningsSymbols : [],
+  )
+
+  const earningsRows = useMemo(() => {
+    const out: { sym: string; ev: EarningsEvent }[] = []
+    earningsSymList.forEach((sym, i) => {
+      const rows = earningsResults[i]?.data
+      if (!rows?.length) return
+      rows.slice(0, 5).forEach((ev) => out.push({ sym, ev }))
+    })
+    out.sort((a, b) => (b.ev.date || '').localeCompare(a.ev.date || ''))
+    return out.slice(0, 48)
+  }, [earningsSymList, earningsResults])
+
+  const earningsLoading = earningsResults.some((r) => r.isLoading)
 
   const [sortKey, setSortKey] = useState<SortKey>('symbol')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
@@ -189,6 +253,7 @@ export function PortfolioPage() {
   const lastUpdatedAt = Math.max(
     accountQuery.dataUpdatedAt ?? 0,
     positionsQuery.dataUpdatedAt ?? 0,
+    ordersQuery.dataUpdatedAt ?? 0,
   )
   const lastUpdatedLabel =
     lastUpdatedAt > 0 ? new Date(lastUpdatedAt).toLocaleString() : '—'
@@ -219,6 +284,7 @@ export function PortfolioPage() {
   const refresh = () => {
     void qc.invalidateQueries({ queryKey: ['account'] })
     void qc.invalidateQueries({ queryKey: ['positions'] })
+    void qc.invalidateQueries({ queryKey: ['orders'] })
   }
 
   return (
@@ -316,6 +382,88 @@ export function PortfolioPage() {
           )}
         </Card>
       </div>
+
+      <Card
+        title="Recently sold (last 7 days)"
+        action={
+          <Link className="text-xs text-primary hover:underline" to="/orders">
+            All orders →
+          </Link>
+        }
+      >
+        <p className="text-xs text-muted-foreground mb-3">
+          Filled sells from the past week, including partial fills. When the agent attached this
+          order to a trade record, the reason is shown (manual sells usually have no note).
+        </p>
+        {recentSells.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No sells with fills in the last 7 days.</p>
+        ) : (
+          <div className="table-wrap overflow-x-auto">
+            <table className="w-full min-w-[760px]">
+              <thead className="bg-muted/30">
+                <tr>
+                  <th className="px-3 py-3 text-left text-xs text-muted-foreground">Filled</th>
+                  <th className="px-3 py-3 text-left text-xs text-muted-foreground">Symbol</th>
+                  <th className="px-3 py-3 text-right text-xs text-muted-foreground">Qty</th>
+                  <th className="px-3 py-3 text-right text-xs text-muted-foreground">Fill px</th>
+                  <th className="px-3 py-3 text-right text-xs text-muted-foreground">Realized P/L</th>
+                  <th className="px-3 py-3 text-left text-xs text-muted-foreground">Status</th>
+                  <th className="px-3 py-3 text-left text-xs text-muted-foreground">Agent note</th>
+                </tr>
+              </thead>
+              <tbody>
+                {recentSells.map((o) => {
+                  const ts = o.filled_at ?? o.submitted_at
+                  const rpl = o.realized_pl
+                  const rCls =
+                    rpl == null ? 'text-muted-foreground' : rpl >= 0 ? 'text-success' : 'text-danger'
+                  return (
+                    <tr key={o.id} className="border-t border-border hover:bg-muted/20 transition-colors">
+                      <td className="px-3 py-3 text-xs text-muted-foreground whitespace-nowrap">
+                        {new Date(ts).toLocaleString()}
+                      </td>
+                      <td className="px-3 py-3 text-sm font-medium">
+                        <Link className="text-primary hover:underline" to={`/symbol/${o.symbol}`}>
+                          {o.symbol}
+                        </Link>
+                      </td>
+                      <td className="px-3 py-3 text-sm text-right tabular-nums">{o.filled_qty ?? o.qty}</td>
+                      <td className="px-3 py-3 text-sm text-right tabular-nums">
+                        {o.filled_avg_price != null ? `$${o.filled_avg_price.toFixed(2)}` : '—'}
+                      </td>
+                      <td className={`px-3 py-3 text-sm text-right tabular-nums font-medium ${rCls}`}>
+                        {rpl == null ? '—' : usd(rpl, { showPlus: true })}
+                      </td>
+                      <td className="px-3 py-3 text-xs text-muted-foreground">{o.status}</td>
+                      <td className="px-3 py-3 text-xs text-muted-foreground max-w-md">
+                        {o.agent_trade_reason ? (
+                          <span>
+                            {o.agent_trade_reason}
+                            {o.agent_trade_run_id != null && (
+                              <>
+                                {' '}
+                                <Link
+                                  className="text-primary hover:underline shrink-0"
+                                  to="/agent"
+                                  title={`Agent run id ${o.agent_trade_run_id}`}
+                                >
+                                  (run #{o.agent_trade_run_id})
+                                </Link>
+                              </>
+                            )}
+                          </span>
+                        ) : (
+                          '—'
+                        )}
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Card>
 
       <Card
         title="Holdings detail"
@@ -545,14 +693,119 @@ export function PortfolioPage() {
                       </li>
                     </ul>
                     <p className="text-[11px] text-muted-foreground leading-relaxed pt-1">
-                      Quarterly revenue, EPS beats, and filing-based metrics need a fundamentals feed
-                      (for example FMP in Settings). This panel stays honest: it only reflects live
-                      prices and your broker position fields.
+                      For scheduled earnings dates and EPS estimates vs actuals, see the
+                      &quot;Earnings calendar&quot; section below (Financial Modeling Prep). For
+                      transcripts and Seeking Alpha commentary, use the external link there —
+                      this app does not scrape third-party sites or store Seeking Alpha logins.
                     </p>
                   </div>
                 </div>
               )
             })}
+          </div>
+        )}
+      </Card>
+
+      <Card
+        title="Earnings calendar & calls"
+        action={
+          agentSettings?.fmp_api_key_set ? (
+            <span className="text-xs text-success">FMP key set</span>
+          ) : (
+            <Link className="text-xs text-primary hover:underline" to="/settings">
+              Add FMP API key →
+            </Link>
+          )
+        }
+      >
+        <p className="text-xs text-muted-foreground mb-3">
+          Dates and EPS/revenue figures come from{' '}
+          <span className="text-foreground/90">Financial Modeling Prep</span> when{' '}
+          <code className="text-[11px]">FMP_API_KEY</code> is configured in Settings. We do{' '}
+          <span className="text-foreground/90">not</span> scrape Seeking Alpha (their terms forbid
+          automated extraction, and login-based scraping is fragile). Use the Seeking Alpha link
+          per row for earnings call write-ups and discussions in your browser.
+        </p>
+        {!agentSettings?.fmp_api_key_set ? (
+          <p className="text-sm text-muted-foreground">
+            Set a free FMP key in Settings to populate this table. Until then, only the external
+            links are available.
+          </p>
+        ) : earningsLoading ? (
+          <p className="text-sm text-muted-foreground">Loading earnings data…</p>
+        ) : earningsRows.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            No earnings rows returned (symbol list empty or FMP had no data for these tickers).
+          </p>
+        ) : (
+          <div className="table-wrap overflow-x-auto">
+            <table className="w-full min-w-[900px]">
+              <thead className="bg-muted/30">
+                <tr>
+                  <th className="px-3 py-3 text-left text-xs text-muted-foreground">Date</th>
+                  <th className="px-3 py-3 text-left text-xs text-muted-foreground">Symbol</th>
+                  <th className="px-3 py-3 text-left text-xs text-muted-foreground">Time</th>
+                  <th className="px-3 py-3 text-right text-xs text-muted-foreground">EPS est.</th>
+                  <th className="px-3 py-3 text-right text-xs text-muted-foreground">EPS act.</th>
+                  <th className="px-3 py-3 text-right text-xs text-muted-foreground">EPS surprise</th>
+                  <th className="px-3 py-3 text-right text-xs text-muted-foreground">Rev est.</th>
+                  <th className="px-3 py-3 text-right text-xs text-muted-foreground">Rev act.</th>
+                  <th className="px-3 py-3 text-left text-xs text-muted-foreground">Seeking Alpha</th>
+                </tr>
+              </thead>
+              <tbody>
+                {earningsRows.map(({ sym, ev }, idx) => {
+                  const sur = epsSurprisePct(ev.eps_actual, ev.eps_estimate)
+                  const surCls =
+                    sur == null
+                      ? 'text-muted-foreground'
+                      : sur >= 0
+                        ? 'text-success'
+                        : 'text-danger'
+                  const saUrl = `https://seekingalpha.com/symbol/${encodeURIComponent(sym)}/earnings`
+                  return (
+                    <tr key={`${sym}-${ev.date}-${idx}`} className="border-t border-border hover:bg-muted/20">
+                      <td className="px-3 py-3 text-xs text-muted-foreground whitespace-nowrap">
+                        {ev.date}
+                      </td>
+                      <td className="px-3 py-3 text-sm font-medium">
+                        <Link className="text-primary hover:underline" to={`/symbol/${sym}`}>
+                          {sym}
+                        </Link>
+                      </td>
+                      <td className="px-3 py-3 text-xs text-muted-foreground uppercase">{ev.time ?? '—'}</td>
+                      <td className="px-3 py-3 text-xs text-right tabular-nums">
+                        {ev.eps_estimate != null ? ev.eps_estimate.toFixed(2) : '—'}
+                      </td>
+                      <td className="px-3 py-3 text-xs text-right tabular-nums">
+                        {ev.eps_actual != null ? ev.eps_actual.toFixed(2) : '—'}
+                      </td>
+                      <td className={`px-3 py-3 text-xs text-right tabular-nums ${surCls}`}>
+                        {sur == null
+                          ? '—'
+                          : `${sur >= 0 ? '+' : ''}${sur.toFixed(1)}%`}
+                      </td>
+                      <td className="px-3 py-3 text-xs text-right tabular-nums">
+                        {fmtCompactUsd(ev.revenue_estimate)}
+                      </td>
+                      <td className="px-3 py-3 text-xs text-right tabular-nums">
+                        {fmtCompactUsd(ev.revenue_actual)}
+                      </td>
+                      <td className="px-3 py-3 text-xs">
+                        <a
+                          href={saUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-primary hover:underline"
+                        >
+                          Open
+                        </a>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
           </div>
         )}
       </Card>
