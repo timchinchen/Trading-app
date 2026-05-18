@@ -752,8 +752,61 @@ async def _run_once_impl(broker: AlpacaBroker) -> int:
         # Playwright is our primary source since Dec-2025 twscrape 0.17.0 hit
         # parsing failures that self-lock accounts for 15 minutes. twscrape
         # remains as a fallback.
-        tw_db = os.path.abspath(settings.TWSCRAPE_DB)
-        log.add(f"TWSCRAPE_DB (X session cookie sqlite) -> {tw_db}")
+        # TWSCRAPE_DB is relative to the process cwd when not absolute — log loudly so
+        # mis-started uvicorn (wrong cwd) is obvious when ./twscrape.db does not match backend/.
+        _backend_root = os.path.abspath(
+            os.path.join(os.path.dirname(__file__), "..", "..", "..")
+        )
+        tw_raw = (settings.TWSCRAPE_DB or "").strip()
+        tw_abs = settings.twscrape_db_abspath
+        cwd = os.getcwd()
+        tw_exists = os.path.isfile(tw_abs)
+        log.add(
+            "TWSCRAPE_DB (twscrape SQLite — cookie jar for X): "
+            f"configured_env_value={tw_raw!r}"
+        )
+        log.add(
+            "TWSCRAPE_DB resolution: "
+            f"process_cwd={cwd!r} -> absolute_path={tw_abs!r} file_exists={tw_exists}"
+        )
+        if tw_exists:
+            try:
+                log.add(f"TWSCRAPE_DB file_size_bytes={os.path.getsize(tw_abs)}")
+            except OSError as e:
+                log.add(f"TWSCRAPE_DB stat failed: {e}")
+        backend_tw = os.path.join(_backend_root, "twscrape.db")
+        if (
+            not tw_exists
+            and os.path.isfile(backend_tw)
+            and os.path.normpath(tw_abs) != os.path.normpath(backend_tw)
+        ):
+            log.add(
+                "WARNING TWSCRAPE_DB resolved path missing on disk, but backend/twscrape.db "
+                f"exists ({backend_tw!r}). Relative paths like ./twscrape.db resolve from "
+                "process cwd, not from the backend directory. Start uvicorn from `backend/`, "
+                "set TWSCRAPE_DB to an absolute path, or move/copy the DB to the resolved path."
+            )
+        ss_cfg = (settings.PLAYWRIGHT_STORAGE_STATE_PATH or "").strip()
+        ss_ok = bool(ss_cfg and os.path.isfile(os.path.abspath(ss_cfg)))
+        exe_cfg = (settings.PLAYWRIGHT_CHROMIUM_EXECUTABLE or "").strip()
+        if ss_ok:
+            log.add(
+                "X auth for Playwright: storage_state JSON "
+                f"({os.path.abspath(ss_cfg)!r}) — twscrape cookie rows are not injected "
+                f"(TWSCRAPE_DB still used for twscrape API fallback): {tw_abs!r}"
+            )
+        else:
+            log.add(
+                "X auth for Playwright: twscrape SQLite cookie injection "
+                f"(TWSCRAPE_DB={tw_abs!r}); twscrape API fallback uses the same db path"
+            )
+        log.add(
+            "Playwright X scrape opts: "
+            f"storage_state={'yes ' + os.path.abspath(ss_cfg) if ss_ok else 'no'}, "
+            f"system_chromium={'yes (' + exe_cfg + ')' if exe_cfg else 'no (bundled)'}, "
+            f"PLAYWRIGHT_DISABLE_GPU={settings.PLAYWRIGHT_DISABLE_GPU}, "
+            f"PLAYWRIGHT_RELAXED_FALLBACK={settings.PLAYWRIGHT_RELAXED_FALLBACK}"
+        )
         log.add(f"fetching tweets via playwright (lookback={rs.agent_lookback_hours}h, "
                 f"max/account={rs.agent_max_tweets_per_account}, "
                 f"per-account timeout={rs.agent_per_account_timeout_s}s) ...")
@@ -775,7 +828,7 @@ async def _run_once_impl(broker: AlpacaBroker) -> int:
                 handles=handles,
                 lookback_hours=rs.agent_lookback_hours,
                 max_per_account=rs.agent_max_tweets_per_account,
-                db_path=settings.TWSCRAPE_DB,
+                db_path=tw_abs,
                 per_account_timeout_s=rs.agent_per_account_timeout_s,
                 log=_tw_log,
             )
@@ -802,7 +855,7 @@ async def _run_once_impl(broker: AlpacaBroker) -> int:
                     handles=handles,
                     lookback_hours=rs.agent_lookback_hours,
                     max_per_account=rs.agent_max_tweets_per_account,
-                    db_path=settings.TWSCRAPE_DB,
+                    db_path=tw_abs,
                     per_account_timeout_s=rs.agent_per_account_timeout_s,
                     log=_tw_log,
                 )
@@ -832,9 +885,11 @@ async def _run_once_impl(broker: AlpacaBroker) -> int:
         log.add(f"fetched {len(tweets)} tweets total")
         if len(tweets) == 0:
             log.add(
-                "HINT 0 tweets: read preceding lines — twscrape account rows, "
-                "Playwright cookie jar (auth_token/ct0), navigation http_status, "
-                "and timeline_probe. Refresh: `python -m app.services.agent.setup add_cookies`."
+                "HINT 0 tweets: read preceding Playwright lines (storage_state vs twscrape, "
+                "cookie jar, navigation http_status, timeline_probe). "
+                "Docs: docs/X_TWITTER_PLAYWRIGHT.md — refresh cookies: "
+                "`python -m app.services.agent.setup add_cookies` "
+                "or rebuild PLAYWRIGHT_STORAGE_STATE_PATH."
             )
         if by_handle:
             log.add("  per handle: " + ", ".join(f"@{h}={n}" for h, n in by_handle.items()))

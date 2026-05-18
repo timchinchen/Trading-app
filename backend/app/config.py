@@ -1,4 +1,6 @@
+import os
 from typing import Literal
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -227,9 +229,34 @@ class Settings(BaseSettings):
     TWSCRAPE_DB: str = "./twscrape.db"
     TWITTER_ACCOUNTS: str = ""
 
+    # --- Playwright / X scraping (optional; defaults preserve legacy behaviour) ---
+    # Absolute or relative path to system Chromium — recommended on Raspberry Pi
+    # where Playwright-bundled Chromium may misbehave (e.g. /usr/bin/chromium).
+    PLAYWRIGHT_CHROMIUM_EXECUTABLE: str = ""
+    # Playwright storage_state JSON — skip twscrape sqlite injection when this file exists.
+    # Generate once from a logged-in browser session (see docs/X_TWITTER_PLAYWRIGHT.md).
+    PLAYWRIGHT_STORAGE_STATE_PATH: str = ""
+    # Recommended True on Pi / headless ARM hosts (--disable-gpu).
+    PLAYWRIGHT_DISABLE_GPU: bool = False
+    # Override User-Agent (empty => macOS-like on Darwin, Linux aarch64 UA elsewhere).
+    PLAYWRIGHT_USER_AGENT: str = ""
+    # After primary DOM scrape returns 0 tweets, retry once with relaxed waits / load event.
+    PLAYWRIGHT_RELAXED_FALLBACK: bool = True
+
     @property
     def twitter_accounts_list(self) -> list[str]:
         return [a.strip().lstrip("@") for a in self.TWITTER_ACCOUNTS.split(",") if a.strip()]
+
+    @property
+    def twscrape_db_abspath(self) -> str:
+        """Absolute path to the twscrape SQLite file as resolved from the process cwd.
+
+        Relative ``TWSCRAPE_DB`` values (for example ``./twscrape.db``) depend on the
+        current working directory when the backend starts — not on the location of
+        ``.env``. Use an absolute path in production if cwd may vary.
+        """
+        raw = (self.TWSCRAPE_DB or "").strip() or "./twscrape.db"
+        return os.path.abspath(os.path.expanduser(raw))
 
     @property
     def alpaca_key(self) -> str:

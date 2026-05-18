@@ -19,6 +19,10 @@ LLM inference. The Pi runs only:
 If you only have 2GB RAM, keep `AGENT_ENABLED=false` initially and turn it on
 after confirming stability.
 
+When you enable the agent, configure Playwright/X scraping on constrained ARM
+hardware using [`docs/X_TWITTER_PLAYWRIGHT.md`](X_TWITTER_PLAYWRIGHT.md)
+(system Chromium, GPU flag, cookie vs `storage_state`).
+
 ---
 
 ## 1) Update OS and install base packages
