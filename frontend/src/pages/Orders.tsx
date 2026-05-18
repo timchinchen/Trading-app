@@ -1,10 +1,19 @@
+import { Link } from 'react-router-dom'
 import { useCancelOrder, useOrders } from '../api/hooks'
 
-const fmtUsd = (v?: number | null) =>
-  v == null ? '-' : `$${v.toFixed(2)}`
+const fmtUsd = (v?: number | null) => {
+  if (v == null) return '-'
+  const n = typeof v === 'number' ? v : Number(v)
+  if (!Number.isFinite(n)) return '-'
+  return `$${n.toFixed(2)}`
+}
 
-const fmtPct = (v?: number | null) =>
-  v == null ? '-' : `${v >= 0 ? '+' : ''}${v.toFixed(2)}%`
+const fmtPct = (v?: number | null) => {
+  if (v == null) return '-'
+  const n = typeof v === 'number' ? v : Number(v)
+  if (!Number.isFinite(n)) return '-'
+  return `${n >= 0 ? '+' : ''}${n.toFixed(2)}%`
+}
 
 export function OrdersPage() {
   const { data: orders } = useOrders()
@@ -32,6 +41,9 @@ export function OrdersPage() {
                 </th>
                 <th className="px-4 py-3 text-right text-xs text-muted-foreground">
                   Realized P/L
+                </th>
+                <th className="px-4 py-3 text-left text-xs text-muted-foreground min-w-[200px]">
+                  Agent note
                 </th>
                 <th className="px-4 py-3 text-left text-xs text-muted-foreground">Status</th>
                 <th className="px-4 py-3 text-left text-xs text-muted-foreground">Mode</th>
@@ -100,6 +112,29 @@ export function OrdersPage() {
                     <td className={`px-4 py-3 text-sm text-right font-mono ${realizedClass}`}>
                       {fmtUsd(realized)}
                     </td>
+                    <td className="px-4 py-3 text-xs text-muted-foreground align-top max-w-xs">
+                      {o.side === 'sell' && o.agent_trade_reason ? (
+                        <span className="break-words">
+                          {o.agent_trade_reason}
+                          {o.agent_trade_run_id != null && (
+                            <>
+                              {' '}
+                              <Link
+                                to="/agent"
+                                className="text-primary hover:underline whitespace-nowrap"
+                                title={`Agent run id ${o.agent_trade_run_id}`}
+                              >
+                                (run #{o.agent_trade_run_id})
+                              </Link>
+                            </>
+                          )}
+                        </span>
+                      ) : o.side === 'sell' ? (
+                        <span className="text-muted-foreground/70">—</span>
+                      ) : (
+                        <span className="text-muted-foreground/50">—</span>
+                      )}
+                    </td>
                     <td className="px-4 py-3 text-sm">
                       <span className="px-2 py-0.5 rounded-md bg-muted/50 border border-border text-xs">
                         {o.status}
@@ -124,7 +159,7 @@ export function OrdersPage() {
               {(!orders || orders.length === 0) && (
                 <tr className="border-t border-border">
                   <td
-                    colSpan={14}
+                    colSpan={15}
                     className="px-4 py-12 text-center text-sm text-muted-foreground"
                   >
                     No orders

@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from ..config import settings
 from ..db import get_db
 from ..deps import get_broker, get_market_data
-from ..models import Order
+from ..models import AgentTrade, Order
 from ..schemas import OrderIn, OrderOut
 from ..security import get_current_user
 from ..services.broker import AlpacaBroker, BrokerError
@@ -163,6 +163,19 @@ async def list_orders(
     )
     realized_by_id = _compute_realized_sell_pl(filled_history)
 
+    order_ids = [r.id for r in rows]
+    agent_by_order: dict[int, AgentTrade] = {}
+    if order_ids:
+        for at in (
+            db.query(AgentTrade)
+            .filter(AgentTrade.order_id.in_(order_ids))
+            .order_by(AgentTrade.id.desc())
+            .all()
+        ):
+            oid = at.order_id
+            if oid is not None and oid not in agent_by_order:
+                agent_by_order[oid] = at
+
     out: list[OrderOut] = []
     for r in rows:
         snap = snaps.get(r.symbol) or {}
@@ -176,6 +189,8 @@ async def list_orders(
         realized_pl = None
         if (r.side or "").lower() == "sell" and (r.status or "").lower() == "filled":
             realized_pl = realized_by_id.get(r.id)
+
+        ag = agent_by_order.get(r.id)
 
         out.append(
             OrderOut(
@@ -196,6 +211,8 @@ async def list_orders(
                 current_price=current,
                 pct_change=pct_change,
                 realized_pl=realized_pl,
+                agent_trade_reason=(ag.reason if ag else None),
+                agent_trade_run_id=(ag.run_id if ag else None),
             )
         )
     return out

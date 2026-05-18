@@ -41,6 +41,20 @@ export interface Order {
   current_price?: number | null
   pct_change?: number | null
   realized_pl?: number | null
+  /** When the agent executed this order, the persisted trade reason (else null). */
+  agent_trade_reason?: string | null
+  agent_trade_run_id?: number | null
+}
+
+export interface EarningsEvent {
+  date: string
+  symbol: string
+  time?: string | null
+  eps_actual?: number | null
+  eps_estimate?: number | null
+  revenue_actual?: number | null
+  revenue_estimate?: number | null
+  fiscal_date_ending?: string | null
 }
 
 export interface WatchlistItem {
