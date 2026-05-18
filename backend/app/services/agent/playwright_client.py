@@ -250,17 +250,19 @@ async def _fetch_handle(
     if not cfg.relaxed:
         await page.route("**/*", _route)
 
-    hydrate_ms = 7000 if cfg.relaxed else 4000
-    tweet_sel_timeout_ms = 25_000 if cfg.relaxed else 18_000
+    # Hydrate after navigation — X is a SPA; commit fires far too early (often HTTP 200 + empty shell).
+    hydrate_ms = 7000 if cfg.relaxed else 5500
+    tweet_sel_timeout_ms = 25_000 if cfg.relaxed else 22_000
 
     try:
         async def _goto_profile() -> tuple[str, int | None]:
-            """Try progressively heavier wait_until hooks."""
-            modes: tuple[str, ...]
-            if cfg.relaxed:
-                modes = ("commit", "domcontentloaded", "load")
-            else:
-                modes = ("commit", "domcontentloaded")
+            """Try progressively heavier wait_until hooks.
+
+            Never prefer ``commit`` first: it resolves before React paints timelines, which
+            yields persistent ``article[data-testid='tweet']`` timeouts on live X.
+            Fall back to ``commit`` only if heavier waits fail (slow/flaky hosts).
+            """
+            modes: tuple[str, ...] = ("domcontentloaded", "load", "commit")
 
             last_err: BaseException | None = None
             for mode in modes:
@@ -324,6 +326,12 @@ async def _fetch_handle(
             await _goto_profile()
             await page.wait_for_timeout(hydrate_ms)
             await _log_page_identity("after_hydrate_wait")
+            # Nudge infinite-scroll timelines into attaching tweet cells before we poll.
+            try:
+                await page.mouse.wheel(0, 900)
+                await page.wait_for_timeout(450)
+            except Exception:
+                pass
 
             try:
                 await page.wait_for_selector(

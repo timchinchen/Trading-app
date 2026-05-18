@@ -194,6 +194,10 @@ Broader Pi deployment (without local LLM) is in [`docs/RASPBERRY_PI_DEPLOYMENT.m
 
 ## Troubleshooting
 
+### Timeline loads but log shows `wait_until=commit` then no tweets / empty `body_chars`
+
+The scraper waits for **`domcontentloaded` → `load`** before hydrating (SPA shells often return HTTP 200 with almost no timeline markup). If you still see timeouts, enable **`PLAYWRIGHT_RELAXED_FALLBACK`** or refresh **`auth_token`** / **`ct0`**.
+
 ### Relative `TWSCRAPE_DB` / “wrong” `twscrape.db`
 
 Every agent run prints **`TWSCRAPE_DB`** diagnostics: the raw `.env` value, **`process_cwd`** (Python's working directory), the **`absolute_path`** SQLite actually opens, **`file_exists`**, and optional **`WARNING`** if that path is missing but `backend/twscrape.db` exists (classic mis-start when cwd is not `backend/`). Playwright and twscrape fallback logs repeat **`path_arg`**, **`abspath`**, and **`cwd`** so you can confirm both layers agree.
