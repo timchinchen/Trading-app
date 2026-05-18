@@ -45,6 +45,13 @@ export function PriceChart({
       seriesRef.current = series
     } catch (e) {
       console.error('[PriceChart] failed to init chart', e)
+      try {
+        chart?.remove()
+      } catch {
+        /* already torn down */
+      }
+      chartRef.current = null
+      seriesRef.current = null
       return
     }
 

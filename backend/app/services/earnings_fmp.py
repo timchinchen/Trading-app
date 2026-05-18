@@ -20,17 +20,27 @@ def _f(v: Any) -> float | None:
         return None
 
 
+def _as_opt_str(v: Any) -> str | None:
+    """FMP sometimes returns non-strings; Pydantic `EarningsEventOut` expects optional str."""
+    if v is None:
+        return None
+    if isinstance(v, str):
+        s = v.strip()
+        return s or None
+    return str(v)
+
+
 def _row_from_fmp(sym: str, row: dict[str, Any]) -> dict[str, Any]:
     d = row.get("date")
     return {
         "date": str(d) if d is not None else "",
         "symbol": sym,
-        "time": row.get("time"),
+        "time": _as_opt_str(row.get("time")),
         "eps_actual": _f(row.get("eps")),
         "eps_estimate": _f(row.get("epsEstimated")),
         "revenue_actual": _f(row.get("revenue")),
         "revenue_estimate": _f(row.get("revenueEstimated")),
-        "fiscal_date_ending": row.get("fiscalDateEnding"),
+        "fiscal_date_ending": _as_opt_str(row.get("fiscalDateEnding")),
     }
 
 

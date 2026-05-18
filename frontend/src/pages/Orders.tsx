@@ -1,11 +1,19 @@
 import { Link } from 'react-router-dom'
 import { useCancelOrder, useOrders } from '../api/hooks'
 
-const fmtUsd = (v?: number | null) =>
-  v == null ? '-' : `$${v.toFixed(2)}`
+const fmtUsd = (v?: number | null) => {
+  if (v == null) return '-'
+  const n = typeof v === 'number' ? v : Number(v)
+  if (!Number.isFinite(n)) return '-'
+  return `$${n.toFixed(2)}`
+}
 
-const fmtPct = (v?: number | null) =>
-  v == null ? '-' : `${v >= 0 ? '+' : ''}${v.toFixed(2)}%`
+const fmtPct = (v?: number | null) => {
+  if (v == null) return '-'
+  const n = typeof v === 'number' ? v : Number(v)
+  if (!Number.isFinite(n)) return '-'
+  return `${n >= 0 ? '+' : ''}${n.toFixed(2)}%`
+}
 
 export function OrdersPage() {
   const { data: orders } = useOrders()

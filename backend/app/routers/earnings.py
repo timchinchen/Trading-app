@@ -1,6 +1,7 @@
 import re
 
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
 from ..db import get_db
@@ -32,4 +33,11 @@ async def earnings_calendar(
         api_key=(rs.fmp_api_key or "").strip(),
         base_url=(rs.fmp_base_url or "").strip(),
     )
-    return [EarningsEventOut.model_validate(r) for r in raw]
+    out: list[EarningsEventOut] = []
+    for r in raw:
+        try:
+            out.append(EarningsEventOut.model_validate(r))
+        except ValidationError:
+            # Skip odd rows from upstream so one bad record never 500s the endpoint.
+            continue
+    return out

@@ -45,7 +45,13 @@ function usd(n: number, opts?: { showPlus?: boolean }) {
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000
 
 function orderFillTs(o: Pick<Order, 'filled_at' | 'submitted_at'>) {
-  return new Date(o.filled_at ?? o.submitted_at).getTime()
+  const t = new Date(o.filled_at ?? o.submitted_at).getTime()
+  return Number.isFinite(t) ? t : 0
+}
+
+function fmtEpsCell(n: number | null | undefined) {
+  if (n == null || typeof n !== 'number' || !Number.isFinite(n)) return '—'
+  return n.toFixed(2)
 }
 
 function fmtCompactUsd(n?: number | null) {
@@ -773,12 +779,18 @@ export function PortfolioPage() {
                           {sym}
                         </Link>
                       </td>
-                      <td className="px-3 py-3 text-xs text-muted-foreground uppercase">{ev.time ?? '—'}</td>
-                      <td className="px-3 py-3 text-xs text-right tabular-nums">
-                        {ev.eps_estimate != null ? ev.eps_estimate.toFixed(2) : '—'}
+                      <td className="px-3 py-3 text-xs text-muted-foreground uppercase">
+                        {ev.time == null || ev.time === ''
+                          ? '—'
+                          : typeof ev.time === 'string'
+                            ? ev.time
+                            : String(ev.time)}
                       </td>
                       <td className="px-3 py-3 text-xs text-right tabular-nums">
-                        {ev.eps_actual != null ? ev.eps_actual.toFixed(2) : '—'}
+                        {fmtEpsCell(ev.eps_estimate)}
+                      </td>
+                      <td className="px-3 py-3 text-xs text-right tabular-nums">
+                        {fmtEpsCell(ev.eps_actual)}
                       </td>
                       <td className={`px-3 py-3 text-xs text-right tabular-nums ${surCls}`}>
                         {sur == null
