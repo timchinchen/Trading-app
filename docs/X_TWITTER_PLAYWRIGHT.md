@@ -194,6 +194,10 @@ Broader Pi deployment (without local LLM) is in [`docs/RASPBERRY_PI_DEPLOYMENT.m
 
 ## Troubleshooting
 
+### Relative `TWSCRAPE_DB` / “wrong” `twscrape.db`
+
+Every agent run prints **`TWSCRAPE_DB`** diagnostics: the raw `.env` value, **`process_cwd`** (Python's working directory), the **`absolute_path`** SQLite actually opens, **`file_exists`**, and optional **`WARNING`** if that path is missing but `backend/twscrape.db` exists (classic mis-start when cwd is not `backend/`). Playwright and twscrape fallback logs repeat **`path_arg`**, **`abspath`**, and **`cwd`** so you can confirm both layers agree.
+
 ### `CookiesMissingError` / “storage_state file not found”
 
 - You set **`PLAYWRIGHT_STORAGE_STATE_PATH`** but the path is wrong or the file was not copied onto the server.

@@ -26,6 +26,11 @@ from ...config import settings
 LogFn = Callable[[str], None]
 
 
+def _twscrape_sqlite_abspath(db_path: str) -> str:
+    """Normalize TWSCRAPE_DB path the same way sqlite resolves relative paths (via cwd)."""
+    return os.path.abspath(os.path.expanduser(str(db_path).strip()))
+
+
 class PlaywrightNotInstalledError(RuntimeError):
     """Raised when the playwright package or chromium binary is missing."""
 
@@ -46,13 +51,18 @@ def _log(log: Optional[LogFn], msg: str):
 
 def _log_twscrape_accounts_overview(db_path: str, log: Optional[LogFn]) -> None:
     """Log twscrape DB path + account rows (never cookie secrets)."""
-    ap = os.path.abspath(db_path)
+    raw = str(db_path).strip()
+    ap = _twscrape_sqlite_abspath(raw)
     exists = os.path.isfile(ap)
-    _log(log, f"twscrape db resolved path={ap} exists={exists}")
+    _log(
+        log,
+        "twscrape db (accounts sqlite): "
+        f"path_passed={raw!r} cwd={os.getcwd()!r} abspath={ap!r} exists={exists}",
+    )
     if not exists:
         _log(log, "twscrape db file missing — run `python -m app.services.agent.setup add_cookies`")
         return
-    conn = sqlite3.connect(db_path)
+    conn = sqlite3.connect(ap)
     try:
         try:
             rows = conn.execute(
@@ -107,19 +117,20 @@ def _log_twscrape_accounts_overview(db_path: str, log: Optional[LogFn]) -> None:
 
 def _load_cookies(db_path: str) -> list[dict[str, Any]]:
     """Pull auth_token + ct0 from twscrape sqlite and expand to Playwright cookies."""
-    conn = sqlite3.connect(db_path)
+    ap = _twscrape_sqlite_abspath(db_path)
+    conn = sqlite3.connect(ap)
     try:
         row = conn.execute(
             "SELECT cookies FROM accounts WHERE active=1 LIMIT 1"
         ).fetchone()
     except sqlite3.OperationalError as e:
-        raise CookiesMissingError(f"twscrape db at {db_path} not initialized: {e}")
+        raise CookiesMissingError(f"twscrape db at {ap} not initialized: {e}")
     finally:
         conn.close()
 
     if not row or not row[0]:
         raise CookiesMissingError(
-            f"no active account with cookies in {db_path} - run setup add_cookies"
+            f"no active account with cookies in {ap} - run setup add_cookies"
         )
     raw = json.loads(row[0])
     out: list[dict[str, Any]] = []
@@ -151,6 +162,13 @@ def _resolve_auth_payload(db_path: str, log: Optional[LogFn]) -> tuple[Optional[
                 "Unset it or create the JSON (see docs/X_TWITTER_PLAYWRIGHT.md)."
             )
         _log(log, f"playwright: auth mode=storage_state path={ap}")
+        tw_abs = _twscrape_sqlite_abspath(db_path)
+        _log(
+            log,
+            "playwright: TWSCRAPE_DB (not used for Playwright cookie injection this session; "
+            "twscrape API fallback still reads this sqlite): "
+            f"path_arg={str(db_path).strip()!r} abspath={tw_abs!r} cwd={os.getcwd()!r}",
+        )
         return ap, []
 
     _log_twscrape_accounts_overview(db_path, log)
@@ -563,6 +581,12 @@ async def fetch_recent_tweets(
     scraper first (``relaxed_navigation=False``), an automatic second browser session runs
     with longer waits + ``load`` navigation if the first returns zero tweets.
     """
+    _log(
+        log,
+        "playwright fetch_recent_tweets: "
+        f"TWSCRAPE_DB path_arg={str(db_path).strip()!r} "
+        f"abspath={_twscrape_sqlite_abspath(db_path)!r} cwd={os.getcwd()!r}",
+    )
     ss_path, cookies = _resolve_auth_payload(db_path, log)
 
     out = await _single_playwright_session(

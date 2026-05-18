@@ -1,4 +1,6 @@
+import os
 from typing import Literal
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -244,6 +246,17 @@ class Settings(BaseSettings):
     @property
     def twitter_accounts_list(self) -> list[str]:
         return [a.strip().lstrip("@") for a in self.TWITTER_ACCOUNTS.split(",") if a.strip()]
+
+    @property
+    def twscrape_db_abspath(self) -> str:
+        """Absolute path to the twscrape SQLite file as resolved from the process cwd.
+
+        Relative ``TWSCRAPE_DB`` values (for example ``./twscrape.db``) depend on the
+        current working directory when the backend starts — not on the location of
+        ``.env``. Use an absolute path in production if cwd may vary.
+        """
+        raw = (self.TWSCRAPE_DB or "").strip() or "./twscrape.db"
+        return os.path.abspath(os.path.expanduser(raw))
 
     @property
     def alpaca_key(self) -> str:

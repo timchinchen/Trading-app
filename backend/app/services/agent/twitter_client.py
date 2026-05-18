@@ -277,7 +277,12 @@ async def fetch_recent_tweets(
     except Exception as e:  # pragma: no cover
         raise RuntimeError(f"twscrape not installed: {e}")
 
-    _log(log, f"twscrape fallback using db={os.path.abspath(db_path)}")
+    _log(
+        log,
+        "twscrape API fallback: "
+        f"TWSCRAPE_DB path_arg={str(db_path).strip()!r} cwd={os.getcwd()!r} "
+        f"abspath={os.path.abspath(os.path.expanduser(str(db_path).strip()))!r}",
+    )
 
     api = API(db_path)
 
