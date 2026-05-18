@@ -1,13 +1,12 @@
 """Playwright-based X/Twitter timeline scraper.
 
-Uses the auth cookies already registered with twscrape (`auth_token` + `ct0`)
-to load the logged-in timeline for each handle via headless Chromium. This
-sidesteps the twscrape 0.17.0 parsing failures that trigger 15-minute account
-locks on every request, and also avoids the aggressive IP rate limits on the
-public syndication endpoints.
+Authentication sources (pick one):
 
-Public entry point: `fetch_recent_tweets(...)` - matches the signature of
-`twitter_client.fetch_recent_tweets` so the runner can drop it in.
+1. **Default:** twscrape SQLite (`TWSCRAPE_DB`) — `auth_token` + `ct0` injected into Chromium.
+2. **Optional:** `PLAYWRIGHT_STORAGE_STATE_PATH` — Playwright `storage_state` JSON from a real
+   browser login (skips twscrape cookie injection).
+
+Public entry point: `fetch_recent_tweets(...)` — matches `twitter_client.fetch_recent_tweets`.
 """
 
 from __future__ import annotations
@@ -17,9 +16,12 @@ import json
 import os
 import re
 import sqlite3
+import sys
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Optional
+
+from ...config import settings
 
 LogFn = Callable[[str], None]
 
@@ -29,7 +31,7 @@ class PlaywrightNotInstalledError(RuntimeError):
 
 
 class CookiesMissingError(RuntimeError):
-    """Raised when we can't find auth cookies in the twscrape db."""
+    """Raised when we can't find auth cookies or storage_state for X."""
 
 
 def _log(log: Optional[LogFn], msg: str):
@@ -135,6 +137,47 @@ def _load_cookies(db_path: str) -> list[dict[str, Any]]:
     return out
 
 
+def _resolve_auth_payload(db_path: str, log: Optional[LogFn]) -> tuple[Optional[str], list[dict[str, Any]]]:
+    """Return (storage_state_path_or_None, playwright_cookie_list).
+
+    When PLAYWRIGHT_STORAGE_STATE_PATH points at an existing file, twscrape cookies are skipped.
+    """
+    ss_raw = (settings.PLAYWRIGHT_STORAGE_STATE_PATH or "").strip()
+    if ss_raw:
+        ap = os.path.abspath(ss_raw)
+        if not os.path.isfile(ap):
+            raise CookiesMissingError(
+                f"PLAYWRIGHT_STORAGE_STATE_PATH file not found: {ap}. "
+                "Unset it or create the JSON (see docs/X_TWITTER_PLAYWRIGHT.md)."
+            )
+        _log(log, f"playwright: auth mode=storage_state path={ap}")
+        return ap, []
+
+    _log_twscrape_accounts_overview(db_path, log)
+    cookies = _load_cookies(db_path)
+    _log(
+        log,
+        f"playwright: auth mode=twscrape_sqlite expanded {len(cookies)} cookie entries "
+        "(auth_token+ct0 × x.com/twitter.com domains)",
+    )
+    return None, cookies
+
+
+def _playwright_user_agent() -> str:
+    custom = (settings.PLAYWRIGHT_USER_AGENT or "").strip()
+    if custom:
+        return custom
+    if sys.platform == "darwin":
+        return (
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36"
+        )
+    return (
+        "Mozilla/5.0 (X11; Linux aarch64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chromium/131.0.0.0 Safari/537.36"
+    )
+
+
 def _resolved_per_account_timeout_s(raw: int) -> int:
     """X.com navigation + hydration routinely exceeds very tight budgets."""
     t = int(raw or 0)
@@ -143,11 +186,13 @@ def _resolved_per_account_timeout_s(raw: int) -> int:
     return t
 
 
-def _navigation_timeout_ms(per_account_s: int) -> int:
+def _navigation_timeout_ms(per_account_timeout_s: int, *, relaxed: bool) -> int:
     """page.goto budget; must stay below asyncio.wait_for(per_account_s)."""
-    pat = _resolved_per_account_timeout_s(per_account_s)
-    # Leave ~12s for post-goto waits (hydrate + tweet selector + scroll loop).
-    return max(40_000, min(110_000, pat * 1000 - 12_000))
+    pat = _resolved_per_account_timeout_s(per_account_timeout_s)
+    reserve = 18_000 if relaxed else 12_000
+    lo = 58_000 if relaxed else 40_000
+    hi = 120_000 if relaxed else 110_000
+    return max(lo, min(hi, pat * 1000 - reserve))
 
 
 @dataclass
@@ -156,6 +201,7 @@ class _FetchConfig:
     max_per_account: int
     per_account_timeout_s: int
     navigation_timeout_ms: int
+    relaxed: bool = False
     headless: bool = True
 
 
@@ -175,8 +221,6 @@ async def _fetch_handle(
     async def _route(r):
         try:
             t = r.request.resource_type
-            # Do not block "media" — X sometimes classifies XHR/fetch oddly; blocking media
-            # has been linked to hung navigations in headless profiles.
             if t in ("image", "font"):
                 await r.abort()
             else:
@@ -184,13 +228,24 @@ async def _fetch_handle(
         except Exception:
             pass
 
-    await page.route("**/*", _route)
+    # Relaxed backup pass does not throttle resources — fewer brittle hangs on Pi / slow shells.
+    if not cfg.relaxed:
+        await page.route("**/*", _route)
+
+    hydrate_ms = 7000 if cfg.relaxed else 4000
+    tweet_sel_timeout_ms = 25_000 if cfg.relaxed else 18_000
 
     try:
         async def _goto_profile() -> tuple[str, int | None]:
-            """X often never reaches domcontentloaded in headless; try commit first."""
+            """Try progressively heavier wait_until hooks."""
+            modes: tuple[str, ...]
+            if cfg.relaxed:
+                modes = ("commit", "domcontentloaded", "load")
+            else:
+                modes = ("commit", "domcontentloaded")
+
             last_err: BaseException | None = None
-            for mode in ("commit", "domcontentloaded"):
+            for mode in modes:
                 try:
                     resp = await page.goto(
                         url,
@@ -207,7 +262,8 @@ async def _fetch_handle(
                     last_err = e
                     _log(
                         log,
-                        f"  @{handle}: navigation failed wait_until={mode}: {type(e).__name__}: {e}",
+                        f"  @{handle}: navigation failed wait_until={mode}: "
+                        f"{type(e).__name__}: {e}",
                     )
             assert last_err is not None
             raise last_err
@@ -248,22 +304,20 @@ async def _fetch_handle(
 
         async def _do_fetch():
             await _goto_profile()
-            # Let React hydrate + timeline request fire.
-            await page.wait_for_timeout(4000)
+            await page.wait_for_timeout(hydrate_ms)
             await _log_page_identity("after_hydrate_wait")
 
             try:
                 await page.wait_for_selector(
-                    "article[data-testid='tweet']", timeout=18_000
+                    "article[data-testid='tweet']", timeout=tweet_sel_timeout_ms
                 )
             except Exception as e:
                 _log(
                     log,
-                    f"  @{handle}: no tweet articles in DOM within 18s "
+                    f"  @{handle}: no tweet articles in DOM within {tweet_sel_timeout_ms / 1000:.0f}s "
                     f"({type(e).__name__}: {e})",
                 )
                 await _log_timeline_probe("no_tweet_selector")
-                # Page rendered but no tweets (private / suspended / empty / logged out)
                 return
 
             max_scrolls = 8
@@ -290,7 +344,6 @@ async def _fetch_handle(
                         if not m:
                             continue
                         tweet_author, tid = m.group(1), m.group(2)
-                        # Skip retweets (author path != current handle).
                         if tweet_author.lower() != handle.lower():
                             continue
                         if tid in tweets:
@@ -351,19 +404,19 @@ async def _fetch_handle(
     return list(tweets.values())[: cfg.max_per_account]
 
 
-async def fetch_recent_tweets(
+async def _single_playwright_session(
+    *,
     handles: list[str],
     lookback_hours: int,
     max_per_account: int,
-    db_path: str,
-    per_account_timeout_s: int = 45,
-    log: Optional[LogFn] = None,
-    headless: bool = True,
+    per_account_timeout_s: int,
+    log: Optional[LogFn],
+    headless: bool,
+    relaxed_navigation: bool,
+    cookies: list[dict[str, Any]],
+    storage_state_path: Optional[str],
 ) -> list[dict[str, Any]]:
-    """Fetch recent tweets for each handle via headless Chromium + twscrape cookies.
-
-    Reuses a single browser context so cookies stay hot across handles.
-    """
+    """One browser lifecycle: launch → context → scrape each handle."""
     try:
         from playwright.async_api import async_playwright
     except Exception as e:
@@ -371,17 +424,11 @@ async def fetch_recent_tweets(
             f"playwright not installed: {e}. Run `pip install playwright && playwright install chromium`."
         )
 
-    _log_twscrape_accounts_overview(db_path, log)
-
-    cookies = _load_cookies(db_path)
-    _log(
-        log,
-        f"playwright: expanded {len(cookies)} Playwright cookie entries from twscrape "
-        "(auth_token+ct0 × x.com/twitter.com domains)",
-    )
-
     pat = _resolved_per_account_timeout_s(per_account_timeout_s)
-    nav_ms = _navigation_timeout_ms(pat)
+    nav_ms = _navigation_timeout_ms(pat, relaxed=relaxed_navigation)
+    mode_label = "relaxed_backup" if relaxed_navigation else "primary"
+
+    _log(log, f"playwright: session mode={mode_label} relaxed={relaxed_navigation}")
     if int(per_account_timeout_s or 0) < 30:
         _log(
             log,
@@ -398,41 +445,59 @@ async def fetch_recent_tweets(
         max_per_account=max_per_account,
         per_account_timeout_s=pat,
         navigation_timeout_ms=nav_ms,
+        relaxed=relaxed_navigation,
         headless=headless,
     )
+
     cutoff = datetime.now(tz=timezone.utc) - timedelta(hours=lookback_hours)
     _log(log, f"cutoff = {cutoff.isoformat()} (looking back {lookback_hours}h)")
+
+    launch_args = [
+        "--disable-blink-features=AutomationControlled",
+        "--disable-dev-shm-usage",
+        "--no-sandbox",
+    ]
+    if settings.PLAYWRIGHT_DISABLE_GPU:
+        launch_args.append("--disable-gpu")
+
+    exe = (settings.PLAYWRIGHT_CHROMIUM_EXECUTABLE or "").strip()
+    _log(
+        log,
+        "playwright: launch chromium_executable="
+        f"{exe if exe else '(playwright bundled)'} disable_gpu={settings.PLAYWRIGHT_DISABLE_GPU}",
+    )
+
+    launch_kw: dict[str, Any] = {"headless": headless, "args": launch_args}
+    if exe:
+        launch_kw["executable_path"] = exe
 
     out: list[dict[str, Any]] = []
 
     async with async_playwright() as pw:
         try:
-            browser = await pw.chromium.launch(
-                headless=headless,
-                args=[
-                    "--disable-blink-features=AutomationControlled",
-                    # Common in containers / low-memory hosts where Chromium can hang on /dev/shm.
-                    "--disable-dev-shm-usage",
-                    "--no-sandbox",
-                ],
-            )
+            browser = await pw.chromium.launch(**launch_kw)
         except Exception as e:
             raise PlaywrightNotInstalledError(
-                f"failed to launch chromium: {e}. Run `playwright install chromium`."
+                f"failed to launch chromium: {e}. Run `playwright install chromium` "
+                f"or set PLAYWRIGHT_CHROMIUM_EXECUTABLE to your system Chromium."
             )
 
         try:
-            ctx = await browser.new_context(
-                user_agent=(
-                    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36"
-                ),
-                viewport={"width": 1280, "height": 1000},
-                locale="en-US",
-                timezone_id="Etc/UTC",
-            )
+            ctx_kw: dict[str, Any] = {
+                "user_agent": _playwright_user_agent(),
+                "viewport": {"width": 1280, "height": 1000},
+                "locale": "en-US",
+                "timezone_id": "Etc/UTC",
+            }
+            if storage_state_path:
+                ctx_kw["storage_state"] = storage_state_path
+
+            ctx = await browser.new_context(**ctx_kw)
             ctx.set_default_navigation_timeout(nav_ms)
-            await ctx.add_cookies(cookies)
+
+            if not storage_state_path:
+                await ctx.add_cookies(cookies)
+
             try:
                 injected = await ctx.cookies()
                 by_dom: dict[str, int] = {}
@@ -444,6 +509,7 @@ async def fetch_recent_tweets(
                         str(c.get("name"))
                         for c in injected
                         if "x.com" in str(c.get("domain") or "")
+                        or "twitter.com" in str(c.get("domain") or "")
                     }
                 )
                 has_at = "auth_token" in x_names
@@ -455,11 +521,11 @@ async def fetch_recent_tweets(
                 )
                 _log(
                     log,
-                    f"playwright: x.com jar auth_token={has_at} ct0={has_ct0} "
-                    f"name_sample={x_names[:20]}",
+                    f"playwright: session jar auth_token={has_at} ct0={has_ct0} "
+                    f"name_sample={x_names[:24]}",
                 )
             except Exception as e:
-                _log(log, f"playwright: post-inject cookie introspection failed: {e!r}")
+                _log(log, f"playwright: cookie introspection failed: {e!r}")
 
             for idx, h in enumerate(handles, start=1):
                 h_clean = h.strip().lstrip("@").lower()
@@ -477,5 +543,62 @@ async def fetch_recent_tweets(
                 await browser.close()
             except Exception:
                 pass
+
+    return out
+
+
+async def fetch_recent_tweets(
+    handles: list[str],
+    lookback_hours: int,
+    max_per_account: int,
+    db_path: str,
+    per_account_timeout_s: int = 45,
+    log: Optional[LogFn] = None,
+    headless: bool = True,
+    relaxed_navigation: bool = False,
+) -> list[dict[str, Any]]:
+    """Fetch recent tweets per handle via Playwright.
+
+    When ``PLAYWRIGHT_RELAXED_FALLBACK`` is True (default) and this call uses the primary
+    scraper first (``relaxed_navigation=False``), an automatic second browser session runs
+    with longer waits + ``load`` navigation if the first returns zero tweets.
+    """
+    ss_path, cookies = _resolve_auth_payload(db_path, log)
+
+    out = await _single_playwright_session(
+        handles=handles,
+        lookback_hours=lookback_hours,
+        max_per_account=max_per_account,
+        per_account_timeout_s=per_account_timeout_s,
+        log=log,
+        headless=headless,
+        relaxed_navigation=relaxed_navigation,
+        cookies=cookies,
+        storage_state_path=ss_path,
+    )
+
+    if (
+        len(out) == 0
+        and not relaxed_navigation
+        and settings.PLAYWRIGHT_RELAXED_FALLBACK
+        and handles
+    ):
+        _log(
+            log,
+            "playwright: primary session returned 0 tweets — starting RELAXED BACKUP session "
+            "(longer waits, load-event navigation, no image/font blocking). "
+            "Disable via PLAYWRIGHT_RELAXED_FALLBACK=false if undesired.",
+        )
+        out = await _single_playwright_session(
+            handles=handles,
+            lookback_hours=lookback_hours,
+            max_per_account=max_per_account,
+            per_account_timeout_s=per_account_timeout_s,
+            log=log,
+            headless=headless,
+            relaxed_navigation=True,
+            cookies=cookies,
+            storage_state_path=ss_path,
+        )
 
     return out

@@ -148,6 +148,9 @@ cd backend
 
 **3. X (Twitter) session cookies — manual setup (required for the agent)**
 
+**→ Full guide (cookies, Raspberry Pi Chromium, Playwright `storage_state`, troubleshooting):**
+[`docs/X_TWITTER_PLAYWRIGHT.md`](docs/X_TWITTER_PLAYWRIGHT.md)
+
 The agent’s **Playwright** scraper reads **`auth_token`** and **`ct0`** from a local **twscrape** SQLite DB (`TWSCRAPE_DB` in `.env`, default `./twscrape.db` under `backend/`). There is **no Settings UI** for these cookies — you refresh them from your machine with the CLI below whenever X expires the session (symptoms: `0 tweets`, Playwright timeouts, or login / “Something went wrong” in a headed test).
 
 **What to copy**

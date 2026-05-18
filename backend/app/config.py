@@ -227,6 +227,20 @@ class Settings(BaseSettings):
     TWSCRAPE_DB: str = "./twscrape.db"
     TWITTER_ACCOUNTS: str = ""
 
+    # --- Playwright / X scraping (optional; defaults preserve legacy behaviour) ---
+    # Absolute or relative path to system Chromium — recommended on Raspberry Pi
+    # where Playwright-bundled Chromium may misbehave (e.g. /usr/bin/chromium).
+    PLAYWRIGHT_CHROMIUM_EXECUTABLE: str = ""
+    # Playwright storage_state JSON — skip twscrape sqlite injection when this file exists.
+    # Generate once from a logged-in browser session (see docs/X_TWITTER_PLAYWRIGHT.md).
+    PLAYWRIGHT_STORAGE_STATE_PATH: str = ""
+    # Recommended True on Pi / headless ARM hosts (--disable-gpu).
+    PLAYWRIGHT_DISABLE_GPU: bool = False
+    # Override User-Agent (empty => macOS-like on Darwin, Linux aarch64 UA elsewhere).
+    PLAYWRIGHT_USER_AGENT: str = ""
+    # After primary DOM scrape returns 0 tweets, retry once with relaxed waits / load event.
+    PLAYWRIGHT_RELAXED_FALLBACK: bool = True
+
     @property
     def twitter_accounts_list(self) -> list[str]:
         return [a.strip().lstrip("@") for a in self.TWITTER_ACCOUNTS.split(",") if a.strip()]
