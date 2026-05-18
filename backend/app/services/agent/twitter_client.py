@@ -9,6 +9,7 @@ The account + cookies live in the sqlite file at settings.TWSCRAPE_DB.
 
 import asyncio
 import json
+import os
 import re
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Optional
@@ -275,6 +276,8 @@ async def fetch_recent_tweets(
         from twscrape import API
     except Exception as e:  # pragma: no cover
         raise RuntimeError(f"twscrape not installed: {e}")
+
+    _log(log, f"twscrape fallback using db={os.path.abspath(db_path)}")
 
     api = API(db_path)
 
