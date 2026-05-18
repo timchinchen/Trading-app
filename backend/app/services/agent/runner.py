@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import os
 from datetime import datetime, timedelta
 from typing import Any, Optional
 
@@ -751,6 +752,8 @@ async def _run_once_impl(broker: AlpacaBroker) -> int:
         # Playwright is our primary source since Dec-2025 twscrape 0.17.0 hit
         # parsing failures that self-lock accounts for 15 minutes. twscrape
         # remains as a fallback.
+        tw_db = os.path.abspath(settings.TWSCRAPE_DB)
+        log.add(f"TWSCRAPE_DB (X session cookie sqlite) -> {tw_db}")
         log.add(f"fetching tweets via playwright (lookback={rs.agent_lookback_hours}h, "
                 f"max/account={rs.agent_max_tweets_per_account}, "
                 f"per-account timeout={rs.agent_per_account_timeout_s}s) ...")
@@ -793,6 +796,7 @@ async def _run_once_impl(broker: AlpacaBroker) -> int:
             playwright_failed = True
 
         if playwright_failed:
+            log.add("tweet fetch: switching to twscrape API fallback ...")
             try:
                 tweets = await twitter_client.fetch_recent_tweets(
                     handles=handles,
@@ -826,6 +830,12 @@ async def _run_once_impl(broker: AlpacaBroker) -> int:
         for tw in tweets:
             by_handle[tw["handle"]] = by_handle.get(tw["handle"], 0) + 1
         log.add(f"fetched {len(tweets)} tweets total")
+        if len(tweets) == 0:
+            log.add(
+                "HINT 0 tweets: read preceding lines — twscrape account rows, "
+                "Playwright cookie jar (auth_token/ct0), navigation http_status, "
+                "and timeline_probe. Refresh: `python -m app.services.agent.setup add_cookies`."
+            )
         if by_handle:
             log.add("  per handle: " + ", ".join(f"@{h}={n}" for h, n in by_handle.items()))
         missing = [h for h in handles if h.lower() not in by_handle]
