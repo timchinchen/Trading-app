@@ -161,7 +161,7 @@ All variables live in **`backend/.env`** (see **`backend/.env.example`**).
 | `PLAYWRIGHT_CHROMIUM_EXECUTABLE` | *(empty)* | If set, launch this Chromium instead of Playwright’s bundled binary (common on Pi). Example: `/usr/bin/chromium`. |
 | `PLAYWRIGHT_DISABLE_GPU` | `false` | Append `--disable-gpu` at launch (often helps headless ARM). |
 | `PLAYWRIGHT_USER_AGENT` | *(auto)* | Non-empty overrides default UA (Darwin vs Linux aarch64-style string). |
-| `PLAYWRIGHT_RELAXED_FALLBACK` | `true` | If the **primary** Playwright session returns **zero tweets**, automatically runs a **second** session with longer waits, **`load`** navigation, and **no** image/font blocking. Set `false` to disable. |
+| `PLAYWRIGHT_RELAXED_FALLBACK` | `false` | If **`true`** and the **primary** Playwright session returns **zero tweets**, runs a **second** session with longer waits, **`load`** navigation, and **no** image/font blocking. Recommended **`true`** on Raspberry Pi / flaky networks. |
 
 ---
 

@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import platform
 import re
 import sqlite3
 import sys
@@ -190,8 +191,15 @@ def _playwright_user_agent() -> str:
             "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
             "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36"
         )
+    # Linux/non-mac: match CPU arch so amd64 VPS users are not lumped under aarch64 UA.
+    mach = platform.machine().lower()
+    if mach in ("aarch64", "arm64"):
+        return (
+            "Mozilla/5.0 (X11; Linux aarch64) AppleWebKit/537.36 "
+            "(KHTML, like Gecko) Chromium/131.0.0.0 Safari/537.36"
+        )
     return (
-        "Mozilla/5.0 (X11; Linux aarch64) AppleWebKit/537.36 "
+        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
         "(KHTML, like Gecko) Chromium/131.0.0.0 Safari/537.36"
     )
 
@@ -585,7 +593,7 @@ async def fetch_recent_tweets(
 ) -> list[dict[str, Any]]:
     """Fetch recent tweets per handle via Playwright.
 
-    When ``PLAYWRIGHT_RELAXED_FALLBACK`` is True (default) and this call uses the primary
+    When ``PLAYWRIGHT_RELAXED_FALLBACK`` is True and this call uses the primary
     scraper first (``relaxed_navigation=False``), an automatic second browser session runs
     with longer waits + ``load`` navigation if the first returns zero tweets.
     """

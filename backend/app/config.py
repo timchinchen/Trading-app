@@ -241,7 +241,8 @@ class Settings(BaseSettings):
     # Override User-Agent (empty => macOS-like on Darwin, Linux aarch64 UA elsewhere).
     PLAYWRIGHT_USER_AGENT: str = ""
     # After primary DOM scrape returns 0 tweets, retry once with relaxed waits / load event.
-    PLAYWRIGHT_RELAXED_FALLBACK: bool = True
+    # Default False preserves legacy behaviour (single browser session) when unset in .env.
+    PLAYWRIGHT_RELAXED_FALLBACK: bool = False
 
     @property
     def twitter_accounts_list(self) -> list[str]:
