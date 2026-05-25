@@ -403,6 +403,7 @@ trading-app/
 | Version | Highlights |
 |---------|-----------|
 | **1.3.0** | Dynamic weekly ROLE_PREAMBLE lessons · unified `/agent/context` · digest delta compression · advisor feedback loop |
+| **1.2.2** | `AGENTS.md` Cursor Cloud dev guide · frontend `package-lock.json` sync with `package.json` |
 | **1.2.1** | Entry/exit defaults tightened for higher-quality swing trades (`AGENT_MIN_SCORE`, `AGENT_MIN_CONFIDENCE`, `AGENT_TOP_N_CANDIDATES`, tighter trailing/partial/time-stop defaults) |
 | **1.2.0** | Source reliability weighting · regime-adaptive sizing · adaptive exit engine (time/momentum/partial TP) · take-profit/stop-loss whole-percent input · sell tab auto-fills held qty · Chat context injection · company name hover-tips · agent pipeline robustness fixes · Trading Digest |
 | 1.0.8 | Symbol detail page error boundary + chart hardening |
