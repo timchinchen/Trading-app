@@ -53,9 +53,33 @@ def build_trading_context_text(
     lines.append("")
     lines.append("--- AGENT SETTINGS ---")
     lines.append(f"Agent enabled: {rs.agent_enabled}")
-    lines.append(f"Budget: ${rs.agent_budget_usd:.0f}")
+    lines.append(f"Auto-execute live: {rs.agent_auto_execute_live}")
+    lines.append(f"Budget: ${rs.agent_budget_usd:.0f} (weekly ${rs.agent_weekly_budget_usd:.0f})")
+    lines.append(
+        f"Position slot: ${rs.agent_min_position_usd:.0f}-${rs.agent_max_position_usd:.0f}"
+    )
     lines.append(f"Max open positions: {rs.agent_max_open_positions}")
-    lines.append(f"Auto-sell (max hold): {rs.auto_sell_max_hold_days} days")
+    lines.append(
+        f"Thresholds: min_score={rs.agent_min_score:.2f} "
+        f"min_confidence={rs.agent_min_confidence:.2f} top_n={rs.agent_top_n_candidates}"
+    )
+    lines.append(
+        f"Exits: TP +{rs.agent_take_profit_pct * 100:.1f}% SL -{rs.agent_stop_loss_pct * 100:.1f}% "
+        f"partial {rs.agent_partial_take_fraction * 100:.0f}% @ +{rs.agent_partial_take_pct * 100:.1f}% "
+        f"trail arm +{rs.agent_trail_arm_pct * 100:.1f}% retrace {rs.agent_trail_retrace_pct * 100:.0f}% "
+        f"hard_hold={rs.agent_max_hold_days}d"
+    )
+    lines.append(
+        f"Swing: enabled={rs.swing_enabled} time_stop={rs.swing_time_stop_days}d "
+        f"min_rr={rs.swing_min_rr:.1f} filter={rs.swing_market_filter_symbol}/"
+        f"SMA{rs.swing_market_filter_ma}"
+    )
+    lines.append(
+        f"Regime mult: on={rs.agent_regime_risk_on_mult:.2f} "
+        f"neutral={rs.agent_regime_neutral_mult:.2f} "
+        f"off={rs.agent_regime_risk_off_mult:.2f} block_buys_risk_off={rs.agent_risk_off_block_new_buys}"
+    )
+    lines.append(f"Auto-sell: enabled={rs.auto_sell_enabled} max_hold={rs.auto_sell_max_hold_days}d")
     if sched_next:
         lines.append(f"Next run: {sched_next}")
 

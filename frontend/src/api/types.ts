@@ -275,6 +275,32 @@ export interface SettingsExportPayload {
   settings: Record<string, unknown>
 }
 
+export type SettingsOptimizeGoal =
+  | 'default'
+  | 'small_account_2_3_week_swing'
+  | 'conservative'
+
+export interface SettingsIssue {
+  key: string | null
+  severity: 'error' | 'warn' | 'info'
+  message: string
+}
+
+export interface SettingsOptimizeResult {
+  generated_at: string
+  goal: string
+  model_used: string
+  conflicts: SettingsIssue[]
+  drift: SettingsIssue[]
+  summary: string
+  conflicts_addressed: string[]
+  recommended: Record<string, unknown>
+  rationale: Record<string, string>
+  current: Record<string, unknown>
+  llm_error: string | null
+  apply_allowed: boolean
+}
+
 export type AgentSettingsUpdate = Partial<{
   REGISTRATION_ENABLED: boolean
   LLM_PROVIDER: LLMProvider

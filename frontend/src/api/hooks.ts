@@ -26,6 +26,8 @@ import type {
   SetupHealth,
   WatchlistItem,
   SettingsExportPayload,
+  SettingsOptimizeGoal,
+  SettingsOptimizeResult,
 } from './types'
 
 export const useMode = () =>
@@ -314,6 +316,13 @@ export const useImportAgentSettings = () => {
     },
   })
 }
+
+export const useOptimizeAgentSettings = () =>
+  useMutation({
+    mutationFn: async (goal: SettingsOptimizeGoal = 'default') =>
+      (await api.post<SettingsOptimizeResult>('/agent/settings/optimize', { goal }))
+        .data,
+  })
 
 export const useDigest = () =>
   useQuery({
