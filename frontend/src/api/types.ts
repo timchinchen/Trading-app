@@ -241,6 +241,8 @@ export interface AgentSettings {
   agent_stop_loss_pct: number
   agent_recent_trade_window_hours: number
   agent_net_budget_accounting: boolean
+  agent_dynamic_preamble_enabled: boolean
+  agent_weekly_lesson_max_chars: number
   agent_min_score: number
   agent_min_confidence: number
   agent_top_n_candidates: number
@@ -313,6 +315,8 @@ export type AgentSettingsUpdate = Partial<{
   AGENT_STOP_LOSS_PCT: number
   AGENT_RECENT_TRADE_WINDOW_HOURS: number
   AGENT_NET_BUDGET_ACCOUNTING: boolean
+  AGENT_DYNAMIC_PREAMBLE_ENABLED: boolean
+  AGENT_WEEKLY_LESSON_MAX_CHARS: number
   AGENT_MIN_SCORE: number
   AGENT_MIN_CONFIDENCE: number
   AGENT_TOP_N_CANDIDATES: number

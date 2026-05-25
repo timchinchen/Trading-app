@@ -46,3 +46,11 @@ def test_week_start_is_monday():
     start = week_start_utc(datetime(2026, 5, 27, 12, 0, 0))
     assert start.weekday() == 0
     assert start.day == 25
+
+
+def test_build_role_preamble_includes_lessons_header_when_stats_fallback():
+    """Without DB, enabled=True still returns base only; disabled stays base."""
+    text = build_role_preamble(None, enabled=True)
+    assert ROLE_PREAMBLE_BASE in text
+    text_off = build_role_preamble(None, enabled=False)
+    assert text_off == ROLE_PREAMBLE_BASE

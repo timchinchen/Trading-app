@@ -4,6 +4,7 @@ import {
   useAccount,
   useAddWatch,
   useCompressDigest,
+  useCompressWeeklyLesson,
   useRunDigestNow,
   useDigest,
   usePositions,
@@ -45,6 +46,7 @@ function TradingMemoryCard() {
   const { data, isLoading } = useDigest()
   const runNow = useRunDigestNow()
   const compress = useCompressDigest()
+  const weeklyLesson = useCompressWeeklyLesson()
   const [showEntries, setShowEntries] = useState(false)
 
   const latest = data?.latest
@@ -78,6 +80,14 @@ function TradingMemoryCard() {
             className="btn-primary px-3 py-1 text-xs rounded-md disabled:opacity-50"
           >
             {compress.isPending ? 'compressing…' : 'compress now'}
+          </button>
+          <button
+            onClick={() => weeklyLesson.mutate()}
+            disabled={weeklyLesson.isPending}
+            className="btn-primary px-3 py-1 text-xs rounded-md disabled:opacity-50"
+            title="Distill calendar-week outcomes into ROLE_PREAMBLE supplement"
+          >
+            {weeklyLesson.isPending ? 'weekly…' : 'weekly lessons'}
           </button>
         </div>
       }
