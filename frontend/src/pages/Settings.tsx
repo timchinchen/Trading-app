@@ -10,8 +10,16 @@ import {
   useAutoSellRunNow,
   useMode,
   useUpdateAgentSettings,
+  useOptimizeAgentSettings,
 } from '../api/hooks'
-import type { AgentSettings, AgentSettingsUpdate, LLMProvider } from '../api/types'
+import type {
+  AgentSettings,
+  AgentSettingsUpdate,
+  LLMProvider,
+  SettingsIssue,
+  SettingsOptimizeGoal,
+  SettingsOptimizeResult,
+} from '../api/types'
 import { APP_VERSION } from '../version'
 
 function Row({
@@ -1967,6 +1975,236 @@ function ManualOrderSafetyCard({ s }: { s: AgentSettings }) {
   )
 }
 
+function severityClass(sev: SettingsIssue['severity']) {
+  if (sev === 'error') return 'text-destructive border-destructive/40 bg-destructive/10'
+  if (sev === 'warn') return 'text-amber-600 border-amber-500/40 bg-amber-500/10'
+  return 'text-muted-foreground border-border bg-muted/30'
+}
+
+function formatSettingValue(v: unknown): string {
+  if (typeof v === 'boolean') return v ? 'true' : 'false'
+  if (typeof v === 'number') return String(v)
+  if (v == null) return '—'
+  return String(v)
+}
+
+function SettingsOptimizationWizard({ s }: { s: AgentSettings }) {
+  const optimize = useOptimizeAgentSettings()
+  const apply = useUpdateAgentSettings()
+  const [goal, setGoal] = useState<SettingsOptimizeGoal>('small_account_2_3_week_swing')
+  const [result, setResult] = useState<SettingsOptimizeResult | null>(null)
+  const [confirmOpen, setConfirmOpen] = useState(false)
+  const [status, setStatus] = useState('')
+
+  const onAnalyze = async () => {
+    setStatus('')
+    setResult(null)
+    try {
+      const data = await optimize.mutateAsync(goal)
+      setResult(data)
+      setStatus('Analysis complete.')
+    } catch (e: any) {
+      setStatus(e?.response?.data?.detail || e?.message || 'Analysis failed.')
+    }
+  }
+
+  const recommendedKeys = result?.recommended
+    ? Object.keys(result.recommended)
+    : []
+
+  const onApply = async () => {
+    if (!result?.apply_allowed || !result.recommended) return
+    setStatus('')
+    try {
+      await apply.mutateAsync(
+        result.recommended as AgentSettingsUpdate,
+      )
+      setConfirmOpen(false)
+      setStatus('Recommended settings applied and saved to the database.')
+    } catch (e: any) {
+      setStatus(e?.response?.data?.detail || e?.message || 'Apply failed.')
+    }
+  }
+
+  const IssueList = ({
+    title,
+    items,
+  }: {
+    title: string
+    items: SettingsIssue[]
+  }) =>
+    items.length === 0 ? null : (
+      <div className="mt-3">
+        <div className="text-xs text-muted-foreground uppercase tracking-wider mb-2">
+          {title}
+        </div>
+        <ul className="space-y-2">
+          {items.map((item, i) => (
+            <li
+              key={`${item.key ?? 'x'}-${i}`}
+              className={`text-xs px-2 py-1.5 rounded border ${severityClass(item.severity)}`}
+            >
+              {item.key && (
+                <span className="font-mono text-[10px] mr-2">{item.key}</span>
+              )}
+              {item.message}
+            </li>
+          ))}
+        </ul>
+      </div>
+    )
+
+  return (
+    <Card title="Settings optimization wizard">
+      <p className="text-xs text-muted-foreground mb-3">
+        Runs deterministic conflict and drift checks, then asks the{' '}
+        <strong>Deep Analysis LLM</strong> (
+        <code className="text-primary">{s.advisor_effective_provider}</code> /{' '}
+        <code className="text-primary">{s.advisor_effective_model}</code>) for a
+        tuned profile. API keys are never changed. Export a backup in Import /
+        Export above before applying.
+      </p>
+
+      <div className="grid grid-cols-[180px_1fr] gap-2 py-2 border-b border-border">
+        <div className="text-xs text-muted-foreground uppercase tracking-wider self-center">
+          Goal
+        </div>
+        <select
+          value={goal}
+          onChange={(e) => setGoal(e.target.value as SettingsOptimizeGoal)}
+          className="px-3 py-2 rounded-md text-sm max-w-md"
+          disabled={optimize.isPending}
+        >
+          <option value="default">Default (balanced 1-2 week swings)</option>
+          <option value="small_account_2_3_week_swing">
+            Small account, 2-3 week swings
+          </option>
+          <option value="conservative">Conservative (higher thresholds)</option>
+        </select>
+      </div>
+
+      <div className="flex items-center gap-3 pt-4 flex-wrap">
+        <button
+          onClick={onAnalyze}
+          disabled={optimize.isPending}
+          className="btn-primary px-4 py-2 rounded-lg"
+        >
+          {optimize.isPending ? 'Analyzing…' : 'Analyze settings'}
+        </button>
+        <button
+          onClick={() => setConfirmOpen(true)}
+          disabled={
+            !result?.apply_allowed ||
+            recommendedKeys.length === 0 ||
+            apply.isPending
+          }
+          className="btn-secondary px-4 py-2 rounded-lg"
+        >
+          Apply recommended settings
+        </button>
+        {optimize.isPending && (
+          <span className="text-xs text-muted-foreground">
+            This may take up to 3 minutes…
+          </span>
+        )}
+      </div>
+
+      {status && (
+        <p className="text-xs mt-2 text-muted-foreground">{status}</p>
+      )}
+
+      {result && (
+        <div className="mt-4 space-y-2">
+          {result.llm_error && (
+            <p className="text-xs text-destructive">{result.llm_error}</p>
+          )}
+          {result.summary && (
+            <p className="text-sm">{result.summary}</p>
+          )}
+          {result.conflicts_addressed.length > 0 && (
+            <ul className="text-xs text-muted-foreground list-disc pl-4">
+              {result.conflicts_addressed.map((c, i) => (
+                <li key={i}>{c}</li>
+              ))}
+            </ul>
+          )}
+          <IssueList title="Conflicts" items={result.conflicts} />
+          <IssueList title="Drift" items={result.drift} />
+
+          {recommendedKeys.length > 0 && (
+            <div className="mt-4 overflow-x-auto">
+              <div className="text-xs text-muted-foreground uppercase tracking-wider mb-2">
+                Recommended changes ({recommendedKeys.length})
+              </div>
+              <table className="w-full text-xs border border-border">
+                <thead>
+                  <tr className="border-b border-border text-muted-foreground">
+                    <th className="text-left p-2">Key</th>
+                    <th className="text-left p-2">Current</th>
+                    <th className="text-left p-2">Recommended</th>
+                    <th className="text-left p-2">Why</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {recommendedKeys.map((key) => (
+                    <tr key={key} className="border-b border-border/60">
+                      <td className="p-2 font-mono">{key}</td>
+                      <td className="p-2">
+                        {formatSettingValue(result.current[key])}
+                      </td>
+                      <td className="p-2 text-primary font-medium">
+                        {formatSettingValue(result.recommended[key])}
+                      </td>
+                      <td className="p-2 text-muted-foreground">
+                        {result.rationale[key] ?? '—'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {confirmOpen && result && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="panel p-6 max-w-lg w-full space-y-4">
+            <h4 className="font-semibold">Apply recommended settings?</h4>
+            <p className="text-xs text-muted-foreground">
+              This updates {recommendedKeys.length} key(s) in the database.
+              Secrets are not modified. Consider exporting settings first.
+            </p>
+            <ul className="text-xs max-h-40 overflow-auto font-mono space-y-1">
+              {recommendedKeys.map((k) => (
+                <li key={k}>
+                  {k}: {formatSettingValue(result.current[k])} →{' '}
+                  {formatSettingValue(result.recommended[k])}
+                </li>
+              ))}
+            </ul>
+            <div className="flex gap-3 justify-end">
+              <button
+                className="btn-secondary px-4 py-2 rounded-lg"
+                onClick={() => setConfirmOpen(false)}
+              >
+                Cancel
+              </button>
+              <button
+                className="btn-primary px-4 py-2 rounded-lg"
+                disabled={apply.isPending}
+                onClick={onApply}
+              >
+                {apply.isPending ? 'Applying…' : 'Confirm apply'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </Card>
+  )
+}
+
 export function SettingsPage() {
   const { data: mode } = useMode()
   const { data: account } = useAccount()
@@ -2074,6 +2312,7 @@ export function SettingsPage() {
           <ScraperCadenceCard s={agentSettings} />
           <ManualOrderSafetyCard s={agentSettings} />
           <TwitterAccountsCard s={agentSettings} />
+          <SettingsOptimizationWizard s={agentSettings} />
         </>
       ) : (
         <Card title="LLM + agent settings">

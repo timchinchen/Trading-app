@@ -15,6 +15,9 @@ from ..schemas import (
     AgentStatusOut,
     AgentTradeOut,
     AgentTweetAnalysisOut,
+    SettingsOptimizeIn,
+    SettingsOptimizeOut,
+    SettingsIssueOut,
 )
 from ..security import get_current_user
 from ..services.agent.auto_sell import preview as auto_sell_preview, run_auto_sell
@@ -35,6 +38,7 @@ from ..services.settings_store import (
     public_view,
     update_settings,
 )
+from ..services.settings_optimizer import run_settings_optimize
 
 router = APIRouter(prefix="/agent", tags=["agent"])
 
@@ -325,6 +329,67 @@ def import_settings(
     except Exception:
         pass
     return public_view(rs)
+
+
+@router.post("/settings/optimize", response_model=SettingsOptimizeOut)
+async def optimize_settings(
+    body: SettingsOptimizeIn = Body(default=SettingsOptimizeIn()),
+    _user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+    broker=Depends(get_broker),
+):
+    """Analyze runtime settings for conflicts/drift and LLM-tuned recommendations."""
+    result = await run_settings_optimize(
+        db,
+        broker,
+        goal=body.goal,
+        assumptions=_diagnostic_assumptions(get_runtime_settings(db)),
+    )
+    try:
+        safe_rec = {
+            k: v for k, v in (result.get("recommended") or {}).items()
+        }
+        digest_append(
+            kind="settings_optimize",
+            summary=(
+                f"settings optimize ({body.goal}): "
+                f"{len(safe_rec)} recommendations, "
+                f"{len(result.get('conflicts') or [])} conflicts"
+            )[:240],
+            data={
+                "goal": body.goal,
+                "recommended_keys": sorted(safe_rec.keys()),
+                "llm_error": result.get("llm_error"),
+            },
+            db=db,
+        )
+    except Exception:
+        pass
+
+    def _issues(raw: list) -> list[SettingsIssueOut]:
+        return [
+            SettingsIssueOut(
+                key=item.get("key"),
+                severity=item.get("severity", "info"),
+                message=item.get("message", ""),
+            )
+            for item in raw
+        ]
+
+    return SettingsOptimizeOut(
+        generated_at=result["generated_at"],
+        goal=result["goal"],
+        model_used=result["model_used"],
+        conflicts=_issues(result.get("conflicts") or []),
+        drift=_issues(result.get("drift") or []),
+        summary=result.get("summary") or "",
+        conflicts_addressed=result.get("conflicts_addressed") or [],
+        recommended=result.get("recommended") or {},
+        rationale=result.get("rationale") or {},
+        current=result.get("current") or {},
+        llm_error=result.get("llm_error"),
+        apply_allowed=bool(result.get("apply_allowed")),
+    )
 
 
 @router.get("/runs", response_model=list[AgentRunOut])

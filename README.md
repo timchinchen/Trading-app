@@ -269,6 +269,11 @@ AGENT_RISK_OFF_BLOCK_NEW_BUYS=true
 - Window **stats** and weekly metrics prepended to the compress prompt.
 - **`advisor_feedback`** digest entries capture the advisor’s “Feedback to operator” section each run.
 
+### Settings optimization wizard
+- **Settings → Settings optimization wizard** at the bottom of the editable cards: one-click **Analyze settings** (`POST /agent/settings/optimize`) runs deterministic conflict/drift checks, then the Deep Analysis LLM proposes a tuned profile.
+- **Apply recommended settings** persists only changed, non-secret keys to SQLite (`app_settings`) so values survive upgrades and container rebuilds (when the data volume is mounted). Export a JSON backup from Import/Export before applying.
+- Hidden exit knob **`AGENT_MAX_HOLD_DAYS`** (not on the Settings form) can be included in recommendations — align it with **TIME_STOP_DAYS** (`SWING_TIME_STOP_DAYS`) and **AUTO-SELL MAX_HOLD_DAYS**.
+
 ---
 
 ## v1.2 — What's new

@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 
@@ -285,3 +285,28 @@ class ChatOut(BaseModel):
     content: str
     model: str
     duration_ms: int
+
+
+class SettingsIssueOut(BaseModel):
+    key: Optional[str] = None
+    severity: Literal["error", "warn", "info"]
+    message: str
+
+
+class SettingsOptimizeIn(BaseModel):
+    goal: Literal["default", "small_account_2_3_week_swing", "conservative"] = "default"
+
+
+class SettingsOptimizeOut(BaseModel):
+    generated_at: str
+    goal: str
+    model_used: str
+    conflicts: list[SettingsIssueOut]
+    drift: list[SettingsIssueOut]
+    summary: str
+    conflicts_addressed: list[str] = []
+    recommended: dict[str, Any] = {}
+    rationale: dict[str, str] = {}
+    current: dict[str, Any] = {}
+    llm_error: Optional[str] = None
+    apply_allowed: bool = False
