@@ -8,7 +8,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 # Z droid-controlled - bumped on every droid-authored edit). Reported
 # by /health/setup so the Prerequisites panel can show the same version
 # badge the Settings page does.
-APP_VERSION_BACKEND = "1.2.1"
+APP_VERSION_BACKEND = "1.3.0"
 
 
 class Settings(BaseSettings):
@@ -96,6 +96,9 @@ class Settings(BaseSettings):
     # When True (default), sell proceeds are subtracted from "used" budget,
     # allowing same-day redeployment. When False, budget tracks gross buys only.
     AGENT_NET_BUDGET_ACCOUNTING: bool = True
+    # Append weekly-learned bullets to ROLE_PREAMBLE (never rewrites core rules).
+    AGENT_DYNAMIC_PREAMBLE_ENABLED: bool = True
+    AGENT_WEEKLY_LESSON_MAX_CHARS: int = 800
 
     # ---- Source reliability weighting ----
     # JSON object mapping handle -> weight multiplier. Missing handles get 1.0.

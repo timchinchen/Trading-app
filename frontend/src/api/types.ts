@@ -356,11 +356,19 @@ export interface AgentDiagnosticAssumption {
 
 export interface AgentDiagnostics {
   prompts: {
+    role_preamble_base: string
     role_preamble: string
+    weekly_lessons?: string | null
+    weekly_lessons_week_key?: string | null
     tweet_system_prompt: string
     advisor_system_prompt: string
   }
+  weekly_stats?: string
   assumptions: AgentDiagnosticAssumption[]
+}
+
+export interface AgentContextOut {
+  text: string
 }
 
 export interface DigestEntry {

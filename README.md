@@ -1,4 +1,4 @@
-# Personal Stocks Trading App — v1.2.1
+# Personal Stocks Trading App — v1.3.0
 
 Self-hosted swing-trading app with **Paper** and **Live** modes, backed by Alpaca. Runs entirely on your own hardware — no cloud subscriptions, no data sold.
 
@@ -251,6 +251,26 @@ AGENT_RISK_OFF_BLOCK_NEW_BUYS=true
 
 ---
 
+## v1.3 — What's new
+
+### Dynamic ROLE_PREAMBLE (weekly lessons)
+- **`ROLE_PREAMBLE_BASE`** stays fixed (swing setups, risk rules).
+- **`WeeklyPromptLesson`** rows distill calendar-week outcomes (FIFO P/L by setup, run/trade stats, advisor feedback) into an append-only supplement injected into tweet, advisor, and summary LLM system prompts.
+- Toggle via **`AGENT_DYNAMIC_PREAMBLE_ENABLED`**; cap size with **`AGENT_WEEKLY_LESSON_MAX_CHARS`**.
+- Scheduled **Monday 09:35 ET** compression; manual **`POST /digest/weekly-compress`**.
+- Diagnostics shows base vs weekly lessons vs effective preamble.
+
+### Unified trading context
+- **`GET /agent/context`** builds the same block as Chat “include context” (account, positions, digests, recent runs).
+- Chat uses the API instead of duplicating assembly in the frontend.
+
+### Digest improvements
+- Daily compression requires **delta** lessons vs yesterday’s digest (reduces repeated “reevaluate market filter” paragraphs).
+- Window **stats** and weekly metrics prepended to the compress prompt.
+- **`advisor_feedback`** digest entries capture the advisor’s “Feedback to operator” section each run.
+
+---
+
 ## v1.2 — What's new
 
 ### Source reliability weighting
@@ -382,6 +402,7 @@ trading-app/
 
 | Version | Highlights |
 |---------|-----------|
+| **1.3.0** | Dynamic weekly ROLE_PREAMBLE lessons · unified `/agent/context` · digest delta compression · advisor feedback loop |
 | **1.2.1** | Entry/exit defaults tightened for higher-quality swing trades (`AGENT_MIN_SCORE`, `AGENT_MIN_CONFIDENCE`, `AGENT_TOP_N_CANDIDATES`, tighter trailing/partial/time-stop defaults) |
 | **1.2.0** | Source reliability weighting · regime-adaptive sizing · adaptive exit engine (time/momentum/partial TP) · take-profit/stop-loss whole-percent input · sell tab auto-fills held qty · Chat context injection · company name hover-tips · agent pipeline robustness fixes · Trading Digest |
 | 1.0.8 | Symbol detail page error boundary + chart hardening |

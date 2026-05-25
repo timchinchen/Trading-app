@@ -19,6 +19,7 @@ from ..schemas import (
 )
 from ..security import get_current_user
 from ..services.digest_store import compress_daily
+from ..services.prompt_feedback import compress_weekly, load_latest_weekly_lessons
 
 router = APIRouter(prefix="/digest", tags=["digest"])
 
@@ -118,3 +119,38 @@ async def run_now(
     if row is None:
         return None
     return DailyDigestOut.model_validate(row)
+
+
+@router.get("/weekly-lesson")
+def get_weekly_lesson(
+    _user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    row = load_latest_weekly_lessons(db)
+    if not row:
+        return None
+    return {
+        "week_key": row.week_key,
+        "generated_at": row.generated_at,
+        "text": row.text,
+        "model_used": row.model_used,
+        "entries_covered": row.entries_covered,
+        "stats_json": row.stats_json,
+    }
+
+
+@router.post("/weekly-compress")
+async def weekly_compress_now(
+    _user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+    force: bool = True,
+):
+    row = await compress_weekly(force=force, db=db)
+    if row is None:
+        return None
+    return {
+        "week_key": row.week_key,
+        "generated_at": row.generated_at,
+        "text": row.text,
+        "model_used": row.model_used,
+    }

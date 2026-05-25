@@ -20,6 +20,12 @@ from ..security import get_current_user
 from ..services.agent.auto_sell import preview as auto_sell_preview, run_auto_sell
 from ..services.agent import llm as agent_llm
 from ..services.agent.runner import run_once
+from ..services.prompt_feedback import (
+    compute_weekly_stats,
+    format_stats_brief,
+    load_latest_weekly_lessons,
+)
+from ..services.trading_context import build_trading_context_text
 from ..services.digest_store import append_entry as digest_append
 from ..services.settings_store import (
     EDITABLE_KEYS,
@@ -177,14 +183,42 @@ def get_settings(_user=Depends(get_current_user), db: Session = Depends(get_db))
 @router.get("/diagnostics")
 def diagnostics(_user=Depends(get_current_user), db: Session = Depends(get_db)):
     rs = get_runtime_settings(db)
+    effective = agent_llm.build_role_preamble(
+        db,
+        enabled=rs.agent_dynamic_preamble_enabled,
+        max_supplement_chars=rs.agent_weekly_lesson_max_chars,
+    )
+    weekly = load_latest_weekly_lessons(db)
     return {
         "prompts": {
-            "role_preamble": agent_llm.ROLE_PREAMBLE,
-            "tweet_system_prompt": agent_llm.SYSTEM_PROMPT,
-            "advisor_system_prompt": agent_llm.ADVISOR_SYSTEM,
+            "role_preamble_base": agent_llm.ROLE_PREAMBLE_BASE,
+            "role_preamble": effective,
+            "weekly_lessons": (weekly.text if weekly else None),
+            "weekly_lessons_week_key": (weekly.week_key if weekly else None),
+            "tweet_system_prompt": agent_llm.build_tweet_system_prompt(effective),
+            "advisor_system_prompt": agent_llm.build_advisor_system_prompt(effective),
         },
+        "weekly_stats": format_stats_brief(compute_weekly_stats(db, settings.APP_MODE)),
         "assumptions": _diagnostic_assumptions(rs),
     }
+
+
+@router.get("/context")
+def agent_context(
+    _user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+    broker=Depends(get_broker),
+    digests_limit: int = 5,
+    runs_limit: int = 20,
+):
+    """Trading app context block (same sections as Chat 'include context')."""
+    text = build_trading_context_text(
+        db,
+        broker,
+        digests_limit=max(1, min(30, digests_limit)),
+        runs_limit=max(1, min(50, runs_limit)),
+    )
+    return {"text": text}
 
 
 @router.put("/settings")

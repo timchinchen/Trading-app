@@ -26,7 +26,7 @@ import httpx
 Provider = str  # "ollama" | "openai" | "huggingface" | "cohere"
 
 
-ROLE_PREAMBLE = (
+ROLE_PREAMBLE_BASE = (
     "ROLE: You are a swing-trading assistant hunting quick wins over a 1-2 week "
     "holding horizon (3-10 trading days). You are NOT a low-latency/HFT bot and "
     "NOT a long-term investor. Your edge is synthesising every scrap of "
@@ -72,26 +72,118 @@ ROLE_PREAMBLE = (
     "cut losses quickly, only trade when market conditions support the setup."
 )
 
+# Back-compat alias for diagnostics and imports.
+ROLE_PREAMBLE = ROLE_PREAMBLE_BASE
 
-SYSTEM_PROMPT = (
-    ROLE_PREAMBLE + "\n\n"
-    "TASK: You are given a single tweet from a public investor. Extract any "
-    "US-listed stock tickers the tweet references or implies, and rate the "
-    "bullish/bearish sentiment of each from the perspective of a 1-2 week swing "
-    "trade. Return STRICT JSON only, no markdown, no prose.\n\n"
-    "Schema:\n"
-    "{\n"
-    "  \"tickers\": [ {\n"
-    "    \"symbol\": \"AAPL\",\n"
-    "    \"sentiment\": -1.0..1.0,   // negative = bearish, positive = bullish\n"
-    "    \"confidence\": 0.0..1.0,\n"
-    "    \"rationale\": \"one short sentence naming the near-term catalyst\"\n"
-    "  } ],\n"
-    "  \"meta\": { \"is_noise\": true|false }  // true if the tweet has no tradable 1-2 week signal\n"
-    "}\n"
-    "If the tweet has no ticker or no catalyst that can play out inside a 1-2 "
-    "week window, return {\"tickers\": [], \"meta\": {\"is_noise\": true}}."
-)
+
+def build_role_preamble(
+    db: "Session | None" = None,
+    *,
+    enabled: bool = True,
+    max_supplement_chars: int = 800,
+) -> str:
+    """Immutable swing rules plus optional weekly lesson supplement."""
+    from ..prompt_feedback import LESSONS_HEADER, format_stats_brief, load_latest_weekly_lessons
+    from ..prompt_feedback import compute_weekly_stats as _week_stats
+    from ...config import settings as _settings
+
+    base = ROLE_PREAMBLE_BASE
+    if not enabled or db is None:
+        return base
+    row = load_latest_weekly_lessons(db)  # type: ignore[arg-type]
+    if row and (row.text or "").strip():
+        text = row.text.strip()
+        if len(text) > max_supplement_chars:
+            text = text[: max_supplement_chars - 1].rstrip() + "…"
+        return f"{base}\n\n{LESSONS_HEADER}\n{text}"
+    stats = _week_stats(db, _settings.APP_MODE)  # type: ignore[arg-type]
+    brief = format_stats_brief(stats)
+    if not brief.strip():
+        return base
+    supplement = (
+        "RECENT_OUTCOMES\n"
+        f"- {brief.replace(chr(10), '; ')}\n\n"
+        "CALIBRATION (next week)\n"
+        "- Run POST /digest/weekly-compress after enough trades to distill lessons."
+    )
+    if len(supplement) > max_supplement_chars:
+        supplement = supplement[: max_supplement_chars - 1].rstrip() + "…"
+    return f"{base}\n\n{LESSONS_HEADER}\n{supplement}"
+
+
+def build_tweet_system_prompt(role_preamble: str | None = None) -> str:
+    pre = role_preamble or ROLE_PREAMBLE_BASE
+    return (
+        pre + "\n\n"
+        "TASK: You are given a single tweet from a public investor. Extract any "
+        "US-listed stock tickers the tweet references or implies, and rate the "
+        "bullish/bearish sentiment of each from the perspective of a 1-2 week swing "
+        "trade. Return STRICT JSON only, no markdown, no prose.\n\n"
+        "Schema:\n"
+        "{\n"
+        "  \"tickers\": [ {\n"
+        "    \"symbol\": \"AAPL\",\n"
+        "    \"sentiment\": -1.0..1.0,   // negative = bearish, positive = bullish\n"
+        "    \"confidence\": 0.0..1.0,\n"
+        "    \"rationale\": \"one short sentence naming the near-term catalyst\"\n"
+        "  } ],\n"
+        "  \"meta\": { \"is_noise\": true|false }  // true if the tweet has no tradable 1-2 week signal\n"
+        "}\n"
+        "If the tweet has no ticker or no catalyst that can play out inside a 1-2 "
+        "week window, return {\"tickers\": [], \"meta\": {\"is_noise\": true}}."
+    )
+
+
+def build_advisor_system_prompt(role_preamble: str | None = None) -> str:
+    pre = role_preamble or ROLE_PREAMBLE_BASE
+    return (
+        pre + "\n\n"
+        "You are the portfolio advisor for a small personal paper-trading account "
+        "(low-hundreds of dollars) running the 1-2 week swing strategy described "
+        "above. Every BUY/HOLD/TRIM/ADD decision must map onto one of the four "
+        "approved setups (trend pullback, breakout, oversold bounce, earnings/news "
+        "momentum) with a concrete stop, target, and R/R >= 1:2. You are given:\n"
+        "  1. Current open positions with notional, unrealised P/L, age\n"
+        "  2. Today's agent signals (symbol, score, confidence, mentions, rationale)\n"
+        "  3. Trade proposals this run (executed/proposed/skipped + reason)\n"
+        "  4. Market intel + technical scan on every watchlist symbol (trend, MAs, "
+        "RSI, setup classification, entry/stop/target)\n"
+        "  5. Market regime check (SPY trend, go/no-go)\n"
+        "  6. Budget state (daily + weekly remaining, open-position count)\n\n"
+        "Write a crisp, actionable recommendation in plain text (no markdown, no "
+        "disclaimers) using EXACTLY these section headers:\n\n"
+        "Market Regime\n"
+        "- <go | no-go> — one-line justification from the SPY trend snapshot\n\n"
+        "Portfolio Today\n"
+        "- <SYMBOL>: hold | trim | add | exit — setup it's playing out + stop + "
+        "target; call out +5% partial-profit, +8% move-to-breakeven, or >=3-5 "
+        "day time-stop triggers\n"
+        "(one line per held position; write 'none' if flat)\n\n"
+        "New Ideas (this run)\n"
+        "- BUY <SYMBOL> ~$<notional> @ ~$<entry> stop $<stop> target $<target> "
+        "(R/R ~<n>:1) — <setup name> + catalyst\n"
+        "(one line per executed or proposed new trade; write 'none' if nothing "
+        "or if regime = no-go)\n\n"
+        "Watchlist\n"
+        "- <SYMBOL> — waiting on <trigger within 1-2 weeks> (<setup name>)\n"
+        "(2-5 names from watchlist/signals that missed the bar this run)\n\n"
+        "Risk notes\n"
+        "- <one sentence about budget headroom / concentration / macro headlines / "
+        "positions approaching the 3-5 day time-stop>\n\n"
+        "Feedback to operator\n"
+        "- <one or two sentences naming the single most useful extra data feed, "
+        "signal, or tuning change that would improve the next run - e.g. options "
+        "flow, earnings calendar, sector ETF correlations, pre-market quotes, "
+        "analyst PT revisions, deeper bar history, higher LLM_CONCURRENCY, more "
+        "watchlist depth, etc.>\n\n"
+        "Stay under 300 words. Refer to tickers in ALLCAPS. Never fabricate a "
+        "symbol that is not in the input. Never propose a BUY when Market Regime "
+        "is no-go. If the input is thin, say so briefly in Risk notes."
+    )
+
+
+SYSTEM_PROMPT = build_tweet_system_prompt()
+ADVISOR_SYSTEM = build_advisor_system_prompt()
 
 
 def _extract_json(s: str) -> dict[str, Any]:
@@ -262,15 +354,17 @@ async def analyze_tweet(
     *,
     provider: Provider = "ollama",
     api_key: str = "",
+    role_preamble: str | None = None,
 ) -> dict[str, Any]:
     user_prompt = f"Tweet from @{handle}:\n\"\"\"\n{text[:4000]}\n\"\"\""
+    system = build_tweet_system_prompt(role_preamble)
     try:
         content = await _chat(
             provider=provider,
             host=host,
             model=model,
             api_key=api_key,
-            system=SYSTEM_PROMPT,
+            system=system,
             user=user_prompt,
             json_mode=True,
             temperature=0.1,
@@ -289,7 +383,9 @@ async def summarize_run(
     *,
     provider: Provider = "ollama",
     api_key: str = "",
+    role_preamble: str | None = None,
 ) -> str:
+    pre = role_preamble or ROLE_PREAMBLE_BASE
     try:
         out = await _chat(
             provider=provider,
@@ -297,7 +393,7 @@ async def summarize_run(
             model=model,
             api_key=api_key,
             system=(
-                ROLE_PREAMBLE + "\n\n"
+                pre + "\n\n"
                 "Summarise the trading signals below from a 1-2 week swing-trade "
                 "perspective in 3-5 short bullet points (ticker + catalyst + "
                 "near-term bias). No preamble, no disclaimers.\n\n"
@@ -315,52 +411,6 @@ async def summarize_run(
         return f"(summary unavailable: {e})"
 
 
-ADVISOR_SYSTEM = (
-    ROLE_PREAMBLE + "\n\n"
-    "You are the portfolio advisor for a small personal paper-trading account "
-    "(low-hundreds of dollars) running the 1-2 week swing strategy described "
-    "above. Every BUY/HOLD/TRIM/ADD decision must map onto one of the four "
-    "approved setups (trend pullback, breakout, oversold bounce, earnings/news "
-    "momentum) with a concrete stop, target, and R/R >= 1:2. You are given:\n"
-    "  1. Current open positions with notional, unrealised P/L, age\n"
-    "  2. Today's agent signals (symbol, score, confidence, mentions, rationale)\n"
-    "  3. Trade proposals this run (executed/proposed/skipped + reason)\n"
-    "  4. Market intel + technical scan on every watchlist symbol (trend, MAs, "
-    "RSI, setup classification, entry/stop/target)\n"
-    "  5. Market regime check (SPY trend, go/no-go)\n"
-    "  6. Budget state (daily + weekly remaining, open-position count)\n\n"
-    "Write a crisp, actionable recommendation in plain text (no markdown, no "
-    "disclaimers) using EXACTLY these section headers:\n\n"
-    "Market Regime\n"
-    "- <go | no-go> — one-line justification from the SPY trend snapshot\n\n"
-    "Portfolio Today\n"
-    "- <SYMBOL>: hold | trim | add | exit — setup it's playing out + stop + "
-    "target; call out +5% partial-profit, +8% move-to-breakeven, or >=3-5 "
-    "day time-stop triggers\n"
-    "(one line per held position; write 'none' if flat)\n\n"
-    "New Ideas (this run)\n"
-    "- BUY <SYMBOL> ~$<notional> @ ~$<entry> stop $<stop> target $<target> "
-    "(R/R ~<n>:1) — <setup name> + catalyst\n"
-    "(one line per executed or proposed new trade; write 'none' if nothing "
-    "or if regime = no-go)\n\n"
-    "Watchlist\n"
-    "- <SYMBOL> — waiting on <trigger within 1-2 weeks> (<setup name>)\n"
-    "(2-5 names from watchlist/signals that missed the bar this run)\n\n"
-    "Risk notes\n"
-    "- <one sentence about budget headroom / concentration / macro headlines / "
-    "positions approaching the 3-5 day time-stop>\n\n"
-    "Feedback to operator\n"
-    "- <one or two sentences naming the single most useful extra data feed, "
-    "signal, or tuning change that would improve the next run - e.g. options "
-    "flow, earnings calendar, sector ETF correlations, pre-market quotes, "
-    "analyst PT revisions, deeper bar history, higher LLM_CONCURRENCY, more "
-    "watchlist depth, etc.>\n\n"
-    "Stay under 300 words. Refer to tickers in ALLCAPS. Never fabricate a "
-    "symbol that is not in the input. Never propose a BUY when Market Regime "
-    "is no-go. If the input is thin, say so briefly in Risk notes."
-)
-
-
 async def advise_portfolio(
     context: str,
     host: str,
@@ -368,15 +418,17 @@ async def advise_portfolio(
     *,
     provider: Provider = "ollama",
     api_key: str = "",
+    role_preamble: str | None = None,
 ) -> str:
     """Produce a structured portfolio recommendation via the active LLM."""
+    system = build_advisor_system_prompt(role_preamble)
     try:
         out = await _chat(
             provider=provider,
             host=host,
             model=model,
             api_key=api_key,
-            system=ADVISOR_SYSTEM,
+            system=system,
             user=context[:12000],
             temperature=0.2,
             timeout=180,
