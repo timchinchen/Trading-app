@@ -3,6 +3,7 @@ import { api } from './client'
 import type {
   Account,
   AgentAccountCache,
+  AgentContextOut,
   AgentDiagnostics,
   AgentRun,
   AgentSettings,
@@ -336,6 +337,28 @@ export const useRunDigestNow = () => {
     mutationFn: async () =>
       (await api.post<DailyDigest | null>('/digest/run-now')).data,
     onSuccess: () => qc.invalidateQueries({ queryKey: ['digest'] }),
+  })
+}
+
+export const useAgentContext = (enabled: boolean, digests = 5, runs = 20) =>
+  useQuery({
+    queryKey: ['agent', 'context', digests, runs],
+    queryFn: async () =>
+      (await api.get<AgentContextOut>(`/agent/context?digests_limit=${digests}&runs_limit=${runs}`))
+        .data,
+    enabled,
+    staleTime: 30_000,
+  })
+
+export const useCompressWeeklyLesson = () => {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async () =>
+      (await api.post<{ week_key: string; text: string } | null>('/digest/weekly-compress')).data,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['digest'] })
+      qc.invalidateQueries({ queryKey: ['agent'] })
+    },
   })
 }
 

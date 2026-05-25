@@ -23,6 +23,7 @@ from ...models import (
 )
 from ..broker import AlpacaBroker
 from ..digest_store import advisor_memory_prefix, append_entry as digest_append
+from ..prompt_feedback import parse_advisor_feedback
 from ..settings_store import get_runtime_settings
 from . import analyzer, allocator, llm, playwright_client, swing_runner, twitter_client
 from .intel import collect_intel
@@ -707,6 +708,11 @@ async def _run_once_impl(broker: AlpacaBroker) -> int:
     run_id = run.id
     log = RunLog()
     rs = get_runtime_settings(db)
+    role_preamble = llm.build_role_preamble(
+        db,
+        enabled=rs.agent_dynamic_preamble_enabled,
+        max_supplement_chars=rs.agent_weekly_lesson_max_chars,
+    )
     log.add(
         f"run #{run_id} starting | mode={settings.APP_MODE} | "
         f"budget=${rs.agent_budget_usd} max/pos=${rs.agent_max_position_usd} | "
@@ -910,6 +916,7 @@ async def _run_once_impl(broker: AlpacaBroker) -> int:
                 a = await llm.analyze_tweet(
                     tw["text"], tw["handle"], rs.llm_host, rs.llm_model,
                     provider=rs.llm_provider, api_key=rs.llm_api_key,
+                    role_preamble=role_preamble,
                 )
             analyses.append({"tweet": tw, "analysis": a})
 
@@ -1566,8 +1573,18 @@ async def _run_once_impl(broker: AlpacaBroker) -> int:
             rs.advisor_model,
             provider=rs.advisor_provider,
             api_key=rs.advisor_api_key,
+            role_preamble=role_preamble,
         )
         run.advice = advice[:6000]
+
+        fb = parse_advisor_feedback(advice)
+        if fb:
+            digest_append(
+                kind="advisor_feedback",
+                summary=f"run #{run_id} feedback: {fb[:240]}",
+                data={"run_id": run_id, "feedback": fb[:1000]},
+                db=db,
+            )
 
         # Short single-line summary for list views (first non-empty line of advice).
         first_line = next(

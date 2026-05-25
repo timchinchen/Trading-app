@@ -1112,6 +1112,12 @@ function AgentBudgetCard({ s }: { s: AgentSettings }) {
   )
   const [recentWindow, setRecentWindow] = useState(s.agent_recent_trade_window_hours)
   const [netBudget, setNetBudget] = useState(s.agent_net_budget_accounting)
+  const [dynamicPreamble, setDynamicPreamble] = useState(
+    s.agent_dynamic_preamble_enabled ?? true,
+  )
+  const [weeklyLessonChars, setWeeklyLessonChars] = useState(
+    s.agent_weekly_lesson_max_chars ?? 800,
+  )
 
   useEffect(() => {
     setEnabled(s.agent_enabled)
@@ -1128,6 +1134,8 @@ function AgentBudgetCard({ s }: { s: AgentSettings }) {
     setStopLossPct(Number((s.agent_stop_loss_pct * 100).toFixed(4)))
     setRecentWindow(s.agent_recent_trade_window_hours)
     setNetBudget(s.agent_net_budget_accounting)
+    setDynamicPreamble(s.agent_dynamic_preamble_enabled ?? true)
+    setWeeklyLessonChars(s.agent_weekly_lesson_max_chars ?? 800)
   }, [s])
 
   const save = () => {
@@ -1147,6 +1155,8 @@ function AgentBudgetCard({ s }: { s: AgentSettings }) {
       AGENT_STOP_LOSS_PCT: Number(stopLossPct) / 100,
       AGENT_RECENT_TRADE_WINDOW_HOURS: Number(recentWindow),
       AGENT_NET_BUDGET_ACCOUNTING: netBudget,
+      AGENT_DYNAMIC_PREAMBLE_ENABLED: dynamicPreamble,
+      AGENT_WEEKLY_LESSON_MAX_CHARS: Number(weeklyLessonChars),
     })
   }
 
@@ -1317,6 +1327,40 @@ function AgentBudgetCard({ s }: { s: AgentSettings }) {
               sell proceeds free budget for same-day redeployment
             </span>
           </label>
+        </div>
+        <div className="grid grid-cols-[180px_1fr] gap-2 py-2 border-b border-border">
+          <div className="text-xs text-muted-foreground uppercase tracking-wider self-center">
+            WEEKLY LESSONS
+            <OverrideBadge k="AGENT_DYNAMIC_PREAMBLE_ENABLED" overridden={s.overridden} />
+          </div>
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={dynamicPreamble}
+              onChange={(e) => setDynamicPreamble(e.target.checked)}
+            />
+            <span>
+              inject weekly-learned bullets into agent ROLE_PREAMBLE
+            </span>
+          </label>
+        </div>
+        <div className="grid grid-cols-[180px_1fr] gap-2 py-2 border-b border-border">
+          <div className="text-xs text-muted-foreground uppercase tracking-wider self-center">
+            LESSON MAX CHARS
+            <OverrideBadge k="AGENT_WEEKLY_LESSON_MAX_CHARS" overridden={s.overridden} />
+          </div>
+          <div className="flex items-center gap-2">
+            <NumInput
+              value={weeklyLessonChars}
+              onChange={setWeeklyLessonChars}
+              step="50"
+              min={200}
+              max={4000}
+            />
+            <span className="text-xs text-muted-foreground">
+              cap on weekly supplement appended to system prompts
+            </span>
+          </div>
         </div>
       </div>
       <div className="flex items-center gap-3 pt-4">

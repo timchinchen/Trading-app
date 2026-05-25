@@ -135,9 +135,25 @@ export function DiagnosticsPage() {
         {diagnostics.data && (
           <div className="space-y-3">
             <PromptCard
-              title="Role preamble"
+              title="Role preamble (effective)"
               text={diagnostics.data.prompts.role_preamble}
             />
+            {diagnostics.data.prompts.weekly_lessons && (
+              <PromptCard
+                title={`Weekly lessons (${diagnostics.data.prompts.weekly_lessons_week_key ?? 'latest'})`}
+                text={diagnostics.data.prompts.weekly_lessons}
+              />
+            )}
+            <PromptCard
+              title="Role preamble (base)"
+              text={diagnostics.data.prompts.role_preamble_base}
+            />
+            {diagnostics.data.weekly_stats && (
+              <PromptCard
+                title="Weekly stats (deterministic)"
+                text={diagnostics.data.weekly_stats}
+              />
+            )}
             <PromptCard
               title="Tweet analysis system prompt"
               text={diagnostics.data.prompts.tweet_system_prompt}

@@ -172,7 +172,7 @@ class DigestEntry(Base):
     id = Column(Integer, primary_key=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
     kind = Column(String, nullable=False, index=True)
-    # agent_run | advisor | trade_exec | swing_setup | regime_flip |
+    # agent_run | advisor | advisor_feedback | trade_exec | swing_setup | regime_flip |
     # intel_highlight | watchlist_delta | settings_change | error
     symbol = Column(String, index=True)      # optional ticker focus
     summary = Column(String, nullable=False) # short human-readable one-liner
@@ -194,6 +194,18 @@ class DailyDigest(Base):
     window_end = Column(DateTime)           # last entry covered (UTC)
     model_used = Column(String)             # provider:model string that produced this digest
     text = Column(String, nullable=False)   # the compressed paragraph shown on the dashboard
+
+
+class WeeklyPromptLesson(Base):
+    """Distilled weekly trading lessons injected into ROLE_PREAMBLE."""
+    __tablename__ = "weekly_prompt_lessons"
+    id = Column(Integer, primary_key=True)
+    week_key = Column(String, nullable=False, unique=True, index=True)  # e.g. 2026-W21
+    generated_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    text = Column(String, nullable=False)
+    stats_json = Column(String)
+    model_used = Column(String)
+    entries_covered = Column(Integer, default=0, nullable=False)
 
 
 class AgentTweetAnalysis(Base):

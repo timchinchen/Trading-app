@@ -19,6 +19,7 @@ from ...config import settings
 from ...db import engine
 from ..broker import AlpacaBroker
 from ..digest_store import compress_daily
+from ..prompt_feedback import compress_weekly
 from .auto_sell import run_auto_sell
 from .runner import run_once
 
@@ -78,6 +79,7 @@ class AgentScheduler:
         self.sched: Optional[AsyncIOScheduler] = None
         self._job = None
         self._digest_job = None
+        self._weekly_lesson_job = None
         self._backup_job = None
         self._auto_sell_job = None
         self._cron_minutes = _safe_cron_step_minutes(settings.AGENT_CRON_MINUTES)
@@ -110,6 +112,32 @@ class AgentScheduler:
             await compress_daily()
         except Exception as e:
             print(f"[digest] compress_daily crashed: {e}")
+
+    def _schedule_weekly_lesson_job(self) -> None:
+        if self.sched is None:
+            return
+        weekly_trigger = CronTrigger(
+            day_of_week="mon",
+            hour=9,
+            minute=35,
+            timezone="America/New_York",
+        )
+        if self._weekly_lesson_job:
+            self._weekly_lesson_job.reschedule(trigger=weekly_trigger)
+        else:
+            self._weekly_lesson_job = self.sched.add_job(
+                self._weekly_lesson,
+                trigger=weekly_trigger,
+                id="weekly_prompt_lesson",
+            )
+        nr = getattr(self._weekly_lesson_job, "next_run_time", None)
+        print(f"[prompt_feedback] weekly lesson job armed; next: {nr or '(pending)'}")
+
+    async def _weekly_lesson(self):
+        try:
+            await compress_weekly()
+        except Exception as e:
+            print(f"[prompt_feedback] compress_weekly crashed: {e}")
 
     def _schedule_backup_job(self) -> None:
         """Snapshot the sqlite DB once per weekday at 06:00 ET.
@@ -202,6 +230,7 @@ class AgentScheduler:
         # is running, which used to crash startup on the debug print.
         self.sched.start()
         self._schedule_digest_job()
+        self._schedule_weekly_lesson_job()
         self._schedule_backup_job()
         self._schedule_auto_sell_job()
         nr = self.next_run_at()
@@ -260,6 +289,7 @@ class AgentScheduler:
         # Make sure the digest + backup + auto-sell jobs are still attached
         # (in case the scheduler was just recreated from a disabled state).
         self._schedule_digest_job()
+        self._schedule_weekly_lesson_job()
         self._schedule_backup_job()
         self._schedule_auto_sell_job()
         nr = self.next_run_at()

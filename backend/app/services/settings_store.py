@@ -118,6 +118,8 @@ EDITABLE_KEYS: dict[str, type] = {
     "SWING_MARKET_FILTER_SYMBOL": str,
     "SWING_MARKET_FILTER_MA": int,
     "SWING_BAR_LOOKBACK_DAYS": int,
+    "AGENT_DYNAMIC_PREAMBLE_ENABLED": bool,
+    "AGENT_WEEKLY_LESSON_MAX_CHARS": int,
 }
 
 # Keys whose value should be masked when the API returns the current settings.
@@ -254,6 +256,8 @@ class RuntimeSettings:
     # Auto-sell (max-hold window)
     auto_sell_enabled: bool = True
     auto_sell_max_hold_days: int = 30
+    agent_dynamic_preamble_enabled: bool = True
+    agent_weekly_lesson_max_chars: int = 800
     # Bookkeeping: which keys are overridden in the DB (vs env default)
     overridden: set[str] = field(default_factory=set)
 
@@ -467,6 +471,10 @@ def get_runtime_settings(db: Session | None = None) -> RuntimeSettings:
         swing_bar_lookback_days=int(pick("SWING_BAR_LOOKBACK_DAYS", int)),
         auto_sell_enabled=bool(pick("AUTO_SELL_ENABLED", bool)),
         auto_sell_max_hold_days=int(pick("AUTO_SELL_MAX_HOLD_DAYS", int)),
+        agent_dynamic_preamble_enabled=bool(pick("AGENT_DYNAMIC_PREAMBLE_ENABLED", bool)),
+        agent_weekly_lesson_max_chars=max(
+            200, min(4000, int(pick("AGENT_WEEKLY_LESSON_MAX_CHARS", int)))
+        ),
         overridden={k for k, v in overrides.items() if v != ""},
     )
     return rs
@@ -614,6 +622,8 @@ def public_view(rs: RuntimeSettings) -> dict[str, Any]:
         "swing_bar_lookback_days": rs.swing_bar_lookback_days,
         "auto_sell_enabled": rs.auto_sell_enabled,
         "auto_sell_max_hold_days": rs.auto_sell_max_hold_days,
+        "agent_dynamic_preamble_enabled": rs.agent_dynamic_preamble_enabled,
+        "agent_weekly_lesson_max_chars": rs.agent_weekly_lesson_max_chars,
         "overridden": sorted(rs.overridden),
     }
     return out

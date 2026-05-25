@@ -39,6 +39,7 @@ ADVISOR_MEMORY_PER_DIGEST_CHARS = 800
 KNOWN_KINDS = {
     "agent_run",
     "advisor",
+    "advisor_feedback",
     "trade_exec",
     "swing_setup",
     "regime_flip",
@@ -173,15 +174,45 @@ DAILY_DIGEST_SYSTEM = (
     "- 1-3 bullet lines: positions still open, setups still pending, symbols "
     "we keep circling back to\n\n"
     "PATTERNS & LESSONS\n"
-    "- 1-3 bullet lines: what pattern or lesson has emerged across runs (was "
-    "the market filter too strict? did TSLA keep failing the same way? did "
-    "earnings-momentum setups win? etc.)\n\n"
+    "- 1-3 bullet lines: NEW patterns only (do not repeat lessons unchanged "
+    "from the prior digest if still true). Cite stats when provided.\n\n"
     "FOCUS FOR TODAY\n"
     "- one short line: what the agent should prioritise or avoid today given "
     "the last 7 days of memory\n\n"
     "Stay under 220 words. Refer to tickers in ALLCAPS. Never invent events "
-    "that are not in the log. If the log is sparse, say so."
+    "that are not in the log. If the log is sparse, say so. If a PRIOR DAILY "
+    "DIGEST is supplied, do not copy its bullets verbatim — only add deltas."
 )
+
+
+def digest_window_stats(db: Session, days: int = COMPRESS_WINDOW_DAYS) -> str:
+    """Deterministic metrics prepended to daily compression prompts."""
+    from ..config import settings as _cfg
+    from ..models import AgentRun, AgentTrade
+
+    since = datetime.utcnow() - timedelta(days=days)
+    runs = (
+        db.query(AgentRun)
+        .filter(AgentRun.mode == _cfg.APP_MODE, AgentRun.started_at >= since)
+        .count()
+    )
+    trades = db.query(AgentTrade).filter(
+        AgentTrade.mode == _cfg.APP_MODE,
+        AgentTrade.created_at >= since,
+    )
+    proposed = trades.filter(AgentTrade.action == "proposed").count()
+    executed = trades.filter(AgentTrade.action == "executed").count()
+    skipped = trades.filter(AgentTrade.action == "skipped").count()
+    no_go = (
+        db.query(DigestEntry)
+        .filter(DigestEntry.created_at >= since, DigestEntry.summary.ilike("%no-go%"))
+        .count()
+    )
+    return (
+        f"Window stats ({days}d): agent_runs={runs}; "
+        f"trades proposed/executed/skipped={proposed}/{executed}/{skipped}; "
+        f"digest no-go mentions={no_go}"
+    )
 
 
 async def compress_daily(
@@ -226,12 +257,23 @@ async def compress_daily(
             prior = recent_daily_digests(db, limit=ADVISOR_CONTEXT_DIGESTS)
             prior_text = ""
             if prior:
-                prior_text = "Prior compressed digests (for continuity):\n"
-                for p in reversed(prior):
-                    prior_text += f"[{p.trade_date}] {p.text.strip()}\n\n"
+                prior_text = (
+                    "PRIOR DAILY DIGEST (do not repeat unchanged bullets; add deltas only):\n"
+                    f"[{prior[0].trade_date}]\n{prior[0].text.strip()}\n\n"
+                )
+            stats_line = digest_window_stats(db, days=COMPRESS_WINDOW_DAYS)
+            try:
+                from ..config import settings as _cfg
+                from .prompt_feedback import format_stats_brief, compute_weekly_stats
+                week_stats = format_stats_brief(
+                    compute_weekly_stats(db, _cfg.APP_MODE)
+                )
+            except Exception:
+                week_stats = ""
             user_prompt = (
-                (prior_text + "\n" if prior_text else "")
-                + f"Today is {date_key} (US/Eastern). "
+                (prior_text if prior_text else "")
+                + f"Today is {date_key} (US/Eastern).\n{stats_line}\n"
+                + (f"{week_stats}\n\n" if week_stats else "")
                 + f"Compress the following {len(entries)} events from the last "
                 + f"{COMPRESS_WINDOW_DAYS} days into the required memory note.\n\n"
                 + _render_entries_for_llm(entries)
