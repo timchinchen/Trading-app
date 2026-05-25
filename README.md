@@ -1,4 +1,4 @@
-# Personal Stocks Trading App — v1.2.1
+# Personal Stocks Trading App — v1.2.2
 
 Self-hosted swing-trading app with **Paper** and **Live** modes, backed by Alpaca. Runs entirely on your own hardware — no cloud subscriptions, no data sold.
 
