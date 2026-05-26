@@ -298,6 +298,8 @@ class SettingsOptimizeIn(BaseModel):
 
 
 class SettingsOptimizeOut(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
+
     generated_at: str
     goal: str
     model_used: str
