@@ -45,6 +45,33 @@ function PromptCard({ title, text }: { title: string; text: string }) {
   )
 }
 
+async function copyTextToClipboard(text: string): Promise<boolean> {
+  try {
+    if (navigator?.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text)
+      return true
+    }
+  } catch {}
+
+  try {
+    const ta = document.createElement('textarea')
+    ta.value = text
+    ta.setAttribute('readonly', '')
+    ta.style.position = 'fixed'
+    ta.style.top = '-1000px'
+    ta.style.left = '-1000px'
+    document.body.appendChild(ta)
+    ta.focus()
+    ta.select()
+    ta.setSelectionRange(0, ta.value.length)
+    const ok = document.execCommand('copy')
+    document.body.removeChild(ta)
+    return !!ok
+  } catch {
+    return false
+  }
+}
+
 export function DiagnosticsPage() {
   const setup = useSetupHealth()
   const diagnostics = useAgentDiagnostics()
@@ -85,7 +112,8 @@ export function DiagnosticsPage() {
     }
     const payload = chunks.join('\n')
     try {
-      await navigator.clipboard.writeText(payload)
+      const ok = await copyTextToClipboard(payload)
+      if (!ok) throw new Error('copy failed')
       setCopyAllStatus('copied')
       setTimeout(() => setCopyAllStatus('idle'), 1600)
     } catch {
