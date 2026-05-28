@@ -40,6 +40,23 @@ _NEW_CALIBRATION_BLOCK = (
     "- Continue respecting stops, risk caps, and the three-tier SPY filter."
 )
 
+
+def _normalize_weekly_lesson_text(text: str) -> str:
+    """Normalize known weekly-lesson text artifacts and stale calibration tails."""
+    t = (text or "").strip()
+    if not t:
+        return t
+    # One-shot migration for full old calibration block.
+    if _OLD_CALIBRATION_BLOCK in t and _NEW_CALIBRATION_BLOCK not in t:
+        t = t.replace(_OLD_CALIBRATION_BLOCK, _NEW_CALIBRATION_BLOCK)
+    # Repair any corrupted/duplicated "Continue respecting..." tail variants.
+    t = re.sub(
+        r"- Continue respecting stops, risk caps[^\n]*",
+        "- Continue respecting stops, risk caps, and the three-tier SPY filter.",
+        t,
+    )
+    return t
+
 WEEKLY_LESSON_SYSTEM = (
     "You distill one calendar week of swing-trading outcomes into short bullets "
     "for the agent's system prompt. You receive deterministic stats plus event "
@@ -247,10 +264,9 @@ def load_latest_weekly_lessons(db: Session) -> WeeklyPromptLesson | None:
         .first()
     )
     if row and row.text:
-        t = row.text.strip()
-        # One-shot text migration for W23 calibration guidance.
-        if _OLD_CALIBRATION_BLOCK in t and _NEW_CALIBRATION_BLOCK not in t:
-            row.text = t.replace(_OLD_CALIBRATION_BLOCK, _NEW_CALIBRATION_BLOCK)
+        t = _normalize_weekly_lesson_text(row.text)
+        if t != row.text:
+            row.text = t
             db.commit()
     return row
 
@@ -346,6 +362,7 @@ async def compress_weekly(
             print(f"[prompt_feedback] weekly LLM failed: {e}")
             text = _fallback_weekly_lesson(stats)
             model_used = "fallback:stats"
+        text = _normalize_weekly_lesson_text(text)
 
         existing = (
             db.query(WeeklyPromptLesson)
