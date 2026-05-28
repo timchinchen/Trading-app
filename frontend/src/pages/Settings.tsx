@@ -11,6 +11,7 @@ import {
   useMode,
   useUpdateAgentSettings,
   useOptimizeAgentSettings,
+  useValidateDeepModel,
 } from '../api/hooks'
 import type {
   AgentSettings,
@@ -514,6 +515,7 @@ function LLMProviderCard({ s }: { s: AgentSettings }) {
 // ----- Deep Analysis LLM (advisor / portfolio recommender) -----
 function DeepAnalysisLLMCard({ s }: { s: AgentSettings }) {
   const upd = useUpdateAgentSettings()
+  const validate = useValidateDeepModel()
   const [enabled, setEnabled] = useState(s.deep_llm_enabled)
   const [provider, setProvider] = useState<'ollama' | 'openai'>(
     (s.deep_llm_provider || 'openai') as 'ollama' | 'openai',
@@ -524,6 +526,10 @@ function DeepAnalysisLLMCard({ s }: { s: AgentSettings }) {
   const [openaiBaseUrl, setOpenaiBaseUrl] = useState(s.deep_llm_openai_base_url)
   const [openaiKey, setOpenaiKey] = useState('')
   const [clearOpenaiKey, setClearOpenaiKey] = useState(false)
+  const [validateResult, setValidateResult] = useState<{
+    ok: boolean
+    detail: string
+  } | null>(null)
 
   useEffect(() => {
     setEnabled(s.deep_llm_enabled)
@@ -554,6 +560,30 @@ function DeepAnalysisLLMCard({ s }: { s: AgentSettings }) {
         setClearOpenaiKey(false)
       },
     })
+  }
+
+  const runValidation = () => {
+    setValidateResult(null)
+    validate.mutate(
+      {
+        provider,
+        model: provider === 'openai' ? openaiModel : ollamaModel,
+        base_url: provider === 'openai' ? openaiBaseUrl : ollamaHost,
+        api_key: provider === 'openai' && !clearOpenaiKey ? openaiKey.trim() : '',
+      },
+      {
+        onSuccess: (res) => {
+          setValidateResult({ ok: res.ok, detail: res.detail })
+        },
+        onError: (err: any) => {
+          const detail =
+            err?.response?.data?.detail ??
+            err?.message ??
+            'Validation request failed'
+          setValidateResult({ ok: false, detail: String(detail) })
+        },
+      },
+    )
   }
 
   return (
@@ -726,8 +756,23 @@ function DeepAnalysisLLMCard({ s }: { s: AgentSettings }) {
         >
           {upd.isPending ? 'Saving...' : 'Save deep-analysis settings'}
         </button>
+        {enabled && (
+          <button
+            onClick={runValidation}
+            disabled={validate.isPending}
+            className="px-4 py-2 rounded-lg border border-border text-sm hover:bg-muted"
+            type="button"
+          >
+            {validate.isPending ? 'Validating...' : 'Validate deep model'}
+          </button>
+        )}
         {upd.isSuccess && !upd.isPending && (
           <span className="text-xs text-success">saved</span>
+        )}
+        {validateResult && (
+          <span className={validateResult.ok ? 'text-xs text-success' : 'text-xs text-destructive'}>
+            {validateResult.ok ? 'validation passed' : 'validation failed'}: {validateResult.detail}
+          </span>
         )}
       </div>
     </Card>

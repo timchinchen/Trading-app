@@ -18,6 +18,8 @@ from ..schemas import (
     SettingsOptimizeIn,
     SettingsOptimizeOut,
     SettingsIssueOut,
+    DeepModelValidateIn,
+    DeepModelValidateOut,
 )
 from ..security import get_current_user
 from ..services.agent.auto_sell import preview as auto_sell_preview, run_auto_sell
@@ -395,6 +397,39 @@ async def optimize_settings(
         current=result.get("current") or {},
         llm_error=result.get("llm_error"),
         apply_allowed=bool(result.get("apply_allowed")),
+    )
+
+
+@router.post("/settings/validate-deep-model", response_model=DeepModelValidateOut)
+async def validate_deep_model(
+    body: DeepModelValidateIn = Body(default=DeepModelValidateIn()),
+    _user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    rs = get_runtime_settings(db)
+    provider = (body.provider or "openai").lower()
+
+    if provider == "openai":
+        model = (body.model or rs.deep_llm_openai_model or rs.openai_model).strip()
+        base_url = (body.base_url or rs.deep_llm_openai_base_url or rs.openai_base_url).strip()
+        api_key = (body.api_key or rs.deep_llm_openai_api_key or rs.openai_api_key).strip()
+    else:
+        model = (body.model or rs.deep_llm_ollama_model or rs.ollama_model).strip()
+        base_url = (body.base_url or rs.deep_llm_ollama_host or rs.ollama_host).strip()
+        api_key = ""
+
+    ok, detail = await agent_llm.validate_chat_model(
+        provider=provider,
+        host=base_url,
+        model=model,
+        api_key=api_key,
+    )
+    return DeepModelValidateOut(
+        ok=ok,
+        provider=provider,
+        model=model,
+        base_url=base_url,
+        detail=detail,
     )
 
 

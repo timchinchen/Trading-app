@@ -311,6 +311,21 @@ export interface SettingsOptimizeResult {
   apply_allowed: boolean
 }
 
+export interface DeepModelValidationInput {
+  provider: 'openai' | 'ollama'
+  model: string
+  base_url: string
+  api_key?: string
+}
+
+export interface DeepModelValidationResult {
+  ok: boolean
+  provider: string
+  model: string
+  base_url: string
+  detail: string
+}
+
 export type AgentSettingsUpdate = Partial<{
   REGISTRATION_ENABLED: boolean
   LLM_PROVIDER: LLMProvider
