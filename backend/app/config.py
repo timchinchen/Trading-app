@@ -112,6 +112,8 @@ class Settings(BaseSettings):
     # If enabled, overwrite legacy signal["score"] with the deterministic
     # composite mapped to [-1, 1]. Keep False during rollout.
     AGENT_PRE_LLM_SCORING_OVERRIDE_SCORE: bool = False
+    AGENT_RS_BENCHMARK_SYMBOL: str = "SPY"
+    AGENT_RS_LOOKBACK_DAYS: int = 120
     AGENT_SCORING_WEIGHT_RELATIVE_STRENGTH: float = 0.30
     AGENT_SCORING_WEIGHT_TREND_QUALITY: float = 0.25
     AGENT_SCORING_WEIGHT_VOLUME_EXPANSION: float = 0.20

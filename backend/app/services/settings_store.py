@@ -81,6 +81,8 @@ EDITABLE_KEYS: dict[str, type] = {
     # Deterministic pre-LLM scoring (staged rollout)
     "AGENT_PRE_LLM_SCORING_ENABLED": bool,
     "AGENT_PRE_LLM_SCORING_OVERRIDE_SCORE": bool,
+    "AGENT_RS_BENCHMARK_SYMBOL": str,
+    "AGENT_RS_LOOKBACK_DAYS": int,
     "AGENT_SCORING_WEIGHT_RELATIVE_STRENGTH": float,
     "AGENT_SCORING_WEIGHT_TREND_QUALITY": float,
     "AGENT_SCORING_WEIGHT_VOLUME_EXPANSION": float,
@@ -229,6 +231,8 @@ class RuntimeSettings:
     # Deterministic pre-LLM scoring (staged rollout)
     agent_pre_llm_scoring_enabled: bool = False
     agent_pre_llm_scoring_override_score: bool = False
+    agent_rs_benchmark_symbol: str = "SPY"
+    agent_rs_lookback_days: int = 120
     agent_scoring_weight_relative_strength: float = 0.30
     agent_scoring_weight_trend_quality: float = 0.25
     agent_scoring_weight_volume_expansion: float = 0.20
@@ -460,6 +464,8 @@ def get_runtime_settings(db: Session | None = None) -> RuntimeSettings:
         agent_handle_weights=str(pick("AGENT_HANDLE_WEIGHTS", str)),
         agent_pre_llm_scoring_enabled=bool(pick("AGENT_PRE_LLM_SCORING_ENABLED", bool)),
         agent_pre_llm_scoring_override_score=bool(pick("AGENT_PRE_LLM_SCORING_OVERRIDE_SCORE", bool)),
+        agent_rs_benchmark_symbol=str(pick("AGENT_RS_BENCHMARK_SYMBOL", str)).upper() or "SPY",
+        agent_rs_lookback_days=max(60, int(pick("AGENT_RS_LOOKBACK_DAYS", int))),
         agent_scoring_weight_relative_strength=max(
             0.0, min(1.0, float(pick("AGENT_SCORING_WEIGHT_RELATIVE_STRENGTH", float)))
         ),
@@ -629,6 +635,8 @@ def public_view(rs: RuntimeSettings) -> dict[str, Any]:
         "agent_handle_weights": rs.agent_handle_weights,
         "agent_pre_llm_scoring_enabled": rs.agent_pre_llm_scoring_enabled,
         "agent_pre_llm_scoring_override_score": rs.agent_pre_llm_scoring_override_score,
+        "agent_rs_benchmark_symbol": rs.agent_rs_benchmark_symbol,
+        "agent_rs_lookback_days": rs.agent_rs_lookback_days,
         "agent_scoring_weight_relative_strength": rs.agent_scoring_weight_relative_strength,
         "agent_scoring_weight_trend_quality": rs.agent_scoring_weight_trend_quality,
         "agent_scoring_weight_volume_expansion": rs.agent_scoring_weight_volume_expansion,

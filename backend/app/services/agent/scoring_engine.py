@@ -10,6 +10,8 @@ tweet-aggregation output. It is designed to be staged in safely:
 from dataclasses import dataclass
 from typing import Any
 
+from . import technicals as T
+
 
 @dataclass(frozen=True)
 class ScoringWeights:
@@ -38,6 +40,67 @@ def _score_to_01(score: Any) -> float:
     return (s + 1.0) / 2.0
 
 
+def normalize_relative_strength(rs: Any, *, cap_abs: float = 0.30) -> float:
+    """Map raw relative-strength delta into [0..1].
+
+    rs is return(symbol) - return(benchmark), typically over 20D/50D windows.
+    """
+    try:
+        value = float(rs)
+    except Exception:
+        return 0.5
+    cap = max(0.05, float(cap_abs))
+    clipped = max(-cap, min(cap, value))
+    return (clipped + cap) / (2.0 * cap)
+
+
+def inject_relative_strength_inputs(
+    signals: dict[str, dict[str, Any]],
+    *,
+    bars_map: dict[str, list[dict[str, Any]]],
+    benchmark_symbol: str = "SPY",
+    sector_proxy_by_symbol: dict[str, str] | None = None,
+) -> dict[str, int]:
+    """Attach RS-derived fields used by the deterministic scorer.
+
+    Adds:
+      - rs_score_20d
+      - rs_score_50d
+      - rs_sector_score_20d (when sector proxy bars are available)
+    """
+    bench = (benchmark_symbol or "SPY").upper()
+    bench_bars = bars_map.get(bench) or []
+    bench_closes = T.closes(bench_bars)
+    if len(bench_closes) < 51:
+        return {"updated": 0, "missing_benchmark": 1}
+
+    updated = 0
+    sector_map = sector_proxy_by_symbol or {}
+    for sym, signal in signals.items():
+        bars = bars_map.get(sym.upper()) or []
+        closes = T.closes(bars)
+        if len(closes) < 51:
+            continue
+
+        rs20 = T.relative_strength(closes, bench_closes, 20)
+        rs50 = T.relative_strength(closes, bench_closes, 50)
+        signal["rs_score_20d"] = round(normalize_relative_strength(rs20), 4)
+        signal["rs_score_50d"] = round(normalize_relative_strength(rs50), 4)
+
+        proxy = (sector_map.get(sym.upper()) or "").upper()
+        if proxy and proxy != bench:
+            proxy_bars = bars_map.get(proxy) or []
+            proxy_closes = T.closes(proxy_bars)
+            if len(proxy_closes) >= 21:
+                rs_sector = T.relative_strength(proxy_closes, bench_closes, 20)
+                signal["rs_sector_score_20d"] = round(
+                    normalize_relative_strength(rs_sector), 4
+                )
+        updated += 1
+
+    return {"updated": updated, "missing_benchmark": 0}
+
+
 def derive_factor_vector(signal: dict[str, Any]) -> dict[str, float]:
     """Build normalized factors with fallback heuristics.
 
@@ -55,7 +118,8 @@ def derive_factor_vector(signal: dict[str, Any]) -> dict[str, float]:
 
     rs_20 = _clamp01(signal.get("rs_score_20d", score_01))
     rs_50 = _clamp01(signal.get("rs_score_50d", score_01))
-    relative_strength = round((0.6 * rs_20) + (0.4 * rs_50), 4)
+    rs_sector = _clamp01(signal.get("rs_sector_score_20d", 0.5))
+    relative_strength = round((0.5 * rs_20) + (0.3 * rs_50) + (0.2 * rs_sector), 4)
 
     trend_quality = _clamp01(signal.get("trend_quality", confidence))
     volume_expansion = _clamp01(signal.get("volume_expansion", min(1.0, mentions / 5.0)))
