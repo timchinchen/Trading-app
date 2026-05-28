@@ -239,6 +239,14 @@ export interface AgentSettings {
   agent_intel_boost: number
   agent_take_profit_pct: number
   agent_stop_loss_pct: number
+  agent_trail_arm_pct: number
+  agent_trail_retrace_pct: number
+  agent_partial_take_pct: number
+  agent_partial_take_fraction: number
+  agent_regime_risk_on_mult: number
+  agent_regime_neutral_mult: number
+  agent_regime_risk_off_mult: number
+  agent_risk_off_block_new_buys: boolean
   agent_max_hold_days: number
   agent_prompt_time_stop_days: number
   agent_recent_trade_window_hours: number
