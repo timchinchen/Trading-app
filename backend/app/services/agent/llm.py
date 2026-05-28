@@ -477,10 +477,9 @@ async def validate_chat_model(
         if not api_key:
             return False, "OpenAI API key is empty."
         url = f"{(host or 'https://api.openai.com/v1').rstrip('/')}/chat/completions"
-        payload = {
+        base_payload = {
             "model": model,
             "messages": [{"role": "user", "content": "ping"}],
-            "max_tokens": 1,
             "temperature": 0,
             "stream": False,
         }
@@ -490,7 +489,23 @@ async def validate_chat_model(
         }
         try:
             async with httpx.AsyncClient(timeout=timeout) as client:
-                r = await client.post(url, headers=headers, json=payload)
+                # Newer OpenAI models reject `max_tokens` and require
+                # `max_completion_tokens`; older compatibles may only accept
+                # `max_tokens`, so we try new-style first then fall back.
+                r = await client.post(
+                    url,
+                    headers=headers,
+                    json={**base_payload, "max_completion_tokens": 1},
+                )
+                if (
+                    r.status_code == 400
+                    and "max_completion_tokens" in (r.text or "")
+                ):
+                    r = await client.post(
+                        url,
+                        headers=headers,
+                        json={**base_payload, "max_tokens": 1},
+                    )
             if r.status_code < 400:
                 return True, "Model validated successfully."
             try:
