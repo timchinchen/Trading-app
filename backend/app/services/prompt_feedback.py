@@ -19,6 +19,27 @@ LESSONS_HEADER = (
     "LESSONS_FROM_RECENT_TRADING (append-only; do not override CORE rules above):"
 )
 
+_OLD_CALIBRATION_BLOCK = (
+    "CALIBRATION (next week)\n"
+    "- Prioritize waiting for confirmed favorable market regimes before executing trades; "
+    "avoid trading during NO-GO signals.\n"
+    "- Focus on integrating more detailed sector performance and macroeconomic data to "
+    "improve setup identification under varying conditions.\n"
+    "- Monitor symbols with corroborated intel highlights (e.g., NVDA, MSFT, HD) for "
+    "potential setups once regime permits.\n"
+    "- Continue respecting stops, risk caps"
+)
+
+_NEW_CALIBRATION_BLOCK = (
+    "CALIBRATION (W23 onwards)\n"
+    "- Under CAUTION regime, take half-size positions on confirmed setups - do not sit "
+    "out entirely.\n"
+    "- Under NO-GO regime, hold existing positions to stops only; queue watchlist "
+    "candidates for when regime flips.\n"
+    "- Monitor NVDA, MSFT, HD for first valid GO or CAUTION entries.\n"
+    "- Continue respecting stops, risk caps, and the three-tier SPY filter."
+)
+
 WEEKLY_LESSON_SYSTEM = (
     "You distill one calendar week of swing-trading outcomes into short bullets "
     "for the agent's system prompt. You receive deterministic stats plus event "
@@ -220,11 +241,18 @@ def format_stats_brief(stats: dict[str, Any]) -> str:
 
 
 def load_latest_weekly_lessons(db: Session) -> WeeklyPromptLesson | None:
-    return (
+    row = (
         db.query(WeeklyPromptLesson)
         .order_by(WeeklyPromptLesson.generated_at.desc())
         .first()
     )
+    if row and row.text:
+        t = row.text.strip()
+        # One-shot text migration for W23 calibration guidance.
+        if _OLD_CALIBRATION_BLOCK in t and _NEW_CALIBRATION_BLOCK not in t:
+            row.text = t.replace(_OLD_CALIBRATION_BLOCK, _NEW_CALIBRATION_BLOCK)
+            db.commit()
+    return row
 
 
 def _fallback_weekly_lesson(stats: dict[str, Any]) -> str:
