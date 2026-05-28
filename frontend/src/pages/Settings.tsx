@@ -1118,6 +1118,9 @@ function AgentBudgetCard({ s }: { s: AgentSettings }) {
   const [stopLossPct, setStopLossPct] = useState(
     Number((s.agent_stop_loss_pct * 100).toFixed(4)),
   )
+  const [partialTakePct, setPartialTakePct] = useState(
+    Number((s.agent_partial_take_pct * 100).toFixed(4)),
+  )
   const [agentMaxHoldDays, setAgentMaxHoldDays] = useState(
     s.agent_max_hold_days ?? 21,
   )
@@ -1146,6 +1149,7 @@ function AgentBudgetCard({ s }: { s: AgentSettings }) {
     setIntelBoost(s.agent_intel_boost)
     setTakeProfitPct(Number((s.agent_take_profit_pct * 100).toFixed(4)))
     setStopLossPct(Number((s.agent_stop_loss_pct * 100).toFixed(4)))
+    setPartialTakePct(Number((s.agent_partial_take_pct * 100).toFixed(4)))
     setAgentMaxHoldDays(s.agent_max_hold_days ?? 21)
     setRecentWindow(s.agent_recent_trade_window_hours)
     setNetBudget(s.agent_net_budget_accounting)
@@ -1169,6 +1173,7 @@ function AgentBudgetCard({ s }: { s: AgentSettings }) {
       // Input is whole percent (e.g. 7 = 7%). Backend stores a fraction.
       AGENT_TAKE_PROFIT_PCT: Number(takeProfitPct) / 100,
       AGENT_STOP_LOSS_PCT: Number(stopLossPct) / 100,
+      AGENT_PARTIAL_TAKE_PCT: Number(partialTakePct) / 100,
       AGENT_MAX_HOLD_DAYS: Number(agentMaxHoldDays),
       AGENT_RECENT_TRADE_WINDOW_HOURS: Number(recentWindow),
       AGENT_NET_BUDGET_ACCOUNTING: netBudget,
@@ -1336,11 +1341,9 @@ function AgentBudgetCard({ s }: { s: AgentSettings }) {
             <OverrideBadge k="AGENT_PARTIAL_TAKE_PCT" overridden={s.overridden} />
           </div>
           <div className="flex items-center gap-2">
-            <span className="px-3 py-2 rounded-md text-sm w-32 bg-muted/40 border border-border">
-              {(s.agent_partial_take_pct * 100).toFixed(1)}%
-            </span>
+            <NumInput value={partialTakePct} onChange={setPartialTakePct} step="0.1" />
             <span className="text-xs text-muted-foreground">
-              read-only in UI; first adaptive partial-profit trigger
+              % gain trigger for first adaptive partial-profit (whole percent)
             </span>
           </div>
         </div>

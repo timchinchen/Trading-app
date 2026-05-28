@@ -349,6 +349,7 @@ export type AgentSettingsUpdate = Partial<{
   AGENT_INTEL_BOOST: number
   AGENT_TAKE_PROFIT_PCT: number
   AGENT_STOP_LOSS_PCT: number
+  AGENT_PARTIAL_TAKE_PCT: number
   AGENT_MAX_HOLD_DAYS: number
   AGENT_PROMPT_TIME_STOP_DAYS: number
   AGENT_RECENT_TRADE_WINDOW_HOURS: number
