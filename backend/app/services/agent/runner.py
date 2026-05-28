@@ -25,7 +25,7 @@ from ..broker import AlpacaBroker
 from ..digest_store import advisor_memory_prefix, append_entry as digest_append
 from ..prompt_feedback import parse_advisor_feedback
 from ..settings_store import get_runtime_settings
-from . import analyzer, allocator, llm, playwright_client, swing_runner, twitter_client
+from . import analyzer, allocator, llm, playwright_client, scoring_engine, swing_runner, twitter_client
 from .intel import collect_intel
 
 
@@ -981,6 +981,25 @@ async def _run_once_impl(broker: AlpacaBroker) -> int:
             avoid_symbols=intel.symbols_to_avoid(),
             boost=rs.agent_intel_boost,
         )
+        scoring_stats = scoring_engine.apply_pre_llm_scoring(
+            signals,
+            enabled=rs.agent_pre_llm_scoring_enabled,
+            weights=scoring_engine.ScoringWeights(
+                relative_strength=rs.agent_scoring_weight_relative_strength,
+                trend_quality=rs.agent_scoring_weight_trend_quality,
+                volume_expansion=rs.agent_scoring_weight_volume_expansion,
+                sentiment=rs.agent_scoring_weight_sentiment,
+                catalyst_strength=rs.agent_scoring_weight_catalyst_strength,
+            ),
+            override_score=rs.agent_pre_llm_scoring_override_score,
+        )
+        if scoring_stats["scored"] > 0:
+            log.add(
+                "pre-llm scoring: "
+                f"scored={scoring_stats['scored']} "
+                f"override_score={rs.agent_pre_llm_scoring_override_score} "
+                f"overridden={scoring_stats['overridden']}"
+            )
         boosted = [s for s, d in signals.items() if d.get("corroborated_by")]
         if boosted:
             log.add(f"intel boost applied to: {', '.join(boosted)}")

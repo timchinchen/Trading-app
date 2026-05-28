@@ -105,6 +105,19 @@ class Settings(BaseSettings):
     # Clamp [0.5, 2.0]. Example: '{"PeterLBrandt":1.25,"random":0.8}'
     AGENT_HANDLE_WEIGHTS: str = "{}"
 
+    # ---- Deterministic pre-LLM scoring (staged rollout) ----
+    # Adds a transparent composite score ahead of allocator/advisor flows.
+    # Disabled by default to preserve current behavior.
+    AGENT_PRE_LLM_SCORING_ENABLED: bool = False
+    # If enabled, overwrite legacy signal["score"] with the deterministic
+    # composite mapped to [-1, 1]. Keep False during rollout.
+    AGENT_PRE_LLM_SCORING_OVERRIDE_SCORE: bool = False
+    AGENT_SCORING_WEIGHT_RELATIVE_STRENGTH: float = 0.30
+    AGENT_SCORING_WEIGHT_TREND_QUALITY: float = 0.25
+    AGENT_SCORING_WEIGHT_VOLUME_EXPANSION: float = 0.20
+    AGENT_SCORING_WEIGHT_SENTIMENT: float = 0.15
+    AGENT_SCORING_WEIGHT_CATALYST_STRENGTH: float = 0.10
+
     # ---- Regime-adaptive sizing ----
     # Slot multiplier per regime tier (price vs MA + slope direction).
     AGENT_REGIME_RISK_ON_MULT: float = 1.25   # price > MA, MA rising

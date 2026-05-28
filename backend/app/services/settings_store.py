@@ -78,6 +78,14 @@ EDITABLE_KEYS: dict[str, type] = {
     "AGENT_NET_BUDGET_ACCOUNTING": bool,
     # Source reliability weighting
     "AGENT_HANDLE_WEIGHTS": str,
+    # Deterministic pre-LLM scoring (staged rollout)
+    "AGENT_PRE_LLM_SCORING_ENABLED": bool,
+    "AGENT_PRE_LLM_SCORING_OVERRIDE_SCORE": bool,
+    "AGENT_SCORING_WEIGHT_RELATIVE_STRENGTH": float,
+    "AGENT_SCORING_WEIGHT_TREND_QUALITY": float,
+    "AGENT_SCORING_WEIGHT_VOLUME_EXPANSION": float,
+    "AGENT_SCORING_WEIGHT_SENTIMENT": float,
+    "AGENT_SCORING_WEIGHT_CATALYST_STRENGTH": float,
     # Regime-adaptive sizing
     "AGENT_REGIME_RISK_ON_MULT": float,
     "AGENT_REGIME_NEUTRAL_MULT": float,
@@ -218,6 +226,14 @@ class RuntimeSettings:
     agent_net_budget_accounting: bool = True
     # Source reliability weighting
     agent_handle_weights: str = "{}"
+    # Deterministic pre-LLM scoring (staged rollout)
+    agent_pre_llm_scoring_enabled: bool = False
+    agent_pre_llm_scoring_override_score: bool = False
+    agent_scoring_weight_relative_strength: float = 0.30
+    agent_scoring_weight_trend_quality: float = 0.25
+    agent_scoring_weight_volume_expansion: float = 0.20
+    agent_scoring_weight_sentiment: float = 0.15
+    agent_scoring_weight_catalyst_strength: float = 0.10
     # Regime-adaptive sizing
     agent_regime_risk_on_mult: float = 1.25
     agent_regime_neutral_mult: float = 1.0
@@ -442,6 +458,23 @@ def get_runtime_settings(db: Session | None = None) -> RuntimeSettings:
         agent_recent_trade_window_hours=int(pick("AGENT_RECENT_TRADE_WINDOW_HOURS", int)),
         agent_net_budget_accounting=bool(pick("AGENT_NET_BUDGET_ACCOUNTING", bool)),
         agent_handle_weights=str(pick("AGENT_HANDLE_WEIGHTS", str)),
+        agent_pre_llm_scoring_enabled=bool(pick("AGENT_PRE_LLM_SCORING_ENABLED", bool)),
+        agent_pre_llm_scoring_override_score=bool(pick("AGENT_PRE_LLM_SCORING_OVERRIDE_SCORE", bool)),
+        agent_scoring_weight_relative_strength=max(
+            0.0, min(1.0, float(pick("AGENT_SCORING_WEIGHT_RELATIVE_STRENGTH", float)))
+        ),
+        agent_scoring_weight_trend_quality=max(
+            0.0, min(1.0, float(pick("AGENT_SCORING_WEIGHT_TREND_QUALITY", float)))
+        ),
+        agent_scoring_weight_volume_expansion=max(
+            0.0, min(1.0, float(pick("AGENT_SCORING_WEIGHT_VOLUME_EXPANSION", float)))
+        ),
+        agent_scoring_weight_sentiment=max(
+            0.0, min(1.0, float(pick("AGENT_SCORING_WEIGHT_SENTIMENT", float)))
+        ),
+        agent_scoring_weight_catalyst_strength=max(
+            0.0, min(1.0, float(pick("AGENT_SCORING_WEIGHT_CATALYST_STRENGTH", float)))
+        ),
         agent_regime_risk_on_mult=max(0.1, min(2.0, float(pick("AGENT_REGIME_RISK_ON_MULT", float)))),
         agent_regime_neutral_mult=max(0.1, min(2.0, float(pick("AGENT_REGIME_NEUTRAL_MULT", float)))),
         agent_regime_risk_off_mult=max(0.1, min(2.0, float(pick("AGENT_REGIME_RISK_OFF_MULT", float)))),
@@ -594,6 +627,13 @@ def public_view(rs: RuntimeSettings) -> dict[str, Any]:
         "agent_recent_trade_window_hours": rs.agent_recent_trade_window_hours,
         "agent_net_budget_accounting": rs.agent_net_budget_accounting,
         "agent_handle_weights": rs.agent_handle_weights,
+        "agent_pre_llm_scoring_enabled": rs.agent_pre_llm_scoring_enabled,
+        "agent_pre_llm_scoring_override_score": rs.agent_pre_llm_scoring_override_score,
+        "agent_scoring_weight_relative_strength": rs.agent_scoring_weight_relative_strength,
+        "agent_scoring_weight_trend_quality": rs.agent_scoring_weight_trend_quality,
+        "agent_scoring_weight_volume_expansion": rs.agent_scoring_weight_volume_expansion,
+        "agent_scoring_weight_sentiment": rs.agent_scoring_weight_sentiment,
+        "agent_scoring_weight_catalyst_strength": rs.agent_scoring_weight_catalyst_strength,
         "agent_regime_risk_on_mult": rs.agent_regime_risk_on_mult,
         "agent_regime_neutral_mult": rs.agent_regime_neutral_mult,
         "agent_regime_risk_off_mult": rs.agent_regime_risk_off_mult,
