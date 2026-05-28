@@ -1121,6 +1121,10 @@ function AgentBudgetCard({ s }: { s: AgentSettings }) {
   const [partialTakePct, setPartialTakePct] = useState(
     Number((s.agent_partial_take_pct * 100).toFixed(4)),
   )
+  const [regimeOnMult, setRegimeOnMult] = useState(s.agent_regime_risk_on_mult)
+  const [regimeNeutralMult, setRegimeNeutralMult] = useState(s.agent_regime_neutral_mult)
+  const [regimeOffMult, setRegimeOffMult] = useState(s.agent_regime_risk_off_mult)
+  const [riskOffBlockBuys, setRiskOffBlockBuys] = useState(s.agent_risk_off_block_new_buys)
   const [agentMaxHoldDays, setAgentMaxHoldDays] = useState(
     s.agent_max_hold_days ?? 21,
   )
@@ -1150,6 +1154,10 @@ function AgentBudgetCard({ s }: { s: AgentSettings }) {
     setTakeProfitPct(Number((s.agent_take_profit_pct * 100).toFixed(4)))
     setStopLossPct(Number((s.agent_stop_loss_pct * 100).toFixed(4)))
     setPartialTakePct(Number((s.agent_partial_take_pct * 100).toFixed(4)))
+    setRegimeOnMult(s.agent_regime_risk_on_mult)
+    setRegimeNeutralMult(s.agent_regime_neutral_mult)
+    setRegimeOffMult(s.agent_regime_risk_off_mult)
+    setRiskOffBlockBuys(s.agent_risk_off_block_new_buys)
     setAgentMaxHoldDays(s.agent_max_hold_days ?? 21)
     setRecentWindow(s.agent_recent_trade_window_hours)
     setNetBudget(s.agent_net_budget_accounting)
@@ -1174,6 +1182,10 @@ function AgentBudgetCard({ s }: { s: AgentSettings }) {
       AGENT_TAKE_PROFIT_PCT: Number(takeProfitPct) / 100,
       AGENT_STOP_LOSS_PCT: Number(stopLossPct) / 100,
       AGENT_PARTIAL_TAKE_PCT: Number(partialTakePct) / 100,
+      AGENT_REGIME_RISK_ON_MULT: Number(regimeOnMult),
+      AGENT_REGIME_NEUTRAL_MULT: Number(regimeNeutralMult),
+      AGENT_REGIME_RISK_OFF_MULT: Number(regimeOffMult),
+      AGENT_RISK_OFF_BLOCK_NEW_BUYS: riskOffBlockBuys,
       AGENT_MAX_HOLD_DAYS: Number(agentMaxHoldDays),
       AGENT_RECENT_TRADE_WINDOW_HOURS: Number(recentWindow),
       AGENT_NET_BUDGET_ACCOUNTING: netBudget,
@@ -1346,6 +1358,50 @@ function AgentBudgetCard({ s }: { s: AgentSettings }) {
               % gain trigger for first adaptive partial-profit (whole percent)
             </span>
           </div>
+        </div>
+        <div className="grid grid-cols-[180px_1fr] gap-2 py-2 border-b border-border">
+          <div className="text-xs text-muted-foreground uppercase tracking-wider self-center">
+            REGIME_RISK_ON_MULT
+            <OverrideBadge k="AGENT_REGIME_RISK_ON_MULT" overridden={s.overridden} />
+          </div>
+          <div className="flex items-center gap-2">
+            <NumInput value={regimeOnMult} onChange={setRegimeOnMult} step="0.05" min={0.1} max={2} />
+            <span className="text-xs text-muted-foreground">slot multiplier when regime is GO</span>
+          </div>
+        </div>
+        <div className="grid grid-cols-[180px_1fr] gap-2 py-2 border-b border-border">
+          <div className="text-xs text-muted-foreground uppercase tracking-wider self-center">
+            REGIME_NEUTRAL_MULT
+            <OverrideBadge k="AGENT_REGIME_NEUTRAL_MULT" overridden={s.overridden} />
+          </div>
+          <div className="flex items-center gap-2">
+            <NumInput value={regimeNeutralMult} onChange={setRegimeNeutralMult} step="0.05" min={0.1} max={2} />
+            <span className="text-xs text-muted-foreground">slot multiplier when regime is CAUTION/neutral</span>
+          </div>
+        </div>
+        <div className="grid grid-cols-[180px_1fr] gap-2 py-2 border-b border-border">
+          <div className="text-xs text-muted-foreground uppercase tracking-wider self-center">
+            REGIME_RISK_OFF_MULT
+            <OverrideBadge k="AGENT_REGIME_RISK_OFF_MULT" overridden={s.overridden} />
+          </div>
+          <div className="flex items-center gap-2">
+            <NumInput value={regimeOffMult} onChange={setRegimeOffMult} step="0.05" min={0.1} max={2} />
+            <span className="text-xs text-muted-foreground">slot multiplier when regime is NO-GO/risk-off</span>
+          </div>
+        </div>
+        <div className="grid grid-cols-[180px_1fr] gap-2 py-2 border-b border-border">
+          <div className="text-xs text-muted-foreground uppercase tracking-wider self-center">
+            RISK_OFF_BLOCK_NEW_BUYS
+            <OverrideBadge k="AGENT_RISK_OFF_BLOCK_NEW_BUYS" overridden={s.overridden} />
+          </div>
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={riskOffBlockBuys}
+              onChange={(e) => setRiskOffBlockBuys(e.target.checked)}
+            />
+            block all new buys when regime is NO-GO/risk-off
+          </label>
         </div>
         <div className="grid grid-cols-[180px_1fr] gap-2 py-2 border-b border-border">
           <div className="text-xs text-muted-foreground uppercase tracking-wider self-center">
