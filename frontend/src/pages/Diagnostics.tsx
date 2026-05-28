@@ -5,7 +5,7 @@ import {
   SETUP_HEALTH_ROWS,
   type RowKind,
 } from '../components/PrerequisitesPanel'
-import { useAgentDiagnostics, useSetupHealth } from '../api/hooks'
+import { useAgentDiagnostics, useAgentSettings, useSetupHealth } from '../api/hooks'
 
 function Dot({ ok, kind }: { ok: boolean; kind: RowKind }) {
   if (ok) {
@@ -48,12 +48,23 @@ function PromptCard({ title, text }: { title: string; text: string }) {
 export function DiagnosticsPage() {
   const setup = useSetupHealth()
   const diagnostics = useAgentDiagnostics()
+  const agentSettings = useAgentSettings()
   const [copyAllStatus, setCopyAllStatus] = useState<'idle' | 'copied' | 'error'>('idle')
 
   const copyAllPrompts = async () => {
     if (!diagnostics.data) return
     const d = diagnostics.data
+    const s = agentSettings.data
+    const settingsHeader = [
+      '=== KEY SETTINGS SNAPSHOT ===',
+      `AGENT_PROMPT_TIME_STOP_DAYS=${s?.agent_prompt_time_stop_days ?? 'n/a'}`,
+      `SWING_TIME_STOP_DAYS=${s?.swing_time_stop_days ?? 'n/a'}`,
+      `AGENT_MAX_HOLD_DAYS=${s?.agent_max_hold_days ?? 'n/a'}`,
+      `AUTO_SELL_MAX_HOLD_DAYS=${s?.auto_sell_max_hold_days ?? 'n/a'}`,
+      '',
+    ]
     const chunks: string[] = [
+      ...settingsHeader,
       '=== ROLE PREAMBLE (EFFECTIVE) ===',
       d.prompts.role_preamble || '',
       '',
