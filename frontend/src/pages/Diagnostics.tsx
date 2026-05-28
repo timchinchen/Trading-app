@@ -87,6 +87,8 @@ export function DiagnosticsPage() {
       '(for prompt/settings consistency checks)',
       `AGENT_PROMPT_TIME_STOP_DAYS=${s?.agent_prompt_time_stop_days ?? 'n/a'}`,
       `SWING_TIME_STOP_DAYS=${s?.swing_time_stop_days ?? 'n/a'}`,
+      `SWING_MOVE_STOP_BE_PCT=${s?.swing_move_stop_be_pct ?? 'n/a'}`,
+      `SWING_PARTIAL_PCT=${s?.swing_partial_pct ?? 'n/a'}`,
       `AGENT_MAX_HOLD_DAYS=${s?.agent_max_hold_days ?? 'n/a'}`,
       `AUTO_SELL_MAX_HOLD_DAYS=${s?.auto_sell_max_hold_days ?? 'n/a'}`,
       `AGENT_PARTIAL_TAKE_PCT=${s?.agent_partial_take_pct ?? 'n/a'}`,
