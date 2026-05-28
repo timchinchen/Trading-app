@@ -1118,6 +1118,9 @@ function AgentBudgetCard({ s }: { s: AgentSettings }) {
   const [weeklyLessonChars, setWeeklyLessonChars] = useState(
     s.agent_weekly_lesson_max_chars ?? 800,
   )
+  const [promptTimeStopDays, setPromptTimeStopDays] = useState(
+    s.agent_prompt_time_stop_days ?? 21,
+  )
 
   useEffect(() => {
     setEnabled(s.agent_enabled)
@@ -1136,6 +1139,7 @@ function AgentBudgetCard({ s }: { s: AgentSettings }) {
     setNetBudget(s.agent_net_budget_accounting)
     setDynamicPreamble(s.agent_dynamic_preamble_enabled ?? true)
     setWeeklyLessonChars(s.agent_weekly_lesson_max_chars ?? 800)
+    setPromptTimeStopDays(s.agent_prompt_time_stop_days ?? 21)
   }, [s])
 
   const save = () => {
@@ -1157,6 +1161,7 @@ function AgentBudgetCard({ s }: { s: AgentSettings }) {
       AGENT_NET_BUDGET_ACCOUNTING: netBudget,
       AGENT_DYNAMIC_PREAMBLE_ENABLED: dynamicPreamble,
       AGENT_WEEKLY_LESSON_MAX_CHARS: Number(weeklyLessonChars),
+      AGENT_PROMPT_TIME_STOP_DAYS: Number(promptTimeStopDays),
     })
   }
 
@@ -1359,6 +1364,24 @@ function AgentBudgetCard({ s }: { s: AgentSettings }) {
             />
             <span className="text-xs text-muted-foreground">
               cap on weekly supplement appended to system prompts
+            </span>
+          </div>
+        </div>
+        <div className="grid grid-cols-[180px_1fr] gap-2 py-2 border-b border-border">
+          <div className="text-xs text-muted-foreground uppercase tracking-wider self-center">
+            PROMPT_TIME_STOP_DAYS
+            <OverrideBadge k="AGENT_PROMPT_TIME_STOP_DAYS" overridden={s.overridden} />
+          </div>
+          <div className="flex items-center gap-2">
+            <NumInput
+              value={promptTimeStopDays}
+              onChange={setPromptTimeStopDays}
+              step="1"
+              min={1}
+              max={365}
+            />
+            <span className="text-xs text-muted-foreground">
+              days used in system-prompt time-stop guidance text
             </span>
           </div>
         </div>
