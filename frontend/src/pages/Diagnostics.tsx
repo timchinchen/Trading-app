@@ -5,7 +5,7 @@ import {
   SETUP_HEALTH_ROWS,
   type RowKind,
 } from '../components/PrerequisitesPanel'
-import { useAgentDiagnostics, useSetupHealth } from '../api/hooks'
+import { useAgentDiagnostics, useAgentSettings, useSetupHealth } from '../api/hooks'
 
 function Dot({ ok, kind }: { ok: boolean; kind: RowKind }) {
   if (ok) {
@@ -33,36 +33,10 @@ function Dot({ ok, kind }: { ok: boolean; kind: RowKind }) {
 }
 
 function PromptCard({ title, text }: { title: string; text: string }) {
-  const [copied, setCopied] = useState(false)
-
-  const onCopy = async () => {
-    try {
-      await navigator.clipboard.writeText(text || '')
-      setCopied(true)
-      setTimeout(() => setCopied(false), 1500)
-    } catch {
-      setCopied(false)
-    }
-  }
-
   return (
     <details className="border border-border rounded-lg bg-card-elevated/40" open>
       <summary className="cursor-pointer px-3 py-2 text-sm text-muted-foreground uppercase tracking-wider">
-        <div className="flex items-center justify-between gap-3">
-          <span>{title}</span>
-          <button
-            type="button"
-            onClick={(e) => {
-              e.preventDefault()
-              e.stopPropagation()
-              void onCopy()
-            }}
-            className="btn-secondary px-2 py-1 rounded text-[10px]"
-            title="Copy prompt text"
-          >
-            {copied ? 'Copied' : 'Copy'}
-          </button>
-        </div>
+        {title}
       </summary>
       <pre className="px-3 pb-3 text-[11px] text-foreground whitespace-pre-wrap overflow-auto max-h-[50vh]">
         {text}
@@ -74,6 +48,51 @@ function PromptCard({ title, text }: { title: string; text: string }) {
 export function DiagnosticsPage() {
   const setup = useSetupHealth()
   const diagnostics = useAgentDiagnostics()
+  const agentSettings = useAgentSettings()
+  const [copyAllStatus, setCopyAllStatus] = useState<'idle' | 'copied' | 'error'>('idle')
+
+  const copyAllPrompts = async () => {
+    if (!diagnostics.data) return
+    const d = diagnostics.data
+    const s = agentSettings.data
+    const settingsHeader = [
+      '=== KEY SETTINGS SNAPSHOT ===',
+      `AGENT_PROMPT_TIME_STOP_DAYS=${s?.agent_prompt_time_stop_days ?? 'n/a'}`,
+      `SWING_TIME_STOP_DAYS=${s?.swing_time_stop_days ?? 'n/a'}`,
+      `AGENT_MAX_HOLD_DAYS=${s?.agent_max_hold_days ?? 'n/a'}`,
+      `AUTO_SELL_MAX_HOLD_DAYS=${s?.auto_sell_max_hold_days ?? 'n/a'}`,
+      '',
+    ]
+    const chunks: string[] = [
+      ...settingsHeader,
+      '=== ROLE PREAMBLE (EFFECTIVE) ===',
+      d.prompts.role_preamble || '',
+      '',
+      '=== ROLE PREAMBLE (BASE) ===',
+      d.prompts.role_preamble_base || '',
+      '',
+      '=== TWEET ANALYSIS SYSTEM PROMPT ===',
+      d.prompts.tweet_system_prompt || '',
+      '',
+      '=== ADVISOR SYSTEM PROMPT ===',
+      d.prompts.advisor_system_prompt || '',
+    ]
+    if (d.prompts.weekly_lessons) {
+      chunks.push('', `=== WEEKLY LESSONS (${d.prompts.weekly_lessons_week_key ?? 'latest'}) ===`, d.prompts.weekly_lessons)
+    }
+    if (d.weekly_stats) {
+      chunks.push('', '=== WEEKLY STATS (DETERMINISTIC) ===', d.weekly_stats)
+    }
+    const payload = chunks.join('\n')
+    try {
+      await navigator.clipboard.writeText(payload)
+      setCopyAllStatus('copied')
+      setTimeout(() => setCopyAllStatus('idle'), 1600)
+    } catch {
+      setCopyAllStatus('error')
+      setTimeout(() => setCopyAllStatus('idle'), 2200)
+    }
+  }
 
   return (
     <div className="p-6 space-y-6 max-w-6xl">
@@ -148,9 +167,24 @@ export function DiagnosticsPage() {
       </section>
 
       <section className="panel p-6 space-y-4">
-        <h2 className="text-sm uppercase tracking-wider text-muted-foreground">
-          Agent instructions (system prompts)
-        </h2>
+        <div className="flex items-center justify-between gap-3">
+          <h2 className="text-sm uppercase tracking-wider text-muted-foreground">
+            Agent instructions (system prompts)
+          </h2>
+          <button
+            type="button"
+            className="btn-secondary px-3 py-1.5 rounded-lg text-xs"
+            onClick={() => void copyAllPrompts()}
+            disabled={!diagnostics.data}
+            title="Copy all prompt blocks for external validation"
+          >
+            {copyAllStatus === 'copied'
+              ? 'Copied all prompts'
+              : copyAllStatus === 'error'
+                ? 'Copy failed'
+                : 'Copy all prompts'}
+          </button>
+        </div>
         {diagnostics.isError && (
           <div className="text-sm text-destructive">
             Failed to load diagnostics: {(diagnostics.error as Error)?.message}
