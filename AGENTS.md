@@ -4,7 +4,7 @@
 
 ### Overview
 
-Personal Stocks Trading App (v1.2.1) — self-hosted swing-trading app with Paper/Live modes, backed by Alpaca.
+Personal Stocks Trading App (v1.4.0) — self-hosted swing-trading app with Paper/Live modes, backed by Alpaca.
 
 - **Backend**: Python FastAPI on port 8000 (`backend/`)
 - **Frontend**: React + Vite + TypeScript + Tailwind on port 5173 (`frontend/`)

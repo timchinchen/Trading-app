@@ -1,4 +1,4 @@
-# Personal Stocks Trading App — v1.3.0
+# Personal Stocks Trading App — v1.4.0
 
 Self-hosted swing-trading app with **Paper** and **Live** modes, backed by Alpaca. Runs entirely on your own hardware — no cloud subscriptions, no data sold.
 
@@ -96,7 +96,7 @@ UI: `http://localhost:5173`
 - Runtime-editable knobs — no restart required for most changes
 - LLM provider selector (Ollama / OpenAI / Hugging Face / Cohere) with live key management
 - Deep Analysis LLM (separate provider slot for advisor calls)
-- All agent thresholds, budgets, and new v1.2 parameters editable in-browser
+- All agent thresholds, budgets, and new v1.4 architecture parameters editable in-browser
 
 ---
 
@@ -235,8 +235,9 @@ TWITTER_ACCOUNTS=blondesnmoney,PeterLBrandt,LindaRaschke,...
 OLLAMA_HOST=http://localhost:11434
 OLLAMA_MODEL=llama3.1:8b
 
-# v1.2 — swing knobs (sensible defaults, tune via Settings UI)
-AGENT_MAX_HOLD_DAYS=14
+# v1.4 — swing knobs (sensible defaults, tune via Settings UI)
+AGENT_MAX_HOLD_DAYS=21
+AGENT_PROMPT_TIME_STOP_DAYS=21
 AGENT_TRAIL_ARM_PCT=0.05
 AGENT_TRAIL_RETRACE_PCT=0.35
 AGENT_PARTIAL_TAKE_PCT=0.07
@@ -247,7 +248,34 @@ AGENT_REGIME_RISK_ON_MULT=1.25
 AGENT_REGIME_NEUTRAL_MULT=1.0
 AGENT_REGIME_RISK_OFF_MULT=0.5
 AGENT_RISK_OFF_BLOCK_NEW_BUYS=true
+AGENT_PRE_LLM_SCORING_ENABLED=false
+AGENT_PRE_LLM_SCORING_OVERRIDE_SCORE=false
+AGENT_RS_BENCHMARK_SYMBOL=SPY
+AGENT_RS_LOOKBACK_DAYS=120
 ```
+
+---
+
+## v1.4 — What's new
+
+### Incremental architecture upgrade (Phase 1, safe rollout)
+- Added a deterministic **pre-LLM scoring engine** (`backend/app/services/agent/scoring_engine.py`) with transparent factor weights:
+  - `relative_strength`, `trend_quality`, `volume_expansion`, `sentiment`, `catalyst_strength`
+- Added real **relative-strength inputs** from market bars (20D/50D stock-vs-benchmark) and injected these into signal scoring before allocation.
+- Scoring is integrated into the run pipeline after aggregation + intel corroboration, with run logs for scored/overridden counts.
+
+### Non-breaking rollout controls
+- New runtime flags (default-off):  
+  - `AGENT_PRE_LLM_SCORING_ENABLED`  
+  - `AGENT_PRE_LLM_SCORING_OVERRIDE_SCORE`
+- New runtime RS knobs:  
+  - `AGENT_RS_BENCHMARK_SYMBOL` (default `SPY`)  
+  - `AGENT_RS_LOOKBACK_DAYS` (default `120`)
+- Existing behavior remains unchanged until scoring is explicitly enabled.
+
+### Existing v1.3 improvements retained
+- Settings optimization wizard remains available (`POST /agent/settings/optimize`) with deterministic conflict/drift checks + Deep Analysis LLM recommendations.
+- Diagnostics remains hardened and includes consolidated “Copy all prompts” export with key settings snapshot.
 
 ---
 
@@ -272,7 +300,7 @@ AGENT_RISK_OFF_BLOCK_NEW_BUYS=true
 ### Settings optimization wizard
 - **Settings → Settings optimization wizard** at the bottom of the editable cards: one-click **Analyze settings** (`POST /agent/settings/optimize`) runs deterministic conflict/drift checks, then the Deep Analysis LLM proposes a tuned profile.
 - **Apply recommended settings** persists only changed, non-secret keys to SQLite (`app_settings`) so values survive upgrades and container rebuilds (when the data volume is mounted). Export a JSON backup from Import/Export before applying.
-- Hidden exit knob **`AGENT_MAX_HOLD_DAYS`** (not on the Settings form) can be included in recommendations — align it with **TIME_STOP_DAYS** (`SWING_TIME_STOP_DAYS`) and **AUTO-SELL MAX_HOLD_DAYS**.
+- Exit knobs **`AGENT_MAX_HOLD_DAYS`** and **`AGENT_PROMPT_TIME_STOP_DAYS`** are now explicit in Settings — align them with **TIME_STOP_DAYS** (`SWING_TIME_STOP_DAYS`) and **AUTO-SELL MAX_HOLD_DAYS**.
 
 ---
 
@@ -407,6 +435,7 @@ trading-app/
 
 | Version | Highlights |
 |---------|-----------|
+| **1.4.0** | Incremental architecture upgrade: deterministic pre-LLM scoring engine · relative-strength inputs (20D/50D vs benchmark) · staged rollout controls (`AGENT_PRE_LLM_SCORING_*`, `AGENT_RS_*`) |
 | **1.3.0** | Dynamic weekly ROLE_PREAMBLE lessons · unified `/agent/context` · digest delta compression · advisor feedback loop |
 | **1.2.2** | `AGENTS.md` Cursor Cloud dev guide · frontend `package-lock.json` sync with `package.json` |
 | **1.2.1** | Entry/exit defaults tightened for higher-quality swing trades (`AGENT_MIN_SCORE`, `AGENT_MIN_CONFIDENCE`, `AGENT_TOP_N_CANDIDATES`, tighter trailing/partial/time-stop defaults) |
