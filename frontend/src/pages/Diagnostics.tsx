@@ -84,10 +84,21 @@ export function DiagnosticsPage() {
     const s = agentSettings.data
     const settingsHeader = [
       '=== KEY SETTINGS SNAPSHOT ===',
+      '(for prompt/settings consistency checks)',
       `AGENT_PROMPT_TIME_STOP_DAYS=${s?.agent_prompt_time_stop_days ?? 'n/a'}`,
       `SWING_TIME_STOP_DAYS=${s?.swing_time_stop_days ?? 'n/a'}`,
       `AGENT_MAX_HOLD_DAYS=${s?.agent_max_hold_days ?? 'n/a'}`,
       `AUTO_SELL_MAX_HOLD_DAYS=${s?.auto_sell_max_hold_days ?? 'n/a'}`,
+      `AGENT_PARTIAL_TAKE_PCT=${s?.agent_partial_take_pct ?? 'n/a'}`,
+      `AGENT_PARTIAL_TAKE_FRACTION=${s?.agent_partial_take_fraction ?? 'n/a'}`,
+      `AGENT_TAKE_PROFIT_PCT=${s?.agent_take_profit_pct ?? 'n/a'}`,
+      `AGENT_STOP_LOSS_PCT=${s?.agent_stop_loss_pct ?? 'n/a'}`,
+      `AGENT_TRAIL_ARM_PCT=${s?.agent_trail_arm_pct ?? 'n/a'}`,
+      `AGENT_TRAIL_RETRACE_PCT=${s?.agent_trail_retrace_pct ?? 'n/a'}`,
+      `AGENT_REGIME_RISK_ON_MULT=${s?.agent_regime_risk_on_mult ?? 'n/a'}`,
+      `AGENT_REGIME_NEUTRAL_MULT=${s?.agent_regime_neutral_mult ?? 'n/a'}`,
+      `AGENT_REGIME_RISK_OFF_MULT=${s?.agent_regime_risk_off_mult ?? 'n/a'}`,
+      `AGENT_RISK_OFF_BLOCK_NEW_BUYS=${s?.agent_risk_off_block_new_buys ?? 'n/a'}`,
       '',
     ]
     const chunks: string[] = [
