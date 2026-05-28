@@ -227,13 +227,9 @@ export function ChatPage() {
                   Context preview (sent with every message)
                 </div>
                 <pre className="bg-input-bg border border-border rounded-lg p-3 text-[11px] text-muted-foreground whitespace-pre-wrap max-h-48 overflow-auto leading-relaxed">
-                  {buildContext({
-                    account,
-                    positions,
-                    agentStatus,
-                    runs,
-                    digests: digest?.history ?? (digest?.latest ? [digest.latest] : undefined),
-                  })}
+                  {contextLoading
+                    ? '(loading context...)'
+                    : (agentContext?.text || '(no context available)')}
                 </pre>
               </div>
             )}
