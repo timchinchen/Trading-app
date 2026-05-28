@@ -18,6 +18,7 @@ import asyncio
 import json
 import re
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 
@@ -476,7 +477,17 @@ async def validate_chat_model(
     if provider == "openai":
         if not api_key:
             return False, "OpenAI API key is empty."
-        url = f"{(host or 'https://api.openai.com/v1').rstrip('/')}/chat/completions"
+        base = (host or "https://api.openai.com/v1").strip()
+        parsed = urlparse(base)
+        if not parsed.scheme or not parsed.netloc:
+            hint = (
+                "OpenAI base URL is invalid. Expected something like "
+                "'https://api.openai.com/v1'."
+            )
+            if base == model:
+                hint += " It looks like the model name was entered in OPENAI_BASE_URL."
+            return False, hint
+        url = f"{base.rstrip('/')}/chat/completions"
         base_payload = {
             "model": model,
             "messages": [{"role": "user", "content": "ping"}],
