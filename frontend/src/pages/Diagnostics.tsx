@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import {
   OPTIONAL_ENV,
   REQUIRED_ENV,
@@ -32,10 +33,36 @@ function Dot({ ok, kind }: { ok: boolean; kind: RowKind }) {
 }
 
 function PromptCard({ title, text }: { title: string; text: string }) {
+  const [copied, setCopied] = useState(false)
+
+  const onCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(text || '')
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    } catch {
+      setCopied(false)
+    }
+  }
+
   return (
     <details className="border border-border rounded-lg bg-card-elevated/40" open>
       <summary className="cursor-pointer px-3 py-2 text-sm text-muted-foreground uppercase tracking-wider">
-        {title}
+        <div className="flex items-center justify-between gap-3">
+          <span>{title}</span>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.preventDefault()
+              e.stopPropagation()
+              void onCopy()
+            }}
+            className="btn-secondary px-2 py-1 rounded text-[10px]"
+            title="Copy prompt text"
+          >
+            {copied ? 'Copied' : 'Copy'}
+          </button>
+        </div>
       </summary>
       <pre className="px-3 pb-3 text-[11px] text-foreground whitespace-pre-wrap overflow-auto max-h-[50vh]">
         {text}
