@@ -189,16 +189,22 @@ def diagnostics(_user=Depends(get_current_user), db: Session = Depends(get_db)):
         max_supplement_chars=rs.agent_weekly_lesson_max_chars,
     )
     weekly = load_latest_weekly_lessons(db)
+    try:
+        weekly_stats = format_stats_brief(compute_weekly_stats(db, settings.APP_MODE))
+    except Exception as e:
+        weekly_stats = f"(weekly stats unavailable: {e})"
     return {
         "prompts": {
-            "role_preamble_base": agent_llm.ROLE_PREAMBLE_BASE,
+            "role_preamble_base": agent_llm.build_role_preamble_base(
+                rs.agent_prompt_time_stop_days
+            ),
             "role_preamble": effective,
             "weekly_lessons": (weekly.text if weekly else None),
             "weekly_lessons_week_key": (weekly.week_key if weekly else None),
             "tweet_system_prompt": agent_llm.build_tweet_system_prompt(effective),
             "advisor_system_prompt": agent_llm.build_advisor_system_prompt(effective),
         },
-        "weekly_stats": format_stats_brief(compute_weekly_stats(db, settings.APP_MODE)),
+        "weekly_stats": weekly_stats,
         "assumptions": _diagnostic_assumptions(rs),
     }
 

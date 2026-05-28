@@ -125,8 +125,11 @@ class Settings(BaseSettings):
     AGENT_PARTIAL_TAKE_PCT: float = 0.06      # 6%
     AGENT_PARTIAL_TAKE_FRACTION: float = 0.5  # sell 50%
     # Hard time-stop: close any position older than this many calendar days.
-    # Set to 14 days so default exits align with a 2-3 week swing horizon.
-    AGENT_MAX_HOLD_DAYS: int = 14
+    # Set to 21 days so default exits align with a 2-3 week swing horizon.
+    AGENT_MAX_HOLD_DAYS: int = 21
+    # Prompt guidance knob: advisor/preamble language references this as the
+    # no-progress time-stop horizon to avoid hard-coded day ranges in prompts.
+    AGENT_PROMPT_TIME_STOP_DAYS: int = 21
 
     # ---- Swing-trading skill (1-2 week horizon) ----
     # Master toggle. When off the agent falls back to the old tweet-sentiment

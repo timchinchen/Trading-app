@@ -239,6 +239,8 @@ export interface AgentSettings {
   agent_intel_boost: number
   agent_take_profit_pct: number
   agent_stop_loss_pct: number
+  agent_max_hold_days: number
+  agent_prompt_time_stop_days: number
   agent_recent_trade_window_hours: number
   agent_net_budget_accounting: boolean
   agent_dynamic_preamble_enabled: boolean
@@ -313,6 +315,8 @@ export type AgentSettingsUpdate = Partial<{
   AGENT_INTEL_BOOST: number
   AGENT_TAKE_PROFIT_PCT: number
   AGENT_STOP_LOSS_PCT: number
+  AGENT_MAX_HOLD_DAYS: number
+  AGENT_PROMPT_TIME_STOP_DAYS: number
   AGENT_RECENT_TRADE_WINDOW_HOURS: number
   AGENT_NET_BUDGET_ACCOUNTING: boolean
   AGENT_DYNAMIC_PREAMBLE_ENABLED: boolean

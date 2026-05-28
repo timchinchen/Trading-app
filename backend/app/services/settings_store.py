@@ -89,6 +89,7 @@ EDITABLE_KEYS: dict[str, type] = {
     "AGENT_PARTIAL_TAKE_PCT": float,
     "AGENT_PARTIAL_TAKE_FRACTION": float,
     "AGENT_MAX_HOLD_DAYS": int,
+    "AGENT_PROMPT_TIME_STOP_DAYS": int,
     # Agent signal thresholds (previously hard-coded)
     "AGENT_MIN_SCORE": float,
     "AGENT_MIN_CONFIDENCE": float,
@@ -227,7 +228,8 @@ class RuntimeSettings:
     agent_trail_retrace_pct: float = 0.35
     agent_partial_take_pct: float = 0.07
     agent_partial_take_fraction: float = 0.5
-    agent_max_hold_days: int = 14
+    agent_max_hold_days: int = 21
+    agent_prompt_time_stop_days: int = 21
     # Signal thresholds (allocator)
     agent_min_score: float = 0.0
     agent_min_confidence: float = 0.0
@@ -449,6 +451,7 @@ def get_runtime_settings(db: Session | None = None) -> RuntimeSettings:
         agent_partial_take_pct=max(0.0, min(1.0, float(pick("AGENT_PARTIAL_TAKE_PCT", float)))),
         agent_partial_take_fraction=max(0.0, min(1.0, float(pick("AGENT_PARTIAL_TAKE_FRACTION", float)))),
         agent_max_hold_days=max(1, int(pick("AGENT_MAX_HOLD_DAYS", int))),
+        agent_prompt_time_stop_days=max(1, int(pick("AGENT_PROMPT_TIME_STOP_DAYS", int))),
         agent_min_score=float(pick("AGENT_MIN_SCORE", float)),
         agent_min_confidence=float(pick("AGENT_MIN_CONFIDENCE", float)),
         agent_top_n_candidates=int(pick("AGENT_TOP_N_CANDIDATES", int)),
@@ -600,6 +603,7 @@ def public_view(rs: RuntimeSettings) -> dict[str, Any]:
         "agent_partial_take_pct": rs.agent_partial_take_pct,
         "agent_partial_take_fraction": rs.agent_partial_take_fraction,
         "agent_max_hold_days": rs.agent_max_hold_days,
+        "agent_prompt_time_stop_days": rs.agent_prompt_time_stop_days,
         "agent_min_score": rs.agent_min_score,
         "agent_min_confidence": rs.agent_min_confidence,
         "agent_top_n_candidates": rs.agent_top_n_candidates,

@@ -2,7 +2,12 @@
 
 from datetime import datetime, timedelta
 
-from app.services.agent.llm import ROLE_PREAMBLE_BASE, build_role_preamble
+from app.services.agent.llm import (
+    ROLE_PREAMBLE_BASE,
+    build_advisor_system_prompt,
+    build_role_preamble,
+    build_role_preamble_base,
+)
 from app.services.prompt_feedback import (
     current_week_key,
     format_stats_brief,
@@ -54,3 +59,10 @@ def test_build_role_preamble_includes_lessons_header_when_stats_fallback():
     assert ROLE_PREAMBLE_BASE in text
     text_off = build_role_preamble(None, enabled=False)
     assert text_off == ROLE_PREAMBLE_BASE
+
+
+def test_prompt_time_stop_is_dynamic():
+    base = build_role_preamble_base(21)
+    assert "after 21 days exit" in base
+    advisor = build_advisor_system_prompt(None, prompt_time_stop_days=21)
+    assert ">=21 day time-stop triggers" in advisor
