@@ -457,3 +457,63 @@ async def advise_portfolio(
         return out.strip()
     except Exception as e:
         return f"(advisor unavailable: {e})"
+
+
+async def validate_chat_model(
+    *,
+    provider: Provider,
+    host: str,
+    model: str,
+    api_key: str,
+    timeout: float = 20.0,
+) -> tuple[bool, str]:
+    """Cheap model-availability probe for Settings UI validation."""
+    provider = (provider or "openai").lower()
+    model = (model or "").strip()
+    if not model:
+        return False, "Model is empty."
+
+    if provider == "openai":
+        if not api_key:
+            return False, "OpenAI API key is empty."
+        url = f"{(host or 'https://api.openai.com/v1').rstrip('/')}/chat/completions"
+        payload = {
+            "model": model,
+            "messages": [{"role": "user", "content": "ping"}],
+            "max_tokens": 1,
+            "temperature": 0,
+            "stream": False,
+        }
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        }
+        try:
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                r = await client.post(url, headers=headers, json=payload)
+            if r.status_code < 400:
+                return True, "Model validated successfully."
+            try:
+                body = r.json()
+            except Exception:
+                body = r.text
+            return False, f"OpenAI validation failed ({r.status_code}): {body}"
+        except Exception as e:
+            return False, f"OpenAI validation error: {e}"
+
+    if provider == "ollama":
+        base = (host or "http://localhost:11434").rstrip("/")
+        try:
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                r = await client.get(f"{base}/api/tags")
+            r.raise_for_status()
+            names = {(m.get("name") or "") for m in (r.json().get("models") or [])}
+            if model in names:
+                return True, "Model is installed in Ollama."
+            if f"{model}:latest" in names:
+                return True, "Model found as ':latest' in Ollama."
+            return False, "Model not found in Ollama tags. Pull it first."
+        except Exception as e:
+            return False, f"Ollama validation error: {e}"
+
+    return False, f"Unsupported provider '{provider}' for validation."

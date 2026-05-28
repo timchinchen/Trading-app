@@ -15,6 +15,8 @@ import type {
   ChatMessage,
   ChatResponse,
   DailyDigest,
+  DeepModelValidationInput,
+  DeepModelValidationResult,
   DigestSummary,
   EarningsEvent,
   LLMInfo,
@@ -321,6 +323,13 @@ export const useOptimizeAgentSettings = () =>
   useMutation({
     mutationFn: async (goal: SettingsOptimizeGoal = 'default') =>
       (await api.post<SettingsOptimizeResult>('/agent/settings/optimize', { goal }))
+        .data,
+  })
+
+export const useValidateDeepModel = () =>
+  useMutation({
+    mutationFn: async (body: DeepModelValidationInput) =>
+      (await api.post<DeepModelValidationResult>('/agent/settings/validate-deep-model', body))
         .data,
   })
 

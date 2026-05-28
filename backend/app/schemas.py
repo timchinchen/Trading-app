@@ -312,3 +312,18 @@ class SettingsOptimizeOut(BaseModel):
     current: dict[str, Any] = {}
     llm_error: Optional[str] = None
     apply_allowed: bool = False
+
+
+class DeepModelValidateIn(BaseModel):
+    provider: Literal["openai", "ollama"] = "openai"
+    model: str = ""
+    base_url: str = ""
+    api_key: str = ""
+
+
+class DeepModelValidateOut(BaseModel):
+    ok: bool
+    provider: str
+    model: str
+    base_url: str
+    detail: str
