@@ -119,7 +119,11 @@ def compute_weekly_stats(db: Session, mode: str, *, since: datetime | None = Non
     for oid, pnl in pl_by_order.items():
         if pnl is None:
             continue
-        order_ids_with_pl.append((oid, pnl))
+        realized_total += pnl
+        if pnl >= 0:
+            wins += 1
+        else:
+            losses += 1
         at = (
             db.query(AgentTrade)
             .filter(AgentTrade.order_id == oid)

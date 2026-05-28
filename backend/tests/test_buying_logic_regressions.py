@@ -62,5 +62,6 @@ def test_oversold_setup_can_meet_default_min_rr():
 
 
 def test_default_hold_horizon_targets_two_to_three_weeks():
-    assert Settings.model_fields["AGENT_MAX_HOLD_DAYS"].default == 14
+    assert Settings.model_fields["AGENT_MAX_HOLD_DAYS"].default == 21
+    assert Settings.model_fields["AGENT_PROMPT_TIME_STOP_DAYS"].default == 21
     assert Settings.model_fields["SWING_TIME_STOP_DAYS"].default == 10
