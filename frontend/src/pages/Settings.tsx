@@ -1118,6 +1118,9 @@ function AgentBudgetCard({ s }: { s: AgentSettings }) {
   const [stopLossPct, setStopLossPct] = useState(
     Number((s.agent_stop_loss_pct * 100).toFixed(4)),
   )
+  const [agentMaxHoldDays, setAgentMaxHoldDays] = useState(
+    s.agent_max_hold_days ?? 21,
+  )
   const [recentWindow, setRecentWindow] = useState(s.agent_recent_trade_window_hours)
   const [netBudget, setNetBudget] = useState(s.agent_net_budget_accounting)
   const [dynamicPreamble, setDynamicPreamble] = useState(
@@ -1143,6 +1146,7 @@ function AgentBudgetCard({ s }: { s: AgentSettings }) {
     setIntelBoost(s.agent_intel_boost)
     setTakeProfitPct(Number((s.agent_take_profit_pct * 100).toFixed(4)))
     setStopLossPct(Number((s.agent_stop_loss_pct * 100).toFixed(4)))
+    setAgentMaxHoldDays(s.agent_max_hold_days ?? 21)
     setRecentWindow(s.agent_recent_trade_window_hours)
     setNetBudget(s.agent_net_budget_accounting)
     setDynamicPreamble(s.agent_dynamic_preamble_enabled ?? true)
@@ -1165,6 +1169,7 @@ function AgentBudgetCard({ s }: { s: AgentSettings }) {
       // Input is whole percent (e.g. 7 = 7%). Backend stores a fraction.
       AGENT_TAKE_PROFIT_PCT: Number(takeProfitPct) / 100,
       AGENT_STOP_LOSS_PCT: Number(stopLossPct) / 100,
+      AGENT_MAX_HOLD_DAYS: Number(agentMaxHoldDays),
       AGENT_RECENT_TRADE_WINDOW_HOURS: Number(recentWindow),
       AGENT_NET_BUDGET_ACCOUNTING: netBudget,
       AGENT_DYNAMIC_PREAMBLE_ENABLED: dynamicPreamble,
@@ -1310,6 +1315,18 @@ function AgentBudgetCard({ s }: { s: AgentSettings }) {
             <NumInput value={stopLossPct} onChange={setStopLossPct} step="0.1" />
             <span className="text-xs text-muted-foreground">
               % loss vs entry at which the agent auto-sells (whole percent; e.g. 5 = -5%). 0 disables.
+            </span>
+          </div>
+        </div>
+        <div className="grid grid-cols-[180px_1fr] gap-2 py-2 border-b border-border">
+          <div className="text-xs text-muted-foreground uppercase tracking-wider self-center">
+            AGENT_MAX_HOLD_DAYS
+            <OverrideBadge k="AGENT_MAX_HOLD_DAYS" overridden={s.overridden} />
+          </div>
+          <div className="flex items-center gap-2">
+            <NumInput value={agentMaxHoldDays} onChange={setAgentMaxHoldDays} step="1" min={1} max={365} />
+            <span className="text-xs text-muted-foreground">
+              calendar days hard-hold cap used by adaptive exit engine
             </span>
           </div>
         </div>
