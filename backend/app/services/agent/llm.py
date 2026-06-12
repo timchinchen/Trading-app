@@ -27,6 +27,43 @@ import httpx
 Provider = str  # "ollama" | "openai" | "huggingface" | "cohere"
 
 
+def _is_openai_reasoning_model(model: str) -> bool:
+    """Models in these families reject custom sampling params on Chat Completions."""
+    m = (model or "").strip().lower()
+    return bool(re.match(r"^(gpt-5|o1|o3|o4)(?:[-.]|$)", m))
+
+
+def _openai_chat_payload(
+    *,
+    model: str,
+    messages: list[dict[str, str]],
+    temperature: float,
+    json_mode: bool = False,
+    max_completion_tokens: int | None = None,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "model": model or "gpt-4o-mini",
+        "messages": messages,
+    }
+    # GPT-5 / o-series reasoning models return HTTP 400 when temperature is
+    # supplied with anything except their hidden default.
+    if not _is_openai_reasoning_model(payload["model"]):
+        payload["temperature"] = temperature
+    if json_mode:
+        payload["response_format"] = {"type": "json_object"}
+    if max_completion_tokens is not None:
+        payload["max_completion_tokens"] = max_completion_tokens
+    return payload
+
+
+def _response_error_detail(provider_name: str, response: httpx.Response) -> str:
+    try:
+        body: Any = response.json()
+    except Exception:
+        body = response.text
+    return f"{provider_name} {response.status_code}: {body}"
+
+
 def build_role_preamble_base(prompt_time_stop_days: int = 21) -> str:
     return (
         "ROLE: You are a swing-trading assistant hunting gains over a 2-3 week "
@@ -323,17 +360,15 @@ async def _chat(
         if not api_key:
             raise RuntimeError("OPENAI_API_KEY is empty - configure it in Settings")
         url = f"{(host or 'https://api.openai.com/v1').rstrip('/')}/chat/completions"
-        payload: dict[str, Any] = {
-            "model": model or "gpt-4o-mini",
-            "messages": [
+        payload = _openai_chat_payload(
+            model=model or "gpt-4o-mini",
+            messages=[
                 {"role": "system", "content": system},
                 {"role": "user", "content": user},
             ],
-            "temperature": temperature,
-            "stream": False,
-        }
-        if json_mode:
-            payload["response_format"] = {"type": "json_object"}
+            temperature=temperature,
+            json_mode=json_mode,
+        )
         async with httpx.AsyncClient(timeout=timeout) as client:
             r = await client.post(
                 url,
@@ -343,7 +378,8 @@ async def _chat(
                 },
                 json=payload,
             )
-            r.raise_for_status()
+            if r.status_code >= 400:
+                raise RuntimeError(_response_error_detail("OpenAI API", r))
             data = r.json()
             return (data.get("choices") or [{}])[0].get("message", {}).get("content", "") or ""
 
@@ -488,12 +524,11 @@ async def validate_chat_model(
                 hint += " It looks like the model name was entered in OPENAI_BASE_URL."
             return False, hint
         url = f"{base.rstrip('/')}/chat/completions"
-        base_payload = {
-            "model": model,
-            "messages": [{"role": "user", "content": "ping"}],
-            "temperature": 0,
-            "stream": False,
-        }
+        base_payload = _openai_chat_payload(
+            model=model,
+            messages=[{"role": "user", "content": "ping"}],
+            temperature=0,
+        )
         headers = {
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
@@ -519,11 +554,7 @@ async def validate_chat_model(
                     )
             if r.status_code < 400:
                 return True, "Model validated successfully."
-            try:
-                body = r.json()
-            except Exception:
-                body = r.text
-            return False, f"OpenAI validation failed ({r.status_code}): {body}"
+            return False, f"OpenAI validation failed: {_response_error_detail('OpenAI API', r)}"
         except Exception as e:
             return False, f"OpenAI validation error: {e}"
 
