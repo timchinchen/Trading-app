@@ -346,6 +346,62 @@ def _classify_regime(
     return "neutral", neutral_mult
 
 
+def resolve_buy_policy(
+    *,
+    regime_state: str,
+    data_complete: bool,
+    require_regime_confirmation: bool,
+    require_complete_data_for_buys: bool,
+    legacy_go: bool,
+    max_open_positions: int,
+    caution_max_open_positions: int,
+) -> dict[str, Any]:
+    """Decide whether new BUYs may fire this run and how many slots to allow.
+
+    Implements the "confirm first, then execute" gate:
+      - With ``require_regime_confirmation`` (default on), new buys are allowed
+        only when the regime is GO or CAUTION (never NO-GO). When off, we fall
+        back to the legacy "full GO only" behaviour.
+      - With ``require_complete_data_for_buys`` (default on), new buys are
+        hard-blocked while the SPY feed is incomplete (missing bars/volume or a
+        stale series), regardless of the trend verdict. Exits are unaffected.
+      - In CAUTION the open-position ceiling is tightened to
+        ``caution_max_open_positions`` so the book stays focused on fewer,
+        higher-conviction names.
+
+    Returns a dict: buys_allowed, data_ok, regime_ok, effective_max_open_positions,
+    block_reason.
+    """
+    state = (regime_state or "no_go").lower()
+    data_ok = bool(data_complete) or not require_complete_data_for_buys
+    if require_regime_confirmation:
+        regime_ok = state in ("go", "caution")
+    else:
+        regime_ok = bool(legacy_go)
+
+    eff_max = int(max_open_positions)
+    if state == "caution" and caution_max_open_positions > 0:
+        eff_max = min(eff_max, int(caution_max_open_positions))
+
+    reasons: list[str] = []
+    if not data_ok:
+        reasons.append("SPY data incomplete")
+    if not regime_ok:
+        reasons.append(
+            f"regime '{state}' not GO/CAUTION"
+            if require_regime_confirmation
+            else "regime not GO"
+        )
+
+    return {
+        "buys_allowed": bool(regime_ok and data_ok),
+        "data_ok": bool(data_ok),
+        "regime_ok": bool(regime_ok),
+        "effective_max_open_positions": max(0, eff_max),
+        "block_reason": "; ".join(reasons),
+    }
+
+
 def _adaptive_exit_proposals(
     broker: "AlpacaBroker",
     *,
@@ -1108,7 +1164,21 @@ async def _run_once_impl(broker: AlpacaBroker) -> int:
         # Apply the 1-2 week setup scanner to every watchlist symbol. This is
         # independent of the tweet pipeline, so we still benefit from a full
         # technical scan even when no tweets fetched.
-        regime = {"go": True, "reason": "swing disabled", "symbol": rs.swing_market_filter_symbol}
+        regime = {
+            "go": True,
+            "state": "go",
+            "data_complete": True,
+            "reason": "swing disabled",
+            "symbol": rs.swing_market_filter_symbol,
+        }
+        # Permissive default policy; tightened below when swing is enabled.
+        buy_policy = {
+            "buys_allowed": True,
+            "data_ok": True,
+            "regime_ok": True,
+            "effective_max_open_positions": rs.agent_max_open_positions,
+            "block_reason": "",
+        }
         swing_plans: dict[str, Any] = {}
         swing_snaps: dict[str, Any] = {}
         swing_proposals: list[dict[str, Any]] = []
@@ -1120,16 +1190,56 @@ async def _run_once_impl(broker: AlpacaBroker) -> int:
                 filter_symbol=rs.swing_market_filter_symbol,
                 ma=rs.swing_market_filter_ma,
                 lookback_days=rs.swing_bar_lookback_days,
+                stale_bars_days=rs.agent_regime_stale_bars_days,
                 log=log.add,
             )
+            # ── Hard "confirm first, then execute" buy gate ──────────────
+            buy_policy = resolve_buy_policy(
+                regime_state=str(regime.get("state", "no_go")),
+                data_complete=bool(regime.get("data_complete", True)),
+                require_regime_confirmation=rs.agent_require_regime_confirmation,
+                require_complete_data_for_buys=rs.agent_require_complete_data_for_buys,
+                legacy_go=bool(regime.get("go")),
+                max_open_positions=rs.agent_max_open_positions,
+                caution_max_open_positions=rs.agent_caution_max_open_positions,
+            )
+            log.add(
+                f"buy gate: state={regime.get('state')} "
+                f"data_complete={regime.get('data_complete')} "
+                f"buys_allowed={buy_policy['buys_allowed']} "
+                f"max_open={buy_policy['effective_max_open_positions']}/{rs.agent_max_open_positions}"
+                + (f" | blocked: {buy_policy['block_reason']}" if buy_policy['block_reason'] else "")
+            )
+            cross = regime.get("ma_cross")
+            cross_event = regime.get("ma_cross_event")
+            if cross_event:
+                log.add(
+                    f"ALERT {rs.swing_market_filter_symbol} 20/50DMA "
+                    f"{cross_event.upper().replace('_', ' ')} (now {cross})"
+                )
+                digest_append(
+                    kind="regime_flip",
+                    symbol=rs.swing_market_filter_symbol,
+                    summary=(
+                        f"{rs.swing_market_filter_symbol} 20/50DMA "
+                        f"{cross_event.replace('_', ' ')} — 20DMA now {cross} 50DMA"
+                    ),
+                    data={"run_id": run_id, "ma_cross": cross, "ma_cross_event": cross_event},
+                    db=db,
+                )
+            state_label = str(regime.get("state", "")).upper().replace("_", "-") or (
+                "GO" if regime.get("go") else "NO-GO"
+            )
+            data_label = "data-ok" if regime.get("data_complete", True) else "DATA-INCOMPLETE"
             digest_append(
                 kind="regime_flip",
                 symbol=rs.swing_market_filter_symbol,
                 summary=(
-                    f"market regime {'GO' if regime.get('go') else 'NO-GO'}: "
-                    f"{regime.get('reason', '')[:200]}"
+                    f"market regime {state_label} [{data_label}] "
+                    f"buys_allowed={buy_policy['buys_allowed']}: "
+                    f"{regime.get('reason', '')[:160]}"
                 ),
-                data={"run_id": run_id, "regime": regime},
+                data={"run_id": run_id, "regime": regime, "buy_policy": buy_policy},
                 db=db,
             )
             tweet_syms = sorted(signals.keys())
@@ -1153,8 +1263,8 @@ async def _run_once_impl(broker: AlpacaBroker) -> int:
                 min_rr=rs.swing_min_rr,
                 min_position_usd=rs.agent_min_position_usd,
                 max_position_usd=rs.agent_max_position_usd,
-                max_open_positions=rs.agent_max_open_positions,
-                regime_go=bool(regime.get("go")),
+                max_open_positions=buy_policy["effective_max_open_positions"],
+                regime_go=bool(buy_policy["buys_allowed"]),
             )
 
             # Trade-management pass: stop hits, time stops, breakeven bumps.
@@ -1184,7 +1294,7 @@ async def _run_once_impl(broker: AlpacaBroker) -> int:
             weekly_remaining=weekly_remaining - sum(p.get("notional") or 0.0 for p in swing_proposals if p.get("action") == "proposed" and p.get("side") == "buy"),
             min_position_usd=rs.agent_min_position_usd,
             max_position_usd=rs.agent_max_position_usd,
-            max_open_positions=rs.agent_max_open_positions,
+            max_open_positions=buy_policy["effective_max_open_positions"],
             get_price=_price,
             min_score=rs.agent_min_score,
             min_confidence=rs.agent_min_confidence,
@@ -1192,7 +1302,7 @@ async def _run_once_impl(broker: AlpacaBroker) -> int:
             recently_bought=recently_bought,
             open_position_qtys=open_position_qtys,
             risk_multiplier=risk_mult,
-            block_new_buys=block_buys,
+            block_new_buys=block_buys or not buy_policy["buys_allowed"],
         ) if not rs.swing_enabled or not regime.get("go") else []
         # When swing is on and regime is GO we intentionally suppress the
         # tweet-only allocator so the LLM doesn't chase non-setup signals.
@@ -1292,6 +1402,11 @@ async def _run_once_impl(broker: AlpacaBroker) -> int:
 
         proposed_count = 0
         executed_count = 0
+        # Reduce auto-entry frequency: cap how many *new* BUYs auto-execute per
+        # run (0 = unlimited). Exits and existing-position management are never
+        # capped. Buys beyond the cap stay as 'proposed' for the operator.
+        max_new_buys = max(0, int(rs.agent_max_new_positions_per_run))
+        new_buys_executed = 0
 
         for p in proposals:
             at = AgentTrade(
@@ -1315,6 +1430,26 @@ async def _run_once_impl(broker: AlpacaBroker) -> int:
             if not auto_execute or not broker.configured or p["qty"] <= 0:
                 at.action = "proposed"
                 continue
+
+            # ── BUY-side execution gates (exits always proceed) ──────────
+            if p["side"] == "buy":
+                # Pause auto-execution of new buys while the SPY feed is
+                # incomplete, even if a stale proposal slipped through.
+                if not buy_policy["data_ok"]:
+                    at.action = "proposed"
+                    at.reason = (at.reason or "") + " | held: SPY data incomplete — auto-exec paused"
+                    p["action"] = "proposed"
+                    log.add(f"HOLD {p['symbol']} buy: SPY data incomplete (auto-exec paused)")
+                    continue
+                # Per-run new-position cap.
+                if max_new_buys > 0 and new_buys_executed >= max_new_buys:
+                    at.action = "proposed"
+                    at.reason = (at.reason or "") + (
+                        f" | held: per-run new-position cap reached ({max_new_buys})"
+                    )
+                    p["action"] = "proposed"
+                    log.add(f"HOLD {p['symbol']} buy: per-run new-position cap ({max_new_buys}) reached")
+                    continue
             try:
                 result = broker.place_order(
                     symbol=p["symbol"], qty=p["qty"],
@@ -1334,6 +1469,8 @@ async def _run_once_impl(broker: AlpacaBroker) -> int:
                 at.action = "executed"
                 p["action"] = "executed"
                 executed_count += 1
+                if p["side"] == "buy":
+                    new_buys_executed += 1
                 log.add(f"EXEC {p['symbol']} {p['side']} qty={p['qty']} alpaca_id={order.alpaca_id}")
                 digest_append(
                     kind="trade_exec",
@@ -1421,8 +1558,8 @@ async def _run_once_impl(broker: AlpacaBroker) -> int:
                     min_rr=rs.swing_min_rr,
                     min_position_usd=rs.agent_min_position_usd,
                     max_position_usd=rs.agent_max_position_usd,
-                    max_open_positions=rs.agent_max_open_positions,
-                    regime_go=bool(regime.get("go")),
+                    max_open_positions=buy_policy["effective_max_open_positions"],
+                    regime_go=bool(buy_policy["buys_allowed"]),
                 ) if rs.swing_enabled else []
 
                 second_swing_buy_syms = {
@@ -1444,7 +1581,7 @@ async def _run_once_impl(broker: AlpacaBroker) -> int:
                     ),
                     min_position_usd=rs.agent_min_position_usd,
                     max_position_usd=rs.agent_max_position_usd,
-                    max_open_positions=rs.agent_max_open_positions,
+                    max_open_positions=buy_policy["effective_max_open_positions"],
                     get_price=_price,
                     min_score=rs.agent_min_score,
                     min_confidence=rs.agent_min_confidence,
@@ -1452,7 +1589,7 @@ async def _run_once_impl(broker: AlpacaBroker) -> int:
                     recently_bought=recently_bought,
                     open_position_qtys=open_position_qtys,
                     risk_multiplier=risk_mult,
-                    block_new_buys=block_buys,
+                    block_new_buys=block_buys or not buy_policy["buys_allowed"],
                 ) if not rs.swing_enabled or not regime.get("go") else []
 
                 second_pass_proposals = [
@@ -1479,6 +1616,21 @@ async def _run_once_impl(broker: AlpacaBroker) -> int:
                         at.action = "proposed"
                         second_pass_proposed += 1
                         continue
+                    # Same BUY-side gates as the first pass.
+                    if not buy_policy["data_ok"]:
+                        at.action = "proposed"
+                        at.reason = (at.reason or "") + " | held: SPY data incomplete — auto-exec paused"
+                        p["action"] = "proposed"
+                        second_pass_proposed += 1
+                        continue
+                    if max_new_buys > 0 and new_buys_executed >= max_new_buys:
+                        at.action = "proposed"
+                        at.reason = (at.reason or "") + (
+                            f" | held: per-run new-position cap reached ({max_new_buys})"
+                        )
+                        p["action"] = "proposed"
+                        second_pass_proposed += 1
+                        continue
                     try:
                         result = broker.place_order(
                             symbol=p["symbol"], qty=p["qty"],
@@ -1498,6 +1650,7 @@ async def _run_once_impl(broker: AlpacaBroker) -> int:
                         at.action = "executed"
                         p["action"] = "executed"
                         second_pass_executed += 1
+                        new_buys_executed += 1
                         log.add(f"EXEC 2nd-pass {p['symbol']} {p['side']} qty={p['qty']} alpaca_id={order.alpaca_id}")
                         digest_append(
                             kind="trade_exec",

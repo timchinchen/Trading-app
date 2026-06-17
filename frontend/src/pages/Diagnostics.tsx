@@ -101,6 +101,11 @@ export function DiagnosticsPage() {
       `AGENT_REGIME_NEUTRAL_MULT=${s?.agent_regime_neutral_mult ?? 'n/a'}`,
       `AGENT_REGIME_RISK_OFF_MULT=${s?.agent_regime_risk_off_mult ?? 'n/a'}`,
       `AGENT_RISK_OFF_BLOCK_NEW_BUYS=${s?.agent_risk_off_block_new_buys ?? 'n/a'}`,
+      `AGENT_REQUIRE_REGIME_CONFIRMATION=${s?.agent_require_regime_confirmation ?? 'n/a'}`,
+      `AGENT_REQUIRE_COMPLETE_DATA_FOR_BUYS=${s?.agent_require_complete_data_for_buys ?? 'n/a'}`,
+      `AGENT_REGIME_STALE_BARS_DAYS=${s?.agent_regime_stale_bars_days ?? 'n/a'}`,
+      `AGENT_MAX_NEW_POSITIONS_PER_RUN=${s?.agent_max_new_positions_per_run ?? 'n/a'}`,
+      `AGENT_CAUTION_MAX_OPEN_POSITIONS=${s?.agent_caution_max_open_positions ?? 'n/a'}`,
       '',
     ]
     const chunks: string[] = [

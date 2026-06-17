@@ -67,9 +67,28 @@ def _diagnostic_assumptions(rs) -> list[dict[str, Any]]:
             "name": "Market regime buy gate",
             "value": (
                 f"{rs.swing_market_filter_symbol} above SMA{rs.swing_market_filter_ma}, "
-                "MA rising, and above SMA20 for GO"
+                "MA rising, and above SMA20 for GO; mixed=CAUTION; downtrend=NO-GO"
             ),
             "source": "swing_analyzer.market_regime + swing_runner.build_swing_proposals",
+        },
+        {
+            "name": "Confirm-first buy gate",
+            "value": (
+                f"new buys require regime GO/CAUTION = {rs.agent_require_regime_confirmation}; "
+                f"require complete {rs.swing_market_filter_symbol} data = "
+                f"{rs.agent_require_complete_data_for_buys} "
+                f"(stale after {rs.agent_regime_stale_bars_days}d); exits never blocked"
+            ),
+            "source": "runner.resolve_buy_policy",
+        },
+        {
+            "name": "Auto-entry throttle & focus",
+            "value": (
+                f"max {rs.agent_max_new_positions_per_run} new buys/run "
+                f"(0=unlimited); CAUTION caps open positions at "
+                f"{rs.agent_caution_max_open_positions or rs.agent_max_open_positions}"
+            ),
+            "source": "runner._run_once_impl + resolve_buy_policy",
         },
         {
             "name": "Risk per trade",

@@ -47,18 +47,32 @@ class SetupPlan:
 # Market regime filter
 # ---------------------------------------------------------------------------
 def market_regime(spy_bars: list[dict], ma: int = 50) -> dict[str, Any]:
-    """Evaluate whether the broader market is trending upward.
+    """Classify the broader market into a three-state regime and report whether
+    the underlying data is complete enough to trust the verdict.
 
-    Go condition (all must hold):
-      - price above the MA
-      - MA slope over last 5 bars is > 0 (rising)
-      - today's close > 20-day SMA
+    State (only as reliable as ``data_complete``):
+      - ``go``      : price > SMA(ma) AND MA rising AND price > SMA20 (full risk-on)
+      - ``no_go``   : price < SMA(ma) AND MA not rising (clear downtrend)
+      - ``caution`` : everything in between (mixed signal)
 
-    Returns {go: bool, reason: str, ...ind}.
+    Backward-compat: ``go`` (bool) keeps its original meaning — True only for
+    the full risk-on state above. New callers should branch on ``state`` and
+    ``data_complete`` instead of treating ``not go`` as "block everything".
+
+    ``data_complete`` is False when the SPY series is too short to compute the
+    moving averages or the most recent bars carry no volume (the classic
+    "missing intraday bars/volume" outage). The runner uses this to hard-block
+    new buys and pause auto-execution until the feed is healthy again.
+
+    Also reports the 20/50-day moving-average relationship (``ma_cross``) and a
+    fresh golden/death-cross event (``ma_cross_event``) so the agent can surface
+    a live SPY 20/50 MA-cross alert.
     """
     cs = T.closes(spy_bars)
+    vols = T.volumes(spy_bars)
     sma_big = T.sma(cs, ma)
     sma20 = T.sma(cs, 20)
+    sma50 = T.sma(cs, 50)
     last = cs[-1] if cs else None
     # Simple slope: compare current MA vs MA 5 bars ago.
     sma_prev = None
@@ -68,21 +82,57 @@ def market_regime(spy_bars: list[dict], ma: int = 50) -> dict[str, Any]:
     above = bool(last and sma_big and last > sma_big)
     above_short = bool(last and sma20 and last > sma20)
 
+    # ── Data completeness ────────────────────────────────────────────────
+    data_issues: list[str] = []
+    if last is None or sma_big is None or len(cs) < ma + 5:
+        data_issues.append("insufficient SPY history")
+    # Recent volume must be present — an all-zero tail is the signature of a
+    # missing-bars / missing-volume data outage.
+    recent_vols = [v for v in vols[-3:]] if vols else []
+    if not recent_vols or all((v or 0) <= 0 for v in recent_vols):
+        data_issues.append("missing SPY volume")
+    data_complete = not data_issues
+
+    # ── 20/50 MA cross (golden/death) ────────────────────────────────────
+    ma_cross = None
+    if sma20 is not None and sma50 is not None:
+        if sma20 > sma50:
+            ma_cross = "bullish"      # 20DMA above 50DMA
+        elif sma20 < sma50:
+            ma_cross = "bearish"      # 20DMA below 50DMA
+        else:
+            ma_cross = "flat"
+    ma_cross_event = None
+    if len(cs) >= 53:
+        s20_prev = T.sma(cs[:-3], 20)
+        s50_prev = T.sma(cs[:-3], 50)
+        if (
+            s20_prev is not None and s50_prev is not None
+            and sma20 is not None and sma50 is not None
+        ):
+            prev_diff = s20_prev - s50_prev
+            now_diff = sma20 - sma50
+            if prev_diff <= 0 < now_diff:
+                ma_cross_event = "golden_cross"
+            elif prev_diff >= 0 > now_diff:
+                ma_cross_event = "death_cross"
+
+    # ── State classification (trend only; data gating handled by caller) ──
     if last is None or sma_big is None:
-        return {
-            "go": False,
-            "reason": "insufficient SPY history",
-            "last": last,
-            "sma_big": sma_big,
-            "sma20": sma20,
-            "rising": False,
-        }
-    if above and rising and above_short:
-        reason = (
-            f"SPY {last:.2f} > SMA{ma} {sma_big:.2f}, MA rising, > SMA20"
-        )
+        state = "no_go"
+        go = False
+        reason = "insufficient SPY history"
+    elif above and rising and above_short:
+        state = "go"
         go = True
+        reason = f"SPY {last:.2f} > SMA{ma} {sma_big:.2f}, MA rising, > SMA20"
+    elif (not above) and (not rising):
+        state = "no_go"
+        go = False
+        reason = f"downtrend: SPY {last:.2f} < SMA{ma} {sma_big:.2f}, MA not rising"
     else:
+        state = "caution"
+        go = False
         bits = []
         if not above:
             bits.append(f"price<SMA{ma}")
@@ -90,15 +140,24 @@ def market_regime(spy_bars: list[dict], ma: int = 50) -> dict[str, Any]:
             bits.append(f"SMA{ma} not rising")
         if not above_short:
             bits.append("below SMA20")
-        reason = "regime off: " + ", ".join(bits)
-        go = False
+        reason = "mixed: " + ", ".join(bits) if bits else "mixed signal"
+
+    if data_issues:
+        reason = f"data incomplete ({', '.join(data_issues)}); " + reason
+
     return {
         "go": go,
+        "state": state,
+        "data_complete": data_complete,
+        "data_issues": data_issues,
         "reason": reason,
         "last": last,
         "sma_big": sma_big,
         "sma20": sma20,
+        "sma50": sma50,
         "rising": rising,
+        "ma_cross": ma_cross,
+        "ma_cross_event": ma_cross_event,
     }
 
 
