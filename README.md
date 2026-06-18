@@ -261,7 +261,7 @@ AGENT_RS_LOOKBACK_DAYS=120
 ### Confirm-first buy gate (regime data completeness)
 - **Three-state market regime** — `swing_analyzer.market_regime` now reports `go` / `caution` / `no_go` plus a `data_complete` flag and `data_issues`. Data is "incomplete" when the SPY series is too short, the recent bars carry **no volume**, or the newest bar is **stale** (older than `AGENT_REGIME_STALE_BARS_DAYS`).
 - **Live SPY 20/50 DMA cross** — regime reports `ma_cross` (bullish/bearish) and emits a fresh **golden/death-cross alert** to the run log and Trading Digest.
-- **Hard buy gate** (`runner.resolve_buy_policy`) — new buys require regime GO/CAUTION **and** complete SPY data; auto-execution of buys pauses on data gaps. Exits are never blocked. Toggle with `AGENT_REQUIRE_REGIME_CONFIRMATION` / `AGENT_REQUIRE_COMPLETE_DATA_FOR_BUYS`.
+- **Data mitigation buy gate** (`runner.resolve_buy_policy`) — new buys require regime GO/CAUTION. Incomplete SPY data **mitigates** by default (CAUTION sizing, tighter book) instead of stopping. Set `AGENT_REQUIRE_COMPLETE_DATA_FOR_BUYS=true` for the old hard-block behaviour. Exits are never blocked.
 - **Auto-entry throttle** — `AGENT_MAX_NEW_POSITIONS_PER_RUN` caps how many new BUYs auto-execute per run; extras are surfaced as proposals.
 - **Portfolio focus in CAUTION** — `AGENT_CAUTION_MAX_OPEN_POSITIONS` tightens the open-position ceiling to keep the book on fewer, higher-conviction names.
 
@@ -379,7 +379,8 @@ Rolling log of agent events compressed daily at 09:30 ET by the Deep Analysis LL
 | `AGENT_AUTO_EXECUTE_LIVE=false` | Live mode proposes only; you execute manually |
 | `AGENT_RISK_OFF_BLOCK_NEW_BUYS` | Blocks all new buys when market regime is risk_off |
 | `AGENT_REQUIRE_REGIME_CONFIRMATION` | Confirm-first: new buys only when regime is GO/CAUTION (never NO-GO) |
-| `AGENT_REQUIRE_COMPLETE_DATA_FOR_BUYS` | Pauses new buys + auto-exec while SPY bars/volume are missing or stale (exits still run) |
+| `AGENT_REQUIRE_COMPLETE_DATA_FOR_BUYS` | Hard-block new buys when SPY data is incomplete (default off = mitigate with CAUTION sizing) |
+| `AGENT_INCOMPLETE_DATA_SIZE_MULT` | Extra slot multiplier when data is incomplete but buys are allowed (default 0.5) |
 | `AGENT_MAX_NEW_POSITIONS_PER_RUN` | Throttles auto-entry: caps new BUYs auto-executed per run (extras become proposals) |
 | `AGENT_CAUTION_MAX_OPEN_POSITIONS` | Focuses the book to fewer positions when regime is CAUTION |
 | `AGENT_CAUTION_SIZE_MULT` / `AGENT_CAUTION_MIN_RR` | CAUTION-tier execution: half-size entries + stricter R/R floor |

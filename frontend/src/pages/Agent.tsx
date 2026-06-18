@@ -147,6 +147,16 @@ function RegimeBanner({ r }: { r: RegimeHealth }) {
   const tier = (reg.state || 'unknown').toUpperCase().replace('_', '-')
   const tierTone =
     reg.state === 'go' ? 'success' : reg.state === 'caution' ? 'secondary' : 'danger'
+  const buyTone = pol.buys_allowed
+    ? pol.data_mitigated
+      ? 'secondary'
+      : 'success'
+    : 'danger'
+  const buyLabel = pol.buys_allowed
+    ? pol.data_mitigated
+      ? 'new buys allowed (mitigated)'
+      : 'new buys allowed'
+    : 'new buys blocked'
   return (
     <section className="panel p-6">
       <div className="flex items-center gap-3 flex-wrap">
@@ -154,12 +164,10 @@ function RegimeBanner({ r }: { r: RegimeHealth }) {
           Regime · {r.filter_symbol}
         </h2>
         <Pill tone={tierTone as any}>{tier}</Pill>
-        <Pill tone={reg.data_complete ? 'success' : 'danger'}>
-          {reg.data_complete ? 'data complete' : 'DATA INCOMPLETE'}
+        <Pill tone={reg.data_complete ? 'success' : 'secondary'}>
+          {reg.data_complete ? 'data complete' : 'data incomplete'}
         </Pill>
-        <Pill tone={pol.buys_allowed ? 'success' : 'danger'}>
-          {pol.buys_allowed ? 'new buys allowed' : 'new buys blocked'}
-        </Pill>
+        <Pill tone={buyTone as any}>{buyLabel}</Pill>
         {reg.ma_cross && <Pill tone="muted">20/50DMA: {reg.ma_cross}</Pill>}
         {reg.ma_cross_event && (
           <Pill tone="primary">{reg.ma_cross_event.replace('_', ' ')}</Pill>
@@ -175,8 +183,11 @@ function RegimeBanner({ r }: { r: RegimeHealth }) {
       {!pol.buys_allowed && pol.block_reason && (
         <div className="text-xs text-destructive mt-1">Blocked: {pol.block_reason}</div>
       )}
+      {pol.buys_allowed && pol.mitigation_note && (
+        <div className="text-xs text-muted-foreground mt-1">Mitigation: {pol.mitigation_note}</div>
+      )}
       {reg.data_issues && reg.data_issues.length > 0 && (
-        <div className="text-xs text-destructive mt-1">
+        <div className="text-xs text-muted-foreground mt-1">
           Data issues: {reg.data_issues.join('; ')}
         </div>
       )}

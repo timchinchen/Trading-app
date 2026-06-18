@@ -61,8 +61,8 @@ def market_regime(spy_bars: list[dict], ma: int = 50) -> dict[str, Any]:
 
     ``data_complete`` is False when the SPY series is too short to compute the
     moving averages or the most recent bars carry no volume (the classic
-    "missing intraday bars/volume" outage). The runner uses this to hard-block
-    new buys and pause auto-execution until the feed is healthy again.
+    "missing intraday bars/volume" outage). The runner uses this to apply
+    CAUTION-tier mitigation (not a hard stop) unless strict data gating is on.
 
     Also reports the 20/50-day moving-average relationship (``ma_cross``) and a
     fresh golden/death-cross event (``ma_cross_event``) so the agent can surface
