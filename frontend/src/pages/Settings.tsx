@@ -1728,6 +1728,250 @@ function AgentThresholdsCard({ s }: { s: AgentSettings }) {
   )
 }
 
+// ----- Regime gating, CAUTION sizing, exits & focus (editable) -----
+function RegimeGatingCard({ s }: { s: AgentSettings }) {
+  const upd = useUpdateAgentSettings()
+  const [cautionSize, setCautionSize] = useState(s.agent_caution_size_mult ?? 0.5)
+  const [cautionMinRr, setCautionMinRr] = useState(s.agent_caution_min_rr ?? 3.0)
+  const [cautionCorrob, setCautionCorrob] = useState(
+    s.agent_caution_require_corroboration ?? false,
+  )
+  const [backfill, setBackfill] = useState(s.agent_plan_backfill_enabled ?? true)
+  const [backfillStop, setBackfillStop] = useState(
+    Number(((s.agent_plan_backfill_stop_pct ?? 0.05) * 100).toFixed(2)),
+  )
+  const [backfillTarget, setBackfillTarget] = useState(
+    Number(((s.agent_plan_backfill_target_pct ?? 0.1) * 100).toFixed(2)),
+  )
+  const [invalEnabled, setInvalEnabled] = useState(s.agent_invalidation_exits_enabled ?? true)
+  const [invalSma, setInvalSma] = useState(s.agent_invalidation_sma_period ?? 20)
+  const [invalCloses, setInvalCloses] = useState(s.agent_invalidation_consec_closes ?? 2)
+  const [invalFirstClose, setInvalFirstClose] = useState(
+    s.agent_invalidation_first_close_on_confirmed ?? true,
+  )
+  const [timeStopMinProg, setTimeStopMinProg] = useState(
+    Number(((s.swing_time_stop_min_progress_pct ?? 0.02) * 100).toFixed(2)),
+  )
+  const [watchMode, setWatchMode] = useState(s.agent_watchlist_autoadd_mode ?? 'all')
+  const [watchCooldown, setWatchCooldown] = useState(s.agent_watchlist_cooldown_hours ?? 0)
+  const [autoExecPaper, setAutoExecPaper] = useState(s.agent_auto_execute_paper ?? true)
+  const [disableRedeploy, setDisableRedeploy] = useState(
+    s.agent_disable_same_run_redeploy ?? false,
+  )
+  const [useIntraday, setUseIntraday] = useState(s.agent_use_intraday_confirmation ?? false)
+  const [intradayLookback, setIntradayLookback] = useState(
+    s.agent_intraday_lookback_minutes ?? 390,
+  )
+
+  useEffect(() => {
+    setCautionSize(s.agent_caution_size_mult ?? 0.5)
+    setCautionMinRr(s.agent_caution_min_rr ?? 3.0)
+    setCautionCorrob(s.agent_caution_require_corroboration ?? false)
+    setBackfill(s.agent_plan_backfill_enabled ?? true)
+    setBackfillStop(Number(((s.agent_plan_backfill_stop_pct ?? 0.05) * 100).toFixed(2)))
+    setBackfillTarget(Number(((s.agent_plan_backfill_target_pct ?? 0.1) * 100).toFixed(2)))
+    setInvalEnabled(s.agent_invalidation_exits_enabled ?? true)
+    setInvalSma(s.agent_invalidation_sma_period ?? 20)
+    setInvalCloses(s.agent_invalidation_consec_closes ?? 2)
+    setInvalFirstClose(s.agent_invalidation_first_close_on_confirmed ?? true)
+    setTimeStopMinProg(Number(((s.swing_time_stop_min_progress_pct ?? 0.02) * 100).toFixed(2)))
+    setWatchMode(s.agent_watchlist_autoadd_mode ?? 'all')
+    setWatchCooldown(s.agent_watchlist_cooldown_hours ?? 0)
+    setAutoExecPaper(s.agent_auto_execute_paper ?? true)
+    setDisableRedeploy(s.agent_disable_same_run_redeploy ?? false)
+    setUseIntraday(s.agent_use_intraday_confirmation ?? false)
+    setIntradayLookback(s.agent_intraday_lookback_minutes ?? 390)
+  }, [s])
+
+  const save = () =>
+    upd.mutate({
+      AGENT_CAUTION_SIZE_MULT: Number(cautionSize),
+      AGENT_CAUTION_MIN_RR: Number(cautionMinRr),
+      AGENT_CAUTION_REQUIRE_CORROBORATION: cautionCorrob,
+      AGENT_PLAN_BACKFILL_ENABLED: backfill,
+      AGENT_PLAN_BACKFILL_STOP_PCT: Number(backfillStop) / 100,
+      AGENT_PLAN_BACKFILL_TARGET_PCT: Number(backfillTarget) / 100,
+      AGENT_INVALIDATION_EXITS_ENABLED: invalEnabled,
+      AGENT_INVALIDATION_SMA_PERIOD: Number(invalSma),
+      AGENT_INVALIDATION_CONSEC_CLOSES: Number(invalCloses),
+      AGENT_INVALIDATION_FIRST_CLOSE_ON_CONFIRMED: invalFirstClose,
+      SWING_TIME_STOP_MIN_PROGRESS_PCT: Number(timeStopMinProg) / 100,
+      AGENT_WATCHLIST_AUTOADD_MODE: watchMode,
+      AGENT_WATCHLIST_COOLDOWN_HOURS: Number(watchCooldown),
+      AGENT_AUTO_EXECUTE_PAPER: autoExecPaper,
+      AGENT_DISABLE_SAME_RUN_REDEPLOY: disableRedeploy,
+      AGENT_USE_INTRADAY_CONFIRMATION: useIntraday,
+      AGENT_INTRADAY_LOOKBACK_MINUTES: Number(intradayLookback),
+    })
+
+  const Num = ({
+    value,
+    onChange,
+    step = '1',
+    min,
+    max,
+  }: {
+    value: number
+    onChange: (n: number) => void
+    step?: string
+    min?: number
+    max?: number
+  }) => (
+    <input
+      type="number"
+      step={step}
+      min={min}
+      max={max}
+      value={value}
+      onChange={(e) => onChange(Number(e.target.value))}
+      className="px-3 py-2 rounded-md text-sm w-32"
+    />
+  )
+
+  const Lbl = ({ k }: { k: string }) => (
+    <div className="text-xs text-muted-foreground uppercase tracking-wider self-center">
+      {k}
+      <OverrideBadge k={k} overridden={s.overridden} />
+    </div>
+  )
+
+  return (
+    <Card title="Regime gating, CAUTION sizing & exits (editable)">
+      <p className="text-xs text-muted-foreground mb-3">
+        "Confirm first, then execute" controls. CAUTION trims size and tightens
+        entries; plan backfill + invalidation exits cut losers when the setup
+        breaks; intraday confirmation is an optional layer that never hard-blocks.
+      </p>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6">
+        <div className="grid grid-cols-[210px_1fr] gap-2 py-2 border-b border-border">
+          <Lbl k="AGENT_CAUTION_SIZE_MULT" />
+          <div className="flex items-center gap-2">
+            <Num value={cautionSize} onChange={setCautionSize} step="0.05" min={0.1} max={1} />
+            <span className="text-xs text-muted-foreground">size × in CAUTION (0.5 = half)</span>
+          </div>
+        </div>
+        <div className="grid grid-cols-[210px_1fr] gap-2 py-2 border-b border-border">
+          <Lbl k="AGENT_CAUTION_MIN_RR" />
+          <div className="flex items-center gap-2">
+            <Num value={cautionMinRr} onChange={setCautionMinRr} step="0.1" min={0} />
+            <span className="text-xs text-muted-foreground">stricter R/R floor in CAUTION</span>
+          </div>
+        </div>
+        <div className="grid grid-cols-[210px_1fr] gap-2 py-2 border-b border-border">
+          <Lbl k="AGENT_CAUTION_REQUIRE_CORROBORATION" />
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={cautionCorrob}
+              onChange={(e) => setCautionCorrob(e.target.checked)} />
+            require tweet/intel corroboration in CAUTION
+          </label>
+        </div>
+        <div className="grid grid-cols-[210px_1fr] gap-2 py-2 border-b border-border">
+          <Lbl k="AGENT_PLAN_BACKFILL_ENABLED" />
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={backfill}
+              onChange={(e) => setBackfill(e.target.checked)} />
+            give every open position a stop/target plan
+          </label>
+        </div>
+        <div className="grid grid-cols-[210px_1fr] gap-2 py-2 border-b border-border">
+          <Lbl k="AGENT_PLAN_BACKFILL_STOP_%" />
+          <Num value={backfillStop} onChange={setBackfillStop} step="0.5" />
+        </div>
+        <div className="grid grid-cols-[210px_1fr] gap-2 py-2 border-b border-border">
+          <Lbl k="AGENT_PLAN_BACKFILL_TARGET_%" />
+          <Num value={backfillTarget} onChange={setBackfillTarget} step="0.5" />
+        </div>
+        <div className="grid grid-cols-[210px_1fr] gap-2 py-2 border-b border-border">
+          <Lbl k="AGENT_INVALIDATION_EXITS_ENABLED" />
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={invalEnabled}
+              onChange={(e) => setInvalEnabled(e.target.checked)} />
+            exit when the setup is invalidated
+          </label>
+        </div>
+        <div className="grid grid-cols-[210px_1fr] gap-2 py-2 border-b border-border">
+          <Lbl k="AGENT_INVALIDATION_SMA_PERIOD" />
+          <Num value={invalSma} onChange={setInvalSma} step="1" min={2} />
+        </div>
+        <div className="grid grid-cols-[210px_1fr] gap-2 py-2 border-b border-border">
+          <Lbl k="AGENT_INVALIDATION_CONSEC_CLOSES" />
+          <div className="flex items-center gap-2">
+            <Num value={invalCloses} onChange={setInvalCloses} step="1" min={1} />
+            <span className="text-xs text-muted-foreground">closes below SMA for soft exit</span>
+          </div>
+        </div>
+        <div className="grid grid-cols-[210px_1fr] gap-2 py-2 border-b border-border">
+          <Lbl k="AGENT_INVALIDATION_FIRST_CLOSE_ON_CONFIRMED" />
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={invalFirstClose}
+              onChange={(e) => setInvalFirstClose(e.target.checked)} />
+            single-close exit on confirmed weakness
+          </label>
+        </div>
+        <div className="grid grid-cols-[210px_1fr] gap-2 py-2 border-b border-border">
+          <Lbl k="SWING_TIME_STOP_MIN_PROGRESS_%" />
+          <div className="flex items-center gap-2">
+            <Num value={timeStopMinProg} onChange={setTimeStopMinProg} step="0.5" />
+            <span className="text-xs text-muted-foreground">time-stop fires below this gain</span>
+          </div>
+        </div>
+        <div className="grid grid-cols-[210px_1fr] gap-2 py-2 border-b border-border">
+          <Lbl k="AGENT_WATCHLIST_AUTOADD_MODE" />
+          <select
+            value={watchMode}
+            onChange={(e) => setWatchMode(e.target.value)}
+            className="px-3 py-2 rounded-md text-sm w-40"
+          >
+            <option value="all">all (legacy)</option>
+            <option value="proposed">proposed + exits</option>
+            <option value="executed">executed only</option>
+          </select>
+        </div>
+        <div className="grid grid-cols-[210px_1fr] gap-2 py-2 border-b border-border">
+          <Lbl k="AGENT_WATCHLIST_COOLDOWN_HOURS" />
+          <Num value={watchCooldown} onChange={setWatchCooldown} step="1" min={0} />
+        </div>
+        <div className="grid grid-cols-[210px_1fr] gap-2 py-2 border-b border-border">
+          <Lbl k="AGENT_AUTO_EXECUTE_PAPER" />
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={autoExecPaper}
+              onChange={(e) => setAutoExecPaper(e.target.checked)} />
+            auto-execute in paper (uncheck = propose-only)
+          </label>
+        </div>
+        <div className="grid grid-cols-[210px_1fr] gap-2 py-2 border-b border-border">
+          <Lbl k="AGENT_DISABLE_SAME_RUN_REDEPLOY" />
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={disableRedeploy}
+              onChange={(e) => setDisableRedeploy(e.target.checked)} />
+            don't redeploy freed sell proceeds same run
+          </label>
+        </div>
+        <div className="grid grid-cols-[210px_1fr] gap-2 py-2 border-b border-border">
+          <Lbl k="AGENT_USE_INTRADAY_CONFIRMATION" />
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={useIntraday}
+              onChange={(e) => setUseIntraday(e.target.checked)} />
+            confirm regime with SPY 1-min bars (never hard-blocks)
+          </label>
+        </div>
+        <div className="grid grid-cols-[210px_1fr] gap-2 py-2 border-b border-border">
+          <Lbl k="AGENT_INTRADAY_LOOKBACK_MINUTES" />
+          <Num value={intradayLookback} onChange={setIntradayLookback} step="30" min={30} />
+        </div>
+      </div>
+      <div className="flex items-center gap-3 pt-4">
+        <button onClick={save} disabled={upd.isPending} className="btn-primary px-4 py-2 rounded-lg">
+          {upd.isPending ? 'Saving...' : 'Save regime & exit settings'}
+        </button>
+        {upd.isSuccess && !upd.isPending && (
+          <span className="text-xs text-success">saved</span>
+        )}
+      </div>
+    </Card>
+  )
+}
+
 // ----- Scraper cadence (previously hard-coded) -----
 function ScraperCadenceCard({ s }: { s: AgentSettings }) {
   const upd = useUpdateAgentSettings()
@@ -2553,6 +2797,7 @@ export function SettingsPage() {
           <StocktwitsCard s={agentSettings} />
           <RegistrationAccessCard s={agentSettings} />
           <AgentBudgetCard s={agentSettings} />
+          <RegimeGatingCard s={agentSettings} />
           <AgentThresholdsCard s={agentSettings} />
           <SwingTradingCard s={agentSettings} />
           <AutoSellCard s={agentSettings} />

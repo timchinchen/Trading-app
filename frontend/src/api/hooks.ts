@@ -26,6 +26,7 @@ import type {
   Position,
   Quote,
   SetupHealth,
+  RegimeHealth,
   WatchlistItem,
   SettingsExportPayload,
   SettingsOptimizeGoal,
@@ -160,6 +161,13 @@ export const useSetupHealth = () =>
     queryKey: ['health', 'setup'],
     queryFn: async () => (await api.get<SetupHealth>('/health/setup')).data,
     refetchInterval: 10000,
+  })
+
+export const useAgentRegime = () =>
+  useQuery({
+    queryKey: ['agent', 'regime'],
+    queryFn: async () => (await api.get<RegimeHealth>('/agent/regime')).data,
+    refetchInterval: 30000,
   })
 
 export const useAgentDiagnostics = () =>
