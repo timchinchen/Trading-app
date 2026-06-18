@@ -171,6 +171,60 @@ def detect_conflicts(rs: RuntimeSettings) -> list[SettingsIssue]:
             )
         )
 
+    # Regime / data-gating + CAUTION-tier coherence
+    if rs.agent_caution_size_mult > 1.0:
+        issues.append(
+            SettingsIssue(
+                "AGENT_CAUTION_SIZE_MULT",
+                "warn",
+                f"CAUTION size multiplier {rs.agent_caution_size_mult:.2f} > 1.0 increases "
+                "size in CAUTION — it should reduce it (<= 1.0).",
+            )
+        )
+
+    if rs.agent_caution_min_rr and rs.agent_caution_min_rr < rs.swing_min_rr:
+        issues.append(
+            SettingsIssue(
+                "AGENT_CAUTION_MIN_RR",
+                "info",
+                f"CAUTION R/R floor {rs.agent_caution_min_rr:.2f} is below the base "
+                f"SWING_MIN_RR {rs.swing_min_rr:.2f}, so it never tightens entries.",
+            )
+        )
+
+    if (
+        rs.agent_caution_max_open_positions
+        and rs.agent_caution_max_open_positions > rs.agent_max_open_positions
+    ):
+        issues.append(
+            SettingsIssue(
+                "AGENT_CAUTION_MAX_OPEN_POSITIONS",
+                "warn",
+                f"CAUTION open cap {rs.agent_caution_max_open_positions} exceeds the base "
+                f"MAX_OPEN_POSITIONS {rs.agent_max_open_positions}; CAUTION should be tighter.",
+            )
+        )
+
+    if not rs.agent_require_complete_data_for_buys:
+        issues.append(
+            SettingsIssue(
+                "AGENT_REQUIRE_COMPLETE_DATA_FOR_BUYS",
+                "warn",
+                "Confirm-first data gate is OFF — the agent may buy while SPY bars/volume "
+                "are missing or stale.",
+            )
+        )
+
+    if rs.agent_plan_backfill_stop_pct >= rs.agent_plan_backfill_target_pct:
+        issues.append(
+            SettingsIssue(
+                "AGENT_PLAN_BACKFILL_STOP_PCT",
+                "warn",
+                f"Backfill stop {rs.agent_plan_backfill_stop_pct * 100:.1f}% >= target "
+                f"{rs.agent_plan_backfill_target_pct * 100:.1f}% — backfilled plans have R/R <= 1.",
+            )
+        )
+
     return issues
 
 

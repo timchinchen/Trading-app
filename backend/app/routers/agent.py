@@ -234,6 +234,55 @@ def diagnostics(_user=Depends(get_current_user), db: Session = Depends(get_db)):
     }
 
 
+@router.get("/regime")
+def regime_health(
+    _user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+    broker=Depends(get_broker),
+):
+    """Live SPY regime + data-health snapshot and the resulting buy gate.
+
+    Mirrors what the agent computes each run (tier, data completeness, 20/50
+    MA cross, optional intraday status) plus the effective buy policy, so the
+    UI can show why buys are or aren't allowed right now."""
+    from ..services.agent import swing_runner
+    from ..services.agent.runner import resolve_buy_policy
+
+    rs = get_runtime_settings(db)
+    try:
+        regime = swing_runner.evaluate_market_regime(
+            broker,
+            filter_symbol=rs.swing_market_filter_symbol,
+            ma=rs.swing_market_filter_ma,
+            lookback_days=rs.swing_bar_lookback_days,
+            stale_bars_days=rs.agent_regime_stale_bars_days,
+            use_intraday=rs.agent_use_intraday_confirmation,
+            intraday_lookback_minutes=rs.agent_intraday_lookback_minutes,
+        )
+    except Exception as e:
+        regime = {
+            "symbol": rs.swing_market_filter_symbol,
+            "state": "no_go", "go": False, "data_complete": False,
+            "data_issues": [f"regime fetch error: {e}"], "reason": str(e),
+        }
+    policy = resolve_buy_policy(
+        regime_state=str(regime.get("state", "no_go")),
+        data_complete=bool(regime.get("data_complete", True)),
+        require_regime_confirmation=rs.agent_require_regime_confirmation,
+        require_complete_data_for_buys=rs.agent_require_complete_data_for_buys,
+        legacy_go=bool(regime.get("go")),
+        max_open_positions=rs.agent_max_open_positions,
+        caution_max_open_positions=rs.agent_caution_max_open_positions,
+    )
+    return {
+        "filter_symbol": rs.swing_market_filter_symbol,
+        "broker_configured": bool(getattr(broker, "configured", False)),
+        "use_intraday": rs.agent_use_intraday_confirmation,
+        "regime": regime,
+        "buy_policy": policy,
+    }
+
+
 @router.get("/context")
 def agent_context(
     _user=Depends(get_current_user),

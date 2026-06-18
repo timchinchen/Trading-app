@@ -148,6 +148,54 @@ class Settings(BaseSettings):
     # so the book stays on fewer, higher-conviction names. 0 = reuse
     # AGENT_MAX_OPEN_POSITIONS (no extra tightening).
     AGENT_CAUTION_MAX_OPEN_POSITIONS: int = 3
+    # CAUTION-tier execution (turns the advisor's "half size, stricter" language
+    # into real sizing). Applied to swing entries when regime tier == caution.
+    AGENT_CAUTION_SIZE_MULT: float = 0.5          # 50% size in CAUTION
+    AGENT_CAUTION_MIN_RR: float = 3.0             # stricter R/R floor in CAUTION
+    # Opt-in: require tweet/intel corroboration for a CAUTION-tier swing entry.
+    AGENT_CAUTION_REQUIRE_CORROBORATION: bool = False
+
+    # ---- Plan backfill (cover manual/tweet/legacy positions) ----
+    # Synthesize an AgentPositionPlan for any open broker position that lacks
+    # one, so the adaptive exit + invalidation engine manages every position
+    # instead of falling back to the weaker static TP/SL sweep.
+    AGENT_PLAN_BACKFILL_ENABLED: bool = True
+    AGENT_PLAN_BACKFILL_STOP_PCT: float = 0.05    # default stop = entry * (1 - 5%)
+    AGENT_PLAN_BACKFILL_TARGET_PCT: float = 0.10  # default target = entry * (1 + 10%)
+
+    # ---- Thesis-invalidation exits ("cut losers when the setup breaks") ----
+    AGENT_INVALIDATION_EXITS_ENABLED: bool = True
+    AGENT_INVALIDATION_SMA_PERIOD: int = 20
+    # Soft invalidation: this many consecutive daily closes below the SMA.
+    AGENT_INVALIDATION_CONSEC_CLOSES: int = 2
+    # Hard invalidation on a single close below the SMA *only* when weakness is
+    # confirmed (failed breakout back in range, or a decisive down-day break).
+    AGENT_INVALIDATION_FIRST_CLOSE_ON_CONFIRMED: bool = True
+    # Min unrealized progress below which a time-stop fires (was hard-coded 0.02).
+    SWING_TIME_STOP_MIN_PROGRESS_PCT: float = 0.02
+
+    # ---- Watchlist hygiene ----
+    # Which symbols the agent auto-adds to the dashboard watchlist each run.
+    #   all      = legacy behaviour (executed/proposed/skipped setups + scans)
+    #   proposed = only executed buys, proposed buys, and exit candidates
+    #   executed = only symbols the agent actually traded
+    AGENT_WATCHLIST_AUTOADD_MODE: Literal["all", "proposed", "executed"] = "all"
+    # Don't re-add a symbol auto-removed/added within this cooldown. 0 = off.
+    AGENT_WATCHLIST_COOLDOWN_HOURS: int = 0
+
+    # ---- Auto-execution controls ----
+    # Allow paper mode to run propose-only (mirrors live). Default True keeps
+    # the existing paper auto-execute behaviour.
+    AGENT_AUTO_EXECUTE_PAPER: bool = True
+    # Skip the same-run second allocation pass that redeploys freed sell
+    # proceeds immediately (a churn source). Default False = legacy behaviour.
+    AGENT_DISABLE_SAME_RUN_REDEPLOY: bool = False
+
+    # ---- Optional SPY intraday confirmation (Phase 5) ----
+    # When True, fetch SPY 1-minute bars and use them ONLY to confirm/downgrade
+    # the daily regime (never to hard-block buys). Default False = no change.
+    AGENT_USE_INTRADAY_CONFIRMATION: bool = False
+    AGENT_INTRADAY_LOOKBACK_MINUTES: int = 390     # one full RTH session
 
     # ---- Adaptive exit engine ----
     # Arm trailing-retrace logic once unrealized gain reaches this level.

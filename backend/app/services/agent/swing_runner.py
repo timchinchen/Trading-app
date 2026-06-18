@@ -57,6 +57,65 @@ def _bar_age_days(bar: dict | None) -> Optional[float]:
     return max(0.0, (now - ts).total_seconds() / 86400.0)
 
 
+def _intraday_confirmation(
+    broker: AlpacaBroker,
+    *,
+    symbol: str,
+    lookback_minutes: int,
+    fast: int = 20,
+    slow: int = 50,
+    stale_minutes: int = 30,
+) -> dict[str, Any]:
+    """Best-effort intraday read of `symbol`. Never raises; returns a status
+    dict. ``available`` is False (and ``weak`` None) on any failure so callers
+    treat it as "no confirmation" rather than a block."""
+    status: dict[str, Any] = {
+        "enabled": True, "available": False, "bar_count": 0, "last_ts": None,
+        "volume_ok": False, "ma20": None, "ma50": None, "cross": None,
+        "weak": None, "issues": [],
+    }
+    try:
+        bars = broker.fetch_intraday_bars(symbol, timeframe="1Min", lookback_minutes=lookback_minutes)
+    except Exception as e:
+        status["issues"].append(f"fetch error: {e}")
+        return status
+    status["bar_count"] = len(bars)
+    if not bars:
+        status["issues"].append("no intraday bars")
+        return status
+    status["last_ts"] = bars[-1].get("t")
+    # Freshness
+    age = _bar_age_days(bars[-1])
+    if age is not None and age * 24 * 60 > stale_minutes:
+        status["issues"].append(f"stale intraday ({age * 24 * 60:.0f}m old)")
+    # Session volume present
+    recent_vol = sum((b.get("v") or 0) for b in bars[-min(len(bars), fast):])
+    status["volume_ok"] = recent_vol > 0
+    if not status["volume_ok"]:
+        status["issues"].append("no intraday volume")
+    cs = T.closes(bars)
+    ma_fast = T.sma(cs, fast)
+    ma_slow = T.sma(cs, slow)
+    status["ma20"] = ma_fast
+    status["ma50"] = ma_slow
+    if ma_fast is not None and ma_slow is not None:
+        status["cross"] = "bullish" if ma_fast > ma_slow else "bearish" if ma_fast < ma_slow else "flat"
+    last = cs[-1] if cs else None
+    # "Weak" intraday = price below the fast MA, or fast MA below slow MA.
+    if last is not None and ma_fast is not None:
+        weak = last < ma_fast
+        if ma_slow is not None and ma_fast < ma_slow:
+            weak = True
+        status["weak"] = bool(weak)
+    # Available only when we have enough bars + fresh + volume to trust it.
+    status["available"] = bool(
+        len(bars) >= slow + 1
+        and status["volume_ok"]
+        and not any("stale" in i for i in status["issues"])
+    )
+    return status
+
+
 def evaluate_market_regime(
     broker: AlpacaBroker,
     *,
@@ -64,6 +123,8 @@ def evaluate_market_regime(
     ma: int,
     lookback_days: int,
     stale_bars_days: int = 4,
+    use_intraday: bool = False,
+    intraday_lookback_minutes: int = 390,
     log: LogFn = _noop,
 ) -> dict[str, Any]:
     """Classify the broader-market regime (default SPY) and flag data outages.
@@ -99,6 +160,41 @@ def evaluate_market_regime(
         regime["data_issues"] = issues
         regime["data_complete"] = False
         regime["reason"] = f"data incomplete (stale {age:.1f}d); " + regime.get("reason", "")
+
+    # ── Optional intraday confirmation (never hard-blocks) ───────────────
+    if use_intraday:
+        intra = _intraday_confirmation(
+            broker, symbol=filter_symbol, lookback_minutes=intraday_lookback_minutes,
+        )
+        regime["intraday"] = intra
+        if intra.get("available"):
+            xc = intra.get("cross")
+            log(
+                f"swing: intraday {filter_symbol} bars={intra['bar_count']} "
+                f"last={intra['last_ts']} vol_ok={intra['volume_ok']} "
+                f"MA20={intra['ma20']:.2f} MA50={intra['ma50']:.2f} cross={xc} "
+                f"weak={intra['weak']}"
+                if intra.get("ma20") is not None and intra.get("ma50") is not None
+                else f"swing: intraday {filter_symbol} bars={intra['bar_count']} (partial)"
+            )
+            if intra.get("cross"):
+                log(f"ALERT {filter_symbol} intraday 20/50 MA cross={intra['cross']}")
+            # Downgrade a daily GO to CAUTION when intraday is clearly weak.
+            if regime.get("state") == "go" and intra.get("weak"):
+                regime["state"] = "caution"
+                regime["go"] = False
+                regime["reason"] = (
+                    "intraday weakness downgraded GO->CAUTION; " + regime.get("reason", "")
+                )
+                log(f"swing: intraday weakness downgraded {filter_symbol} GO -> CAUTION")
+            elif regime.get("state") == "go":
+                regime["reason"] = regime.get("reason", "") + " (intraday confirms)"
+        else:
+            issues = ", ".join(intra.get("issues") or []) or "unavailable"
+            log(
+                f"swing: intraday confirmation unavailable ({issues}); "
+                "using daily regime only"
+            )
 
     state = str(regime.get("state", "no_go")).upper().replace("_", "-")
     data_tag = "DATA OK" if regime.get("data_complete") else "DATA INCOMPLETE"
@@ -187,11 +283,18 @@ def build_swing_proposals(
     max_position_usd: float,
     max_open_positions: int,
     regime_go: bool,
+    regime_tier: str = "go",
+    caution_size_mult: float = 0.5,
+    caution_min_rr: float = 0.0,
+    caution_require_corroboration: bool = False,
 ) -> list[dict[str, Any]]:
     """Turn SetupPlans into allocator-compatible proposal dicts.
 
     Honours the skill's execution flow:
-      - Regime off -> every BUY becomes a 'watch' skipped proposal.
+      - Regime off (regime_go=False) -> every BUY becomes a 'watch' skipped proposal.
+      - CAUTION tier (regime_tier='caution') -> half-size (caution_size_mult),
+        stricter R/R floor (max(min_rr, caution_min_rr)), and optionally require
+        tweet/intel corroboration before entering.
       - Open-position cap enforced (3-5 per skill; reuses MAX_OPEN_POSITIONS).
       - Already-held / recently-bought symbols skipped with clear reason.
       - R/R < min_rr -> skipped with reason.
@@ -202,6 +305,9 @@ def build_swing_proposals(
     remaining_slots = max(0, max_open_positions - len(open_symbols))
     daily_budget = max(0.0, float(budget_remaining))
     week_budget = max(0.0, float(weekly_remaining))
+    is_caution = str(regime_tier).lower() == "caution"
+    eff_min_rr = max(float(min_rr), float(caution_min_rr)) if is_caution else float(min_rr)
+    size_mult = float(caution_size_mult) if is_caution else 1.0
 
     # Rank setups: higher R/R first, then prefer breakout > pullback > news > oversold
     order = {"breakout": 0, "trend_pullback": 1, "news_momentum": 2, "oversold_bounce": 3}
@@ -260,22 +366,43 @@ def build_swing_proposals(
             })
             continue
 
+        # CAUTION: optionally require tweet/intel corroboration before entering.
+        if is_caution and caution_require_corroboration:
+            sig = signals.get(sym) or {}
+            corroborated = bool(
+                (sig.get("score") or 0) > 0 or sig.get("corroborated_by")
+            )
+            if not corroborated:
+                proposals.append({
+                    **base, "action": "skipped",
+                    "reason": (
+                        f"CAUTION regime: {sym} ({plan.setup}) lacks tweet/intel "
+                        "corroboration; waiting for confirmation"
+                    ),
+                })
+                continue
+
         sizing = swing_analyzer.size_plan(
             plan,
             total_capital_usd=total_capital_usd,
             risk_pct=risk_pct,
             min_position_usd=min_position_usd,
             max_position_usd=max_position_usd,
-            min_rr=min_rr,
+            min_rr=eff_min_rr,
         )
         if sizing["rejected"]:
             proposals.append({
                 **base, "action": "skipped",
-                "reason": f"swing skip: {sizing['reason']}",
+                "reason": (
+                    f"swing skip: {sizing['reason']}"
+                    + (f" (CAUTION R/R floor {eff_min_rr:.2f})" if is_caution else "")
+                ),
             })
             continue
 
-        slot = min(sizing["notional"], daily_budget, week_budget)
+        # CAUTION: trim slot to half size (or configured fraction).
+        desired_notional = sizing["notional"] * size_mult
+        slot = min(desired_notional, daily_budget, week_budget)
         if slot < min_position_usd:
             reason_bits = []
             if daily_budget < min_position_usd:
@@ -306,6 +433,10 @@ def build_swing_proposals(
                 f"mentions={sig['mentions']}"
             )
 
+        caution_bits = (
+            f" [CAUTION {int(size_mult * 100)}% size, R/R>={eff_min_rr:.1f}]"
+            if is_caution else ""
+        )
         proposals.append({
             **base,
             "qty": qty,
@@ -314,6 +445,7 @@ def build_swing_proposals(
             "reason": (
                 f"{plan.setup}: entry ${plan.entry:.2f} stop ${plan.stop:.2f} "
                 f"target ${plan.target:.2f} R/R {plan.rr:.2f} :: {plan.note}"
+                + caution_bits
                 + tweet_bits
             ),
         })
@@ -363,6 +495,188 @@ def persist_position_plan(
     db.commit()
 
 
+def backfill_position_plans(
+    broker: AlpacaBroker,
+    db: Session,
+    *,
+    mode: str,
+    default_stop_pct: float,
+    default_target_pct: float,
+    log: LogFn = _noop,
+) -> int:
+    """Create an AgentPositionPlan for every open broker position that lacks
+    one (manual buys, tweet-allocator buys, or positions opened before plans
+    existed). Without this, those positions fall back to the weaker static
+    TP/SL sweep instead of the adaptive exit + invalidation engine.
+
+    Entry = broker avg_entry_price; stop/target = entry shifted by the
+    configured default percentages; setup_type='backfilled'. Returns the
+    number of plans created.
+    """
+    from ...models import AgentPositionPlan
+
+    if not broker.configured:
+        return 0
+    try:
+        positions = broker.positions()
+    except Exception as e:
+        log(f"swing: plan-backfill could not list positions ({e})")
+        return 0
+
+    existing = {
+        (p.symbol or "").upper()
+        for p in db.query(AgentPositionPlan)
+        .filter(AgentPositionPlan.status == "open")
+        .all()
+    }
+    created = 0
+    for pos in positions:
+        sym = (pos.get("symbol") or "").upper()
+        if not sym or sym in existing:
+            continue
+        qty = float(pos.get("qty") or 0.0)
+        entry = float(pos.get("avg_entry_price") or 0.0)
+        if qty <= 0 or entry <= 0:
+            continue
+        stop = round(entry * (1 - max(0.0, default_stop_pct)), 2)
+        target = round(entry * (1 + max(0.0, default_target_pct)), 2)
+        risk = max(1e-9, entry - stop)
+        rr = round((target - entry) / risk, 2)
+        db.add(AgentPositionPlan(
+            symbol=sym, run_id=None,
+            setup_type="backfilled", entry_price=entry,
+            stop_price=stop, target_price=target,
+            risk_reward=rr, status="open",
+            notes=f"backfilled plan from open position (entry ${entry:.2f})",
+        ))
+        created += 1
+    if created:
+        try:
+            db.commit()
+            log(f"swing: plan-backfill created {created} plan(s) for un-planned positions")
+        except Exception as e:
+            db.rollback()
+            log(f"swing: plan-backfill commit failed ({e})")
+            return 0
+    return created
+
+
+def invalidation_exit_proposals(
+    broker: AlpacaBroker,
+    db: Session,
+    *,
+    lookback_days: int,
+    sma_period: int = 20,
+    consec_closes: int = 2,
+    first_close_on_confirmed: bool = True,
+    existing_sell_symbols: Optional[set] = None,
+    log: LogFn = _noop,
+) -> list[dict[str, Any]]:
+    """Exit positions whose *thesis* has broken, not just on a fixed % stop.
+
+    Soft invalidation (default): ``consec_closes`` consecutive daily closes
+    below the ``sma_period`` SMA -> exit.
+
+    Confirmed-weakness single-close invalidation (when
+    ``first_close_on_confirmed``): one close below the SMA that is *also*
+    decisively weak -> exit immediately. "Decisive" means either a failed
+    breakout (price back below the plan entry for a breakout setup) or a
+    down-day that closes below the prior bar's low (a clean break).
+
+    Only positions with an open plan are evaluated; pair with
+    backfill_position_plans to cover manual/tweet positions. Symbols already
+    earmarked for sale this run are skipped.
+    """
+    from ...models import AgentPositionPlan
+
+    existing_sell_symbols = {s.upper() for s in (existing_sell_symbols or set())}
+    if not broker.configured:
+        return []
+    try:
+        positions = {(p.get("symbol") or "").upper(): p for p in broker.positions()}
+    except Exception as e:
+        log(f"swing: invalidation could not list positions ({e})")
+        return []
+    plans = {
+        (p.symbol or "").upper(): p
+        for p in db.query(AgentPositionPlan)
+        .filter(AgentPositionPlan.status == "open")
+        .all()
+    }
+    held = [s for s in plans.keys() if s in positions and s not in existing_sell_symbols]
+    if not held:
+        return []
+
+    bars_map = broker.fetch_daily_bars(held, lookback_days=lookback_days)
+    proposals: list[dict[str, Any]] = []
+    for sym in held:
+        bars = bars_map.get(sym) or []
+        if len(bars) < sma_period + 1:
+            continue
+        cs = T.closes(bars)
+        sma = T.sma(cs, sma_period)
+        if sma is None or not cs:
+            continue
+        pos = positions[sym]
+        plan = plans[sym]
+        qty = float(pos.get("qty") or 0.0)
+        current = float(pos.get("current_price") or cs[-1] or 0.0)
+        if qty <= 0 or current <= 0:
+            continue
+
+        below = [c < sma for c in cs[-consec_closes:]]
+        soft = len(below) >= consec_closes and all(below)
+
+        confirmed = False
+        confirm_reason = ""
+        if first_close_on_confirmed and cs[-1] < sma:
+            # Failed breakout: a breakout setup that has fallen back below entry.
+            if (plan.setup_type or "").lower() == "breakout" and current < float(plan.entry_price or 0):
+                confirmed = True
+                confirm_reason = f"failed breakout (last ${current:.2f} < entry ${plan.entry_price:.2f})"
+            # Decisive break: today closed below the prior bar's low.
+            elif len(bars) >= 2 and bars[-1].get("c") is not None and bars[-2].get("l") is not None \
+                    and bars[-1]["c"] < bars[-2]["l"]:
+                confirmed = True
+                confirm_reason = f"decisive break below prior-day low ${bars[-2]['l']:.2f}"
+
+        if not (soft or confirmed):
+            continue
+
+        if soft:
+            reason = (
+                f"thesis invalidated ({plan.setup_type}): {consec_closes} consecutive "
+                f"closes below SMA{sma_period} ${sma:.2f}; exit {qty} shares"
+            )
+        else:
+            reason = (
+                f"thesis invalidated ({plan.setup_type}): close ${cs[-1]:.2f} < "
+                f"SMA{sma_period} ${sma:.2f} + {confirm_reason}; exit {qty} shares"
+            )
+        proposals.append({
+            "symbol": sym, "side": "sell", "qty": qty,
+            "est_price": current, "notional": round(qty * current, 2),
+            "action": "proposed", "reason": reason,
+            "exit_type": "invalidation",
+            "setup_type": plan.setup_type,
+            "entry_price": plan.entry_price,
+            "stop_price": plan.stop_price,
+            "target_price": plan.target_price,
+            "risk_reward": plan.risk_reward,
+        })
+        plan.status = "closed"
+        plan.notes = (plan.notes or "") + f" | invalidated @ {current:.2f}"
+        db.add(plan)
+
+    if proposals:
+        try:
+            db.commit()
+        except Exception:
+            db.rollback()
+        log("swing: invalidation exits -> " + ", ".join(p["symbol"] for p in proposals))
+    return proposals
+
+
 def trade_management_pass(
     broker: AlpacaBroker,
     db: Session,
@@ -370,6 +684,7 @@ def trade_management_pass(
     time_stop_days: int,
     move_stop_be_pct: float,
     partial_pct: float,
+    time_stop_min_progress_pct: float = 0.02,
     log: LogFn = _noop,
 ) -> list[dict[str, Any]]:
     """Apply SKILL trade-management rules to every open position that has a
@@ -438,7 +753,7 @@ def trade_management_pass(
         # trading days in a 1-2 week horizon).
         elapsed = (now - row.opened_at).days
         plpc = (current - row.entry_price) / row.entry_price if row.entry_price else 0.0
-        if elapsed >= time_stop_days and plpc < 0.02:
+        if elapsed >= time_stop_days and plpc < time_stop_min_progress_pct:
             proposals.append({
                 "symbol": row.symbol, "side": "sell", "qty": qty,
                 "est_price": current, "notional": round(qty * current, 2),

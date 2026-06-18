@@ -99,6 +99,29 @@ EDITABLE_KEYS: dict[str, type] = {
     "AGENT_REGIME_STALE_BARS_DAYS": int,
     "AGENT_MAX_NEW_POSITIONS_PER_RUN": int,
     "AGENT_CAUTION_MAX_OPEN_POSITIONS": int,
+    # CAUTION-tier execution
+    "AGENT_CAUTION_SIZE_MULT": float,
+    "AGENT_CAUTION_MIN_RR": float,
+    "AGENT_CAUTION_REQUIRE_CORROBORATION": bool,
+    # Plan backfill
+    "AGENT_PLAN_BACKFILL_ENABLED": bool,
+    "AGENT_PLAN_BACKFILL_STOP_PCT": float,
+    "AGENT_PLAN_BACKFILL_TARGET_PCT": float,
+    # Thesis-invalidation exits
+    "AGENT_INVALIDATION_EXITS_ENABLED": bool,
+    "AGENT_INVALIDATION_SMA_PERIOD": int,
+    "AGENT_INVALIDATION_CONSEC_CLOSES": int,
+    "AGENT_INVALIDATION_FIRST_CLOSE_ON_CONFIRMED": bool,
+    "SWING_TIME_STOP_MIN_PROGRESS_PCT": float,
+    # Watchlist hygiene
+    "AGENT_WATCHLIST_AUTOADD_MODE": str,
+    "AGENT_WATCHLIST_COOLDOWN_HOURS": int,
+    # Auto-execution controls
+    "AGENT_AUTO_EXECUTE_PAPER": bool,
+    "AGENT_DISABLE_SAME_RUN_REDEPLOY": bool,
+    # Optional intraday confirmation
+    "AGENT_USE_INTRADAY_CONFIRMATION": bool,
+    "AGENT_INTRADAY_LOOKBACK_MINUTES": int,
     # Adaptive exit engine
     "AGENT_TRAIL_ARM_PCT": float,
     "AGENT_TRAIL_RETRACE_PCT": float,
@@ -255,6 +278,29 @@ class RuntimeSettings:
     agent_regime_stale_bars_days: int = 4
     agent_max_new_positions_per_run: int = 2
     agent_caution_max_open_positions: int = 3
+    # CAUTION-tier execution
+    agent_caution_size_mult: float = 0.5
+    agent_caution_min_rr: float = 3.0
+    agent_caution_require_corroboration: bool = False
+    # Plan backfill
+    agent_plan_backfill_enabled: bool = True
+    agent_plan_backfill_stop_pct: float = 0.05
+    agent_plan_backfill_target_pct: float = 0.10
+    # Thesis-invalidation exits
+    agent_invalidation_exits_enabled: bool = True
+    agent_invalidation_sma_period: int = 20
+    agent_invalidation_consec_closes: int = 2
+    agent_invalidation_first_close_on_confirmed: bool = True
+    swing_time_stop_min_progress_pct: float = 0.02
+    # Watchlist hygiene
+    agent_watchlist_autoadd_mode: str = "all"
+    agent_watchlist_cooldown_hours: int = 0
+    # Auto-execution controls
+    agent_auto_execute_paper: bool = True
+    agent_disable_same_run_redeploy: bool = False
+    # Optional intraday confirmation
+    agent_use_intraday_confirmation: bool = False
+    agent_intraday_lookback_minutes: int = 390
     # Adaptive exit engine
     agent_trail_arm_pct: float = 0.05
     agent_trail_retrace_pct: float = 0.35
@@ -502,6 +548,23 @@ def get_runtime_settings(db: Session | None = None) -> RuntimeSettings:
         agent_regime_stale_bars_days=max(1, int(pick("AGENT_REGIME_STALE_BARS_DAYS", int))),
         agent_max_new_positions_per_run=max(0, int(pick("AGENT_MAX_NEW_POSITIONS_PER_RUN", int))),
         agent_caution_max_open_positions=max(0, int(pick("AGENT_CAUTION_MAX_OPEN_POSITIONS", int))),
+        agent_caution_size_mult=max(0.1, min(1.0, float(pick("AGENT_CAUTION_SIZE_MULT", float)))),
+        agent_caution_min_rr=max(0.0, float(pick("AGENT_CAUTION_MIN_RR", float))),
+        agent_caution_require_corroboration=bool(pick("AGENT_CAUTION_REQUIRE_CORROBORATION", bool)),
+        agent_plan_backfill_enabled=bool(pick("AGENT_PLAN_BACKFILL_ENABLED", bool)),
+        agent_plan_backfill_stop_pct=max(0.005, min(0.5, float(pick("AGENT_PLAN_BACKFILL_STOP_PCT", float)))),
+        agent_plan_backfill_target_pct=max(0.01, min(2.0, float(pick("AGENT_PLAN_BACKFILL_TARGET_PCT", float)))),
+        agent_invalidation_exits_enabled=bool(pick("AGENT_INVALIDATION_EXITS_ENABLED", bool)),
+        agent_invalidation_sma_period=max(2, int(pick("AGENT_INVALIDATION_SMA_PERIOD", int))),
+        agent_invalidation_consec_closes=max(1, int(pick("AGENT_INVALIDATION_CONSEC_CLOSES", int))),
+        agent_invalidation_first_close_on_confirmed=bool(pick("AGENT_INVALIDATION_FIRST_CLOSE_ON_CONFIRMED", bool)),
+        swing_time_stop_min_progress_pct=float(pick("SWING_TIME_STOP_MIN_PROGRESS_PCT", float)),
+        agent_watchlist_autoadd_mode=(str(pick("AGENT_WATCHLIST_AUTOADD_MODE", str)).lower().strip() or "all"),
+        agent_watchlist_cooldown_hours=max(0, int(pick("AGENT_WATCHLIST_COOLDOWN_HOURS", int))),
+        agent_auto_execute_paper=bool(pick("AGENT_AUTO_EXECUTE_PAPER", bool)),
+        agent_disable_same_run_redeploy=bool(pick("AGENT_DISABLE_SAME_RUN_REDEPLOY", bool)),
+        agent_use_intraday_confirmation=bool(pick("AGENT_USE_INTRADAY_CONFIRMATION", bool)),
+        agent_intraday_lookback_minutes=max(30, int(pick("AGENT_INTRADAY_LOOKBACK_MINUTES", int))),
         agent_trail_arm_pct=max(0.0, min(1.0, float(pick("AGENT_TRAIL_ARM_PCT", float)))),
         agent_trail_retrace_pct=max(0.0, min(1.0, float(pick("AGENT_TRAIL_RETRACE_PCT", float)))),
         agent_partial_take_pct=max(0.0, min(1.0, float(pick("AGENT_PARTIAL_TAKE_PCT", float)))),
@@ -668,6 +731,23 @@ def public_view(rs: RuntimeSettings) -> dict[str, Any]:
         "agent_regime_stale_bars_days": rs.agent_regime_stale_bars_days,
         "agent_max_new_positions_per_run": rs.agent_max_new_positions_per_run,
         "agent_caution_max_open_positions": rs.agent_caution_max_open_positions,
+        "agent_caution_size_mult": rs.agent_caution_size_mult,
+        "agent_caution_min_rr": rs.agent_caution_min_rr,
+        "agent_caution_require_corroboration": rs.agent_caution_require_corroboration,
+        "agent_plan_backfill_enabled": rs.agent_plan_backfill_enabled,
+        "agent_plan_backfill_stop_pct": rs.agent_plan_backfill_stop_pct,
+        "agent_plan_backfill_target_pct": rs.agent_plan_backfill_target_pct,
+        "agent_invalidation_exits_enabled": rs.agent_invalidation_exits_enabled,
+        "agent_invalidation_sma_period": rs.agent_invalidation_sma_period,
+        "agent_invalidation_consec_closes": rs.agent_invalidation_consec_closes,
+        "agent_invalidation_first_close_on_confirmed": rs.agent_invalidation_first_close_on_confirmed,
+        "swing_time_stop_min_progress_pct": rs.swing_time_stop_min_progress_pct,
+        "agent_watchlist_autoadd_mode": rs.agent_watchlist_autoadd_mode,
+        "agent_watchlist_cooldown_hours": rs.agent_watchlist_cooldown_hours,
+        "agent_auto_execute_paper": rs.agent_auto_execute_paper,
+        "agent_disable_same_run_redeploy": rs.agent_disable_same_run_redeploy,
+        "agent_use_intraday_confirmation": rs.agent_use_intraday_confirmation,
+        "agent_intraday_lookback_minutes": rs.agent_intraday_lookback_minutes,
         "agent_trail_arm_pct": rs.agent_trail_arm_pct,
         "agent_trail_retrace_pct": rs.agent_trail_retrace_pct,
         "agent_partial_take_pct": rs.agent_partial_take_pct,
