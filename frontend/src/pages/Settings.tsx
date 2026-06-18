@@ -1594,67 +1594,6 @@ function AgentBudgetCard({ s }: { s: AgentSettings }) {
               min={0.1}
               max={2}
             />
-            hard-block new buys while SPY bars/volume are missing or stale (default: mitigate with CAUTION sizing)
-          </label>
-        </div>
-        <div className="grid grid-cols-[180px_1fr] gap-2 py-2 border-b border-border">
-          <div className="text-xs text-muted-foreground uppercase tracking-wider self-center">
-            REGIME_STALE_BARS_DAYS
-            <OverrideBadge k="AGENT_REGIME_STALE_BARS_DAYS" overridden={s.overridden} />
-          </div>
-          <div className="flex items-center gap-2">
-            <NumInput value={regimeStaleBarsDays} onChange={setRegimeStaleBarsDays} step="1" min={1} max={30} />
-            <span className="text-xs text-muted-foreground">
-              treat SPY data as incomplete if newest bar is older than this many days
-            </span>
-          </div>
-        </div>
-        <div className="grid grid-cols-[180px_1fr] gap-2 py-2 border-b border-border">
-          <div className="text-xs text-muted-foreground uppercase tracking-wider self-center">
-            MAX_NEW_POSITIONS_PER_RUN
-            <OverrideBadge k="AGENT_MAX_NEW_POSITIONS_PER_RUN" overridden={s.overridden} />
-          </div>
-          <div className="flex items-center gap-2">
-            <NumInput value={maxNewPerRun} onChange={setMaxNewPerRun} step="1" min={0} max={20} />
-            <span className="text-xs text-muted-foreground">
-              max new BUYs auto-executed per run (0 = unlimited); extras become proposals
-            </span>
-          </div>
-        </div>
-        <div className="grid grid-cols-[180px_1fr] gap-2 py-2 border-b border-border">
-          <div className="text-xs text-muted-foreground uppercase tracking-wider self-center">
-            CAUTION_MAX_OPEN_POSITIONS
-            <OverrideBadge k="AGENT_CAUTION_MAX_OPEN_POSITIONS" overridden={s.overridden} />
-          </div>
-          <div className="flex items-center gap-2">
-            <NumInput value={cautionMaxOpen} onChange={setCautionMaxOpen} step="1" min={0} max={20} />
-            <span className="text-xs text-muted-foreground">
-              open-position ceiling in CAUTION regime (0 = reuse MAX_OPEN_POSITIONS)
-            </span>
-          </div>
-        </div>
-        <div className="grid grid-cols-[180px_1fr] gap-2 py-2 border-b border-border">
-          <div className="text-xs text-muted-foreground uppercase tracking-wider self-center">
-            RECENT_TRADE_WINDOW
-            <OverrideBadge k="AGENT_RECENT_TRADE_WINDOW_HOURS" overridden={s.overridden} />
-          </div>
-          <div className="flex items-center gap-2">
-            <NumInput value={recentWindow} onChange={setRecentWindow} step="1" />
-            <span className="text-xs text-muted-foreground">
-              hours - skip re-buying any symbol bought within this window
-            </span>
-          </div>
-        </div>
-        <div className="grid grid-cols-[180px_1fr] gap-2 py-2 border-b border-border">
-          <div className="text-xs text-muted-foreground uppercase tracking-wider self-center">
-            NET_BUDGET
-            <OverrideBadge k="AGENT_NET_BUDGET_ACCOUNTING" overridden={s.overridden} />
-          </div>
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={netBudget}
-              onChange={(e) => setNetBudget(e.target.checked)}
           </SettingField>
 
           <SettingField
