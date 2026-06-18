@@ -163,6 +163,84 @@ function OverrideBadge({
   )
 }
 
+function SettingsSection({
+  title,
+  description,
+  children,
+}: {
+  title: string
+  description?: string
+  children: React.ReactNode
+}) {
+  return (
+    <div className="rounded-lg border border-border bg-background-soft/40 p-4 space-y-4">
+      <div>
+        <h4 className="text-sm font-medium text-foreground">{title}</h4>
+        {description && (
+          <p className="text-xs text-muted-foreground mt-1 leading-relaxed">{description}</p>
+        )}
+      </div>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-6 gap-y-5">{children}</div>
+    </div>
+  )
+}
+
+function SettingField({
+  label,
+  envKey,
+  overridden,
+  hint,
+  children,
+}: {
+  label: string
+  envKey: string
+  overridden: string[]
+  hint?: string
+  children: React.ReactNode
+}) {
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="text-sm font-medium">{label}</span>
+        <OverrideBadge k={envKey} overridden={overridden} />
+      </div>
+      <div>{children}</div>
+      {hint && <p className="text-xs text-muted-foreground leading-relaxed">{hint}</p>}
+    </div>
+  )
+}
+
+function SettingNumInput({
+  value,
+  onChange,
+  step = '1',
+  min,
+  max,
+  suffix,
+}: {
+  value: number
+  onChange: (n: number) => void
+  step?: string
+  min?: number
+  max?: number
+  suffix?: string
+}) {
+  return (
+    <div className="flex items-center gap-2 flex-wrap">
+      <input
+        type="number"
+        step={step}
+        min={min}
+        max={max}
+        value={value}
+        onChange={(e) => onChange(Number(e.target.value))}
+        className="px-3 py-2 rounded-md text-sm w-28 border border-input-border"
+      />
+      {suffix && <span className="text-xs text-muted-foreground">{suffix}</span>}
+    </div>
+  )
+}
+
 // ----- LLM provider section (editable) -----
 function LLMProviderCard({ s }: { s: AgentSettings }) {
   const upd = useUpdateAgentSettings()
@@ -1265,360 +1343,408 @@ function AgentBudgetCard({ s }: { s: AgentSettings }) {
     })
   }
 
-  const NumInput = ({
-    value,
-    onChange,
-    step = '1',
-    min,
-    max,
-  }: {
-    value: number
-    onChange: (n: number) => void
-    step?: string
-    min?: number
-    max?: number
-  }) => (
-    <input
-      type="number"
-      step={step}
-      min={min}
-      max={max}
-      value={value}
-      onChange={(e) => onChange(Number(e.target.value))}
-      className="px-3 py-2 rounded-md text-sm w-32"
-    />
-  )
-
   return (
     <Card title="Agent budget & cadence (editable)">
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6">
-        <div className="grid grid-cols-[180px_1fr] gap-2 py-2 border-b border-border">
-          <div className="text-xs text-muted-foreground uppercase tracking-wider self-center">
-            AGENT_ENABLED
-            <OverrideBadge k="AGENT_ENABLED" overridden={s.overridden} />
-          </div>
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={enabled}
-              onChange={(e) => setEnabled(e.target.checked)}
+      <p className="text-xs text-muted-foreground mb-4 leading-relaxed">
+        Controls how often the agent runs, how much it can deploy, and when it
+        exits or pauses new buys. Settings marked{' '}
+        <span className="text-primary">override</span> are saved in the database;
+        others use your <code className="text-[11px]">.env</code> defaults.
+      </p>
+
+      <div className="space-y-5">
+        <SettingsSection
+          title="Scheduler & execution"
+          description="When the agent runs and whether it places real orders."
+        >
+          <SettingField
+            label="Agent enabled"
+            envKey="AGENT_ENABLED"
+            overridden={s.overridden}
+            hint="Scheduler runs every cron interval."
+          >
+            <label className="flex items-center gap-2.5 text-sm cursor-pointer">
+              <input
+                type="checkbox"
+                checked={enabled}
+                onChange={(e) => setEnabled(e.target.checked)}
+              />
+              <span>Run on schedule</span>
+            </label>
+          </SettingField>
+
+          <SettingField
+            label="Auto-execute live"
+            envKey="AGENT_AUTO_EXECUTE_LIVE"
+            overridden={s.overridden}
+            hint="When enabled, the agent places real-money orders in LIVE mode."
+          >
+            <label className="flex items-center gap-2.5 text-sm cursor-pointer">
+              <input
+                type="checkbox"
+                checked={autoLive}
+                onChange={(e) => setAutoLive(e.target.checked)}
+              />
+              <span className={autoLive ? 'text-destructive font-semibold' : ''}>
+                Auto-execute in LIVE mode
+              </span>
+            </label>
+          </SettingField>
+
+          <SettingField
+            label="Run interval"
+            envKey="AGENT_CRON_MINUTES"
+            overridden={s.overridden}
+            hint="Minutes between scheduled agent runs."
+          >
+            <SettingNumInput
+              value={cron}
+              onChange={setCron}
+              step="1"
+              min={1}
+              max={59}
+              suffix="minutes (1–59)"
             />
-            scheduler runs every cron interval
-          </label>
-        </div>
-        <div className="grid grid-cols-[180px_1fr] gap-2 py-2 border-b border-border">
-          <div className="text-xs text-muted-foreground uppercase tracking-wider self-center">
-            AUTO_EXECUTE_LIVE
-            <OverrideBadge k="AGENT_AUTO_EXECUTE_LIVE" overridden={s.overridden} />
-          </div>
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={autoLive}
-              onChange={(e) => setAutoLive(e.target.checked)}
+          </SettingField>
+        </SettingsSection>
+
+        <SettingsSection
+          title="Budget & position limits"
+          description="Caps on capital deployment and open exposure."
+        >
+          <SettingField
+            label="Per-run budget"
+            envKey="AGENT_BUDGET_USD"
+            overridden={s.overridden}
+            hint="Maximum USD the agent may deploy in a single run."
+          >
+            <SettingNumInput value={budget} onChange={setBudget} step="10" suffix="USD" />
+          </SettingField>
+
+          <SettingField
+            label="Weekly budget cap"
+            envKey="AGENT_WEEKLY_BUDGET_USD"
+            overridden={s.overridden}
+            hint="Rolling weekly ceiling on total new capital deployed."
+          >
+            <SettingNumInput value={weekly} onChange={setWeekly} step="10" suffix="USD" />
+          </SettingField>
+
+          <SettingField
+            label="Min position size"
+            envKey="AGENT_MIN_POSITION_USD"
+            overridden={s.overridden}
+          >
+            <SettingNumInput value={minPos} onChange={setMinPos} step="1" suffix="USD" />
+          </SettingField>
+
+          <SettingField
+            label="Max position size"
+            envKey="AGENT_MAX_POSITION_USD"
+            overridden={s.overridden}
+          >
+            <SettingNumInput value={maxPos} onChange={setMaxPos} step="1" suffix="USD" />
+          </SettingField>
+
+          <SettingField
+            label="Daily loss cap"
+            envKey="AGENT_DAILY_LOSS_CAP_USD"
+            overridden={s.overridden}
+            hint="Stops new buys once today's realized loss reaches this amount."
+          >
+            <SettingNumInput value={dailyLoss} onChange={setDailyLoss} step="1" suffix="USD" />
+          </SettingField>
+
+          <SettingField
+            label="Max open positions"
+            envKey="AGENT_MAX_OPEN_POSITIONS"
+            overridden={s.overridden}
+          >
+            <SettingNumInput value={maxOpen} onChange={setMaxOpen} step="1" />
+          </SettingField>
+
+          <SettingField
+            label="Intel score boost"
+            envKey="AGENT_INTEL_BOOST"
+            overridden={s.overridden}
+            hint="Added to candidate scores when social/intel signals are present."
+          >
+            <SettingNumInput value={intelBoost} onChange={setIntelBoost} step="0.05" />
+          </SettingField>
+
+          <SettingField
+            label="Max new buys per run"
+            envKey="AGENT_MAX_NEW_POSITIONS_PER_RUN"
+            overridden={s.overridden}
+            hint="Extra BUY proposals beyond this limit are saved but not auto-executed (0 = unlimited)."
+          >
+            <SettingNumInput
+              value={maxNewPerRun}
+              onChange={setMaxNewPerRun}
+              step="1"
+              min={0}
+              max={20}
             />
-            <span className={autoLive ? 'text-destructive font-semibold' : ''}>
-              auto-execute in LIVE mode (real money!)
-            </span>
-          </label>
-        </div>
-        <div className="grid grid-cols-[180px_1fr] gap-2 py-2 border-b border-border">
-          <div className="text-xs text-muted-foreground uppercase tracking-wider self-center">
-            BUDGET_USD
-            <OverrideBadge k="AGENT_BUDGET_USD" overridden={s.overridden} />
-          </div>
-          <NumInput value={budget} onChange={setBudget} step="10" />
-        </div>
-        <div className="grid grid-cols-[180px_1fr] gap-2 py-2 border-b border-border">
-          <div className="text-xs text-muted-foreground uppercase tracking-wider self-center">
-            WEEKLY_BUDGET_USD
-            <OverrideBadge k="AGENT_WEEKLY_BUDGET_USD" overridden={s.overridden} />
-          </div>
-          <NumInput value={weekly} onChange={setWeekly} step="10" />
-        </div>
-        <div className="grid grid-cols-[180px_1fr] gap-2 py-2 border-b border-border">
-          <div className="text-xs text-muted-foreground uppercase tracking-wider self-center">
-            MIN_POSITION_USD
-            <OverrideBadge k="AGENT_MIN_POSITION_USD" overridden={s.overridden} />
-          </div>
-          <NumInput value={minPos} onChange={setMinPos} step="1" />
-        </div>
-        <div className="grid grid-cols-[180px_1fr] gap-2 py-2 border-b border-border">
-          <div className="text-xs text-muted-foreground uppercase tracking-wider self-center">
-            MAX_POSITION_USD
-            <OverrideBadge k="AGENT_MAX_POSITION_USD" overridden={s.overridden} />
-          </div>
-          <NumInput value={maxPos} onChange={setMaxPos} step="1" />
-        </div>
-        <div className="grid grid-cols-[180px_1fr] gap-2 py-2 border-b border-border">
-          <div className="text-xs text-muted-foreground uppercase tracking-wider self-center">
-            DAILY_LOSS_CAP
-            <OverrideBadge k="AGENT_DAILY_LOSS_CAP_USD" overridden={s.overridden} />
-          </div>
-          <NumInput value={dailyLoss} onChange={setDailyLoss} step="1" />
-        </div>
-        <div className="grid grid-cols-[180px_1fr] gap-2 py-2 border-b border-border">
-          <div className="text-xs text-muted-foreground uppercase tracking-wider self-center">
-            MAX_OPEN_POSITIONS
-            <OverrideBadge k="AGENT_MAX_OPEN_POSITIONS" overridden={s.overridden} />
-          </div>
-          <NumInput value={maxOpen} onChange={setMaxOpen} step="1" />
-        </div>
-        <div className="grid grid-cols-[180px_1fr] gap-2 py-2 border-b border-border">
-          <div className="text-xs text-muted-foreground uppercase tracking-wider self-center">
-            CRON_MINUTES
-            <OverrideBadge k="AGENT_CRON_MINUTES" overridden={s.overridden} />
-          </div>
-          <div className="flex items-center gap-2">
-            <NumInput value={cron} onChange={setCron} step="1" min={1} max={59} />
-            <span className="text-xs text-muted-foreground">1-59 minutes</span>
-          </div>
-        </div>
-        <div className="grid grid-cols-[180px_1fr] gap-2 py-2 border-b border-border">
-          <div className="text-xs text-muted-foreground uppercase tracking-wider self-center">
-            INTEL_BOOST
-            <OverrideBadge k="AGENT_INTEL_BOOST" overridden={s.overridden} />
-          </div>
-          <NumInput value={intelBoost} onChange={setIntelBoost} step="0.05" />
-        </div>
-        <div className="grid grid-cols-[180px_1fr] gap-2 py-2 border-b border-border">
-          <div className="text-xs text-muted-foreground uppercase tracking-wider self-center">
-            TAKE_PROFIT_%
-            <OverrideBadge k="AGENT_TAKE_PROFIT_PCT" overridden={s.overridden} />
-          </div>
-          <div className="flex items-center gap-2">
-            <NumInput value={takeProfitPct} onChange={setTakeProfitPct} step="0.1" />
-            <span className="text-xs text-muted-foreground">
-              % gain vs entry at which the agent auto-sells (whole percent; e.g. 7 = 7%, 0.5 = 0.5%). 0 disables.
-            </span>
-          </div>
-        </div>
-        <div className="grid grid-cols-[180px_1fr] gap-2 py-2 border-b border-border">
-          <div className="text-xs text-muted-foreground uppercase tracking-wider self-center">
-            STOP_LOSS_%
-            <OverrideBadge k="AGENT_STOP_LOSS_PCT" overridden={s.overridden} />
-          </div>
-          <div className="flex items-center gap-2">
-            <NumInput value={stopLossPct} onChange={setStopLossPct} step="0.1" />
-            <span className="text-xs text-muted-foreground">
-              % loss vs entry at which the agent auto-sells (whole percent; e.g. 5 = -5%). 0 disables.
-            </span>
-          </div>
-        </div>
-        <div className="grid grid-cols-[180px_1fr] gap-2 py-2 border-b border-border">
-          <div className="text-xs text-muted-foreground uppercase tracking-wider self-center">
-            AGENT_MAX_HOLD_DAYS
-            <OverrideBadge k="AGENT_MAX_HOLD_DAYS" overridden={s.overridden} />
-          </div>
-          <div className="flex items-center gap-2">
-            <NumInput value={agentMaxHoldDays} onChange={setAgentMaxHoldDays} step="1" min={1} max={365} />
-            <span className="text-xs text-muted-foreground">
-              calendar days hard-hold cap used by adaptive exit engine
-            </span>
-          </div>
-        </div>
-        <div className="grid grid-cols-[180px_1fr] gap-2 py-2 border-b border-border">
-          <div className="text-xs text-muted-foreground uppercase tracking-wider self-center">
-            AGENT_PARTIAL_TAKE_PCT
-            <OverrideBadge k="AGENT_PARTIAL_TAKE_PCT" overridden={s.overridden} />
-          </div>
-          <div className="flex items-center gap-2">
-            <NumInput value={partialTakePct} onChange={setPartialTakePct} step="0.1" />
-            <span className="text-xs text-muted-foreground">
-              % gain trigger for first adaptive partial-profit (whole percent)
-            </span>
-          </div>
-        </div>
-        <div className="grid grid-cols-[180px_1fr] gap-2 py-2 border-b border-border">
-          <div className="text-xs text-muted-foreground uppercase tracking-wider self-center">
-            REGIME_RISK_ON_MULT
-            <OverrideBadge k="AGENT_REGIME_RISK_ON_MULT" overridden={s.overridden} />
-          </div>
-          <div className="flex items-center gap-2">
-            <NumInput value={regimeOnMult} onChange={setRegimeOnMult} step="0.05" min={0.1} max={2} />
-            <span className="text-xs text-muted-foreground">slot multiplier when regime is GO</span>
-          </div>
-        </div>
-        <div className="grid grid-cols-[180px_1fr] gap-2 py-2 border-b border-border">
-          <div className="text-xs text-muted-foreground uppercase tracking-wider self-center">
-            REGIME_NEUTRAL_MULT
-            <OverrideBadge k="AGENT_REGIME_NEUTRAL_MULT" overridden={s.overridden} />
-          </div>
-          <div className="flex items-center gap-2">
-            <NumInput value={regimeNeutralMult} onChange={setRegimeNeutralMult} step="0.05" min={0.1} max={2} />
-            <span className="text-xs text-muted-foreground">slot multiplier when regime is CAUTION/neutral</span>
-          </div>
-        </div>
-        <div className="grid grid-cols-[180px_1fr] gap-2 py-2 border-b border-border">
-          <div className="text-xs text-muted-foreground uppercase tracking-wider self-center">
-            REGIME_RISK_OFF_MULT
-            <OverrideBadge k="AGENT_REGIME_RISK_OFF_MULT" overridden={s.overridden} />
-          </div>
-          <div className="flex items-center gap-2">
-            <NumInput value={regimeOffMult} onChange={setRegimeOffMult} step="0.05" min={0.1} max={2} />
-            <span className="text-xs text-muted-foreground">slot multiplier when regime is NO-GO/risk-off</span>
-          </div>
-        </div>
-        <div className="grid grid-cols-[180px_1fr] gap-2 py-2 border-b border-border">
-          <div className="text-xs text-muted-foreground uppercase tracking-wider self-center">
-            RISK_OFF_BLOCK_NEW_BUYS
-            <OverrideBadge k="AGENT_RISK_OFF_BLOCK_NEW_BUYS" overridden={s.overridden} />
-          </div>
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={riskOffBlockBuys}
-              onChange={(e) => setRiskOffBlockBuys(e.target.checked)}
+          </SettingField>
+
+          <SettingField
+            label="Recent trade cooldown"
+            envKey="AGENT_RECENT_TRADE_WINDOW_HOURS"
+            overridden={s.overridden}
+            hint="Skip re-buying any symbol purchased within this window."
+          >
+            <SettingNumInput value={recentWindow} onChange={setRecentWindow} step="1" suffix="hours" />
+          </SettingField>
+
+          <SettingField
+            label="Net budget accounting"
+            envKey="AGENT_NET_BUDGET_ACCOUNTING"
+            overridden={s.overridden}
+            hint="Sell proceeds free budget for same-day redeployment."
+          >
+            <label className="flex items-center gap-2.5 text-sm cursor-pointer">
+              <input
+                type="checkbox"
+                checked={netBudget}
+                onChange={(e) => setNetBudget(e.target.checked)}
+              />
+              <span>Count sell proceeds toward available budget</span>
+            </label>
+          </SettingField>
+        </SettingsSection>
+
+        <SettingsSection
+          title="Exit rules"
+          description="Automatic sell triggers and hold limits."
+        >
+          <SettingField
+            label="Take profit"
+            envKey="AGENT_TAKE_PROFIT_PCT"
+            overridden={s.overridden}
+            hint="% gain vs entry at which the agent auto-sells (whole percent; e.g. 7 = 7%). Set to 0 to disable."
+          >
+            <SettingNumInput value={takeProfitPct} onChange={setTakeProfitPct} step="0.1" suffix="%" />
+          </SettingField>
+
+          <SettingField
+            label="Stop loss"
+            envKey="AGENT_STOP_LOSS_PCT"
+            overridden={s.overridden}
+            hint="% loss vs entry at which the agent auto-sells (whole percent; e.g. 5 = 5%). Set to 0 to disable."
+          >
+            <SettingNumInput value={stopLossPct} onChange={setStopLossPct} step="0.1" suffix="%" />
+          </SettingField>
+
+          <SettingField
+            label="Partial take profit"
+            envKey="AGENT_PARTIAL_TAKE_PCT"
+            overridden={s.overridden}
+            hint="% gain trigger for the first adaptive partial-profit exit (whole percent)."
+          >
+            <SettingNumInput value={partialTakePct} onChange={setPartialTakePct} step="0.1" suffix="%" />
+          </SettingField>
+
+          <SettingField
+            label="Max hold days"
+            envKey="AGENT_MAX_HOLD_DAYS"
+            overridden={s.overridden}
+            hint="Calendar-day hard cap used by the adaptive exit engine."
+          >
+            <SettingNumInput
+              value={agentMaxHoldDays}
+              onChange={setAgentMaxHoldDays}
+              step="1"
+              min={1}
+              max={365}
+              suffix="days"
             />
-            block all new buys when regime is NO-GO/risk-off
-          </label>
-        </div>
-        <div className="grid grid-cols-[180px_1fr] gap-2 py-2 border-b border-border">
-          <div className="text-xs text-muted-foreground uppercase tracking-wider self-center">
-            REQUIRE_REGIME_CONFIRMATION
-            <OverrideBadge k="AGENT_REQUIRE_REGIME_CONFIRMATION" overridden={s.overridden} />
-          </div>
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={requireRegimeConfirm}
-              onChange={(e) => setRequireRegimeConfirm(e.target.checked)}
-            />
-            only buy when regime is GO or CAUTION (never NO-GO)
-          </label>
-        </div>
-        <div className="grid grid-cols-[180px_1fr] gap-2 py-2 border-b border-border">
-          <div className="text-xs text-muted-foreground uppercase tracking-wider self-center">
-            REQUIRE_COMPLETE_DATA
-            <OverrideBadge k="AGENT_REQUIRE_COMPLETE_DATA_FOR_BUYS" overridden={s.overridden} />
-          </div>
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={requireCompleteData}
-              onChange={(e) => setRequireCompleteData(e.target.checked)}
-            />
-            pause new buys while SPY bars/volume are missing or stale (exits still run)
-          </label>
-        </div>
-        <div className="grid grid-cols-[180px_1fr] gap-2 py-2 border-b border-border">
-          <div className="text-xs text-muted-foreground uppercase tracking-wider self-center">
-            REGIME_STALE_BARS_DAYS
-            <OverrideBadge k="AGENT_REGIME_STALE_BARS_DAYS" overridden={s.overridden} />
-          </div>
-          <div className="flex items-center gap-2">
-            <NumInput value={regimeStaleBarsDays} onChange={setRegimeStaleBarsDays} step="1" min={1} max={30} />
-            <span className="text-xs text-muted-foreground">
-              treat SPY data as incomplete if newest bar is older than this many days
-            </span>
-          </div>
-        </div>
-        <div className="grid grid-cols-[180px_1fr] gap-2 py-2 border-b border-border">
-          <div className="text-xs text-muted-foreground uppercase tracking-wider self-center">
-            MAX_NEW_POSITIONS_PER_RUN
-            <OverrideBadge k="AGENT_MAX_NEW_POSITIONS_PER_RUN" overridden={s.overridden} />
-          </div>
-          <div className="flex items-center gap-2">
-            <NumInput value={maxNewPerRun} onChange={setMaxNewPerRun} step="1" min={0} max={20} />
-            <span className="text-xs text-muted-foreground">
-              max new BUYs auto-executed per run (0 = unlimited); extras become proposals
-            </span>
-          </div>
-        </div>
-        <div className="grid grid-cols-[180px_1fr] gap-2 py-2 border-b border-border">
-          <div className="text-xs text-muted-foreground uppercase tracking-wider self-center">
-            CAUTION_MAX_OPEN_POSITIONS
-            <OverrideBadge k="AGENT_CAUTION_MAX_OPEN_POSITIONS" overridden={s.overridden} />
-          </div>
-          <div className="flex items-center gap-2">
-            <NumInput value={cautionMaxOpen} onChange={setCautionMaxOpen} step="1" min={0} max={20} />
-            <span className="text-xs text-muted-foreground">
-              open-position ceiling in CAUTION regime (0 = reuse MAX_OPEN_POSITIONS)
-            </span>
-          </div>
-        </div>
-        <div className="grid grid-cols-[180px_1fr] gap-2 py-2 border-b border-border">
-          <div className="text-xs text-muted-foreground uppercase tracking-wider self-center">
-            RECENT_TRADE_WINDOW
-            <OverrideBadge k="AGENT_RECENT_TRADE_WINDOW_HOURS" overridden={s.overridden} />
-          </div>
-          <div className="flex items-center gap-2">
-            <NumInput value={recentWindow} onChange={setRecentWindow} step="1" />
-            <span className="text-xs text-muted-foreground">
-              hours - skip re-buying any symbol bought within this window
-            </span>
-          </div>
-        </div>
-        <div className="grid grid-cols-[180px_1fr] gap-2 py-2 border-b border-border">
-          <div className="text-xs text-muted-foreground uppercase tracking-wider self-center">
-            NET_BUDGET
-            <OverrideBadge k="AGENT_NET_BUDGET_ACCOUNTING" overridden={s.overridden} />
-          </div>
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={netBudget}
-              onChange={(e) => setNetBudget(e.target.checked)}
-            />
-            <span>
-              sell proceeds free budget for same-day redeployment
-            </span>
-          </label>
-        </div>
-        <div className="grid grid-cols-[180px_1fr] gap-2 py-2 border-b border-border">
-          <div className="text-xs text-muted-foreground uppercase tracking-wider self-center">
-            WEEKLY LESSONS
-            <OverrideBadge k="AGENT_DYNAMIC_PREAMBLE_ENABLED" overridden={s.overridden} />
-          </div>
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={dynamicPreamble}
-              onChange={(e) => setDynamicPreamble(e.target.checked)}
-            />
-            <span>
-              inject weekly-learned bullets into agent ROLE_PREAMBLE
-            </span>
-          </label>
-        </div>
-        <div className="grid grid-cols-[180px_1fr] gap-2 py-2 border-b border-border">
-          <div className="text-xs text-muted-foreground uppercase tracking-wider self-center">
-            LESSON MAX CHARS
-            <OverrideBadge k="AGENT_WEEKLY_LESSON_MAX_CHARS" overridden={s.overridden} />
-          </div>
-          <div className="flex items-center gap-2">
-            <NumInput
-              value={weeklyLessonChars}
-              onChange={setWeeklyLessonChars}
-              step="50"
-              min={200}
-              max={4000}
-            />
-            <span className="text-xs text-muted-foreground">
-              cap on weekly supplement appended to system prompts
-            </span>
-          </div>
-        </div>
-        <div className="grid grid-cols-[180px_1fr] gap-2 py-2 border-b border-border">
-          <div className="text-xs text-muted-foreground uppercase tracking-wider self-center">
-            PROMPT_TIME_STOP_DAYS
-            <OverrideBadge k="AGENT_PROMPT_TIME_STOP_DAYS" overridden={s.overridden} />
-          </div>
-          <div className="flex items-center gap-2">
-            <NumInput
+          </SettingField>
+
+          <SettingField
+            label="Prompt time-stop days"
+            envKey="AGENT_PROMPT_TIME_STOP_DAYS"
+            overridden={s.overridden}
+            hint="Days referenced in system-prompt time-stop guidance text."
+          >
+            <SettingNumInput
               value={promptTimeStopDays}
               onChange={setPromptTimeStopDays}
               step="1"
               min={1}
               max={365}
+              suffix="days"
             />
-            <span className="text-xs text-muted-foreground">
-              days used in system-prompt time-stop guidance text
-            </span>
-          </div>
-        </div>
+          </SettingField>
+        </SettingsSection>
+
+        <SettingsSection
+          title="Regime & market gates"
+          description="Adjust sizing and buy permissions based on market regime."
+        >
+          <SettingField
+            label="Risk-on multiplier"
+            envKey="AGENT_REGIME_RISK_ON_MULT"
+            overridden={s.overridden}
+            hint="Position slot multiplier when regime is GO."
+          >
+            <SettingNumInput
+              value={regimeOnMult}
+              onChange={setRegimeOnMult}
+              step="0.05"
+              min={0.1}
+              max={2}
+            />
+          </SettingField>
+
+          <SettingField
+            label="Neutral multiplier"
+            envKey="AGENT_REGIME_NEUTRAL_MULT"
+            overridden={s.overridden}
+            hint="Position slot multiplier when regime is CAUTION."
+          >
+            <SettingNumInput
+              value={regimeNeutralMult}
+              onChange={setRegimeNeutralMult}
+              step="0.05"
+              min={0.1}
+              max={2}
+            />
+          </SettingField>
+
+          <SettingField
+            label="Risk-off multiplier"
+            envKey="AGENT_REGIME_RISK_OFF_MULT"
+            overridden={s.overridden}
+            hint="Position slot multiplier when regime is NO-GO."
+          >
+            <SettingNumInput
+              value={regimeOffMult}
+              onChange={setRegimeOffMult}
+              step="0.05"
+              min={0.1}
+              max={2}
+            />
+          </SettingField>
+
+          <SettingField
+            label="Caution position cap"
+            envKey="AGENT_CAUTION_MAX_OPEN_POSITIONS"
+            overridden={s.overridden}
+            hint="Open-position ceiling in CAUTION regime (0 reuses max open positions)."
+          >
+            <SettingNumInput
+              value={cautionMaxOpen}
+              onChange={setCautionMaxOpen}
+              step="1"
+              min={0}
+              max={20}
+            />
+          </SettingField>
+
+          <SettingField
+            label="Stale data threshold"
+            envKey="AGENT_REGIME_STALE_BARS_DAYS"
+            overridden={s.overridden}
+            hint="Treat SPY data as incomplete if the newest bar is older than this."
+          >
+            <SettingNumInput
+              value={regimeStaleBarsDays}
+              onChange={setRegimeStaleBarsDays}
+              step="1"
+              min={1}
+              max={30}
+              suffix="days"
+            />
+          </SettingField>
+
+          <SettingField
+            label="Block buys in risk-off"
+            envKey="AGENT_RISK_OFF_BLOCK_NEW_BUYS"
+            overridden={s.overridden}
+            hint="Prevent all new buys when regime is NO-GO."
+          >
+            <label className="flex items-center gap-2.5 text-sm cursor-pointer">
+              <input
+                type="checkbox"
+                checked={riskOffBlockBuys}
+                onChange={(e) => setRiskOffBlockBuys(e.target.checked)}
+              />
+              <span>Block new buys in risk-off regime</span>
+            </label>
+          </SettingField>
+
+          <SettingField
+            label="Require regime confirmation"
+            envKey="AGENT_REQUIRE_REGIME_CONFIRMATION"
+            overridden={s.overridden}
+            hint="Only buy when regime is GO or CAUTION (never NO-GO)."
+          >
+            <label className="flex items-center gap-2.5 text-sm cursor-pointer">
+              <input
+                type="checkbox"
+                checked={requireRegimeConfirm}
+                onChange={(e) => setRequireRegimeConfirm(e.target.checked)}
+              />
+              <span>Gate new buys on favorable regime</span>
+            </label>
+          </SettingField>
+
+          <SettingField
+            label="Require complete market data"
+            envKey="AGENT_REQUIRE_COMPLETE_DATA_FOR_BUYS"
+            overridden={s.overridden}
+            hint="Pause new buys while SPY bars/volume are missing or stale. Exits still run."
+          >
+            <label className="flex items-center gap-2.5 text-sm cursor-pointer">
+              <input
+                type="checkbox"
+                checked={requireCompleteData}
+                onChange={(e) => setRequireCompleteData(e.target.checked)}
+              />
+              <span>Pause buys on incomplete data</span>
+            </label>
+          </SettingField>
+        </SettingsSection>
+
+        <SettingsSection
+          title="Prompt & learning"
+          description="Weekly lessons injected into the agent system prompt."
+        >
+          <SettingField
+            label="Weekly lessons"
+            envKey="AGENT_DYNAMIC_PREAMBLE_ENABLED"
+            overridden={s.overridden}
+            hint="Inject weekly-learned bullets into the agent ROLE_PREAMBLE."
+          >
+            <label className="flex items-center gap-2.5 text-sm cursor-pointer">
+              <input
+                type="checkbox"
+                checked={dynamicPreamble}
+                onChange={(e) => setDynamicPreamble(e.target.checked)}
+              />
+              <span>Enable weekly lesson injection</span>
+            </label>
+          </SettingField>
+
+          <SettingField
+            label="Lesson text limit"
+            envKey="AGENT_WEEKLY_LESSON_MAX_CHARS"
+            overridden={s.overridden}
+            hint="Maximum characters for the weekly supplement appended to system prompts."
+          >
+            <SettingNumInput
+              value={weeklyLessonChars}
+              onChange={setWeeklyLessonChars}
+              step="50"
+              min={200}
+              max={4000}
+              suffix="chars"
+            />
+          </SettingField>
+        </SettingsSection>
       </div>
-      <div className="flex items-center gap-3 pt-4">
+
+      <div className="flex items-center gap-3 pt-5 mt-5 border-t border-border">
         <button
           onClick={save}
           disabled={upd.isPending}
