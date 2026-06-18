@@ -1174,7 +1174,7 @@ function AgentBudgetCard({ s }: { s: AgentSettings }) {
     s.agent_require_regime_confirmation ?? true,
   )
   const [requireCompleteData, setRequireCompleteData] = useState(
-    s.agent_require_complete_data_for_buys ?? true,
+    s.agent_require_complete_data_for_buys ?? false,
   )
   const [regimeStaleBarsDays, setRegimeStaleBarsDays] = useState(
     s.agent_regime_stale_bars_days ?? 4,
@@ -1219,7 +1219,7 @@ function AgentBudgetCard({ s }: { s: AgentSettings }) {
     setRegimeOffMult(s.agent_regime_risk_off_mult)
     setRiskOffBlockBuys(s.agent_risk_off_block_new_buys)
     setRequireRegimeConfirm(s.agent_require_regime_confirmation ?? true)
-    setRequireCompleteData(s.agent_require_complete_data_for_buys ?? true)
+    setRequireCompleteData(s.agent_require_complete_data_for_buys ?? false)
     setRegimeStaleBarsDays(s.agent_regime_stale_bars_days ?? 4)
     setMaxNewPerRun(s.agent_max_new_positions_per_run ?? 2)
     setCautionMaxOpen(s.agent_caution_max_open_positions ?? 3)
@@ -1498,7 +1498,7 @@ function AgentBudgetCard({ s }: { s: AgentSettings }) {
               checked={requireCompleteData}
               onChange={(e) => setRequireCompleteData(e.target.checked)}
             />
-            pause new buys while SPY bars/volume are missing or stale (exits still run)
+            hard-block new buys while SPY bars/volume are missing or stale (default: mitigate with CAUTION sizing)
           </label>
         </div>
         <div className="grid grid-cols-[180px_1fr] gap-2 py-2 border-b border-border">

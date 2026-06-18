@@ -482,9 +482,12 @@ export interface RegimeState {
 export interface RegimeBuyPolicy {
   buys_allowed: boolean
   data_ok: boolean
+  data_mitigated?: boolean
   regime_ok: boolean
+  effective_regime_tier?: string
   effective_max_open_positions: number
   block_reason: string
+  mitigation_note?: string
 }
 
 export interface RegimeHealth {

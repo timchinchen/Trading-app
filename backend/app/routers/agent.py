@@ -75,9 +75,11 @@ def _diagnostic_assumptions(rs) -> list[dict[str, Any]]:
             "name": "Confirm-first buy gate",
             "value": (
                 f"new buys require regime GO/CAUTION = {rs.agent_require_regime_confirmation}; "
-                f"require complete {rs.swing_market_filter_symbol} data = "
+                f"hard-block on incomplete {rs.swing_market_filter_symbol} data = "
                 f"{rs.agent_require_complete_data_for_buys} "
-                f"(stale after {rs.agent_regime_stale_bars_days}d); exits never blocked"
+                f"(default mitigates with CAUTION sizing × "
+                f"{rs.agent_incomplete_data_size_mult:.2f}; "
+                f"stale after {rs.agent_regime_stale_bars_days}d); exits never blocked"
             ),
             "source": "runner.resolve_buy_policy",
         },
@@ -262,8 +264,9 @@ def regime_health(
     except Exception as e:
         regime = {
             "symbol": rs.swing_market_filter_symbol,
-            "state": "no_go", "go": False, "data_complete": False,
-            "data_issues": [f"regime fetch error: {e}"], "reason": str(e),
+            "state": "caution", "go": False, "data_complete": False,
+            "data_issues": [f"regime fetch error: {e}"],
+            "reason": f"data incomplete (fetch error); trading with caution: {e}",
         }
     policy = resolve_buy_policy(
         regime_state=str(regime.get("state", "no_go")),

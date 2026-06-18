@@ -392,30 +392,42 @@ def resolve_buy_policy(
       - With ``require_regime_confirmation`` (default on), new buys are allowed
         only when the regime is GO or CAUTION (never NO-GO). When off, we fall
         back to the legacy "full GO only" behaviour.
-      - With ``require_complete_data_for_buys`` (default on), new buys are
-        hard-blocked while the SPY feed is incomplete (missing bars/volume or a
-        stale series), regardless of the trend verdict. Exits are unaffected.
+      - With ``require_complete_data_for_buys`` (default off), incomplete SPY
+        data hard-blocks new buys. When off, incomplete data *mitigates* instead
+        of stopping: GO is downgraded to CAUTION sizing and the open-position
+        ceiling tightens, but trading continues.
       - In CAUTION the open-position ceiling is tightened to
         ``caution_max_open_positions`` so the book stays focused on fewer,
         higher-conviction names.
 
-    Returns a dict: buys_allowed, data_ok, regime_ok, effective_max_open_positions,
-    block_reason.
+    Returns a dict: buys_allowed, data_ok, data_mitigated, regime_ok,
+    effective_regime_tier, effective_max_open_positions, block_reason,
+    mitigation_note.
     """
     state = (regime_state or "no_go").lower()
-    data_ok = bool(data_complete) or not require_complete_data_for_buys
+    data_is_complete = bool(data_complete)
+    hard_block_data = not data_is_complete and require_complete_data_for_buys
+    data_mitigated = not data_is_complete and not hard_block_data
+
     if require_regime_confirmation:
         regime_ok = state in ("go", "caution")
     else:
         regime_ok = bool(legacy_go)
 
+    eff_state = state
+    if data_mitigated and state == "go":
+        eff_state = "caution"
+
     eff_max = int(max_open_positions)
-    if state == "caution" and caution_max_open_positions > 0:
+    if eff_state == "caution" and caution_max_open_positions > 0:
         eff_max = min(eff_max, int(caution_max_open_positions))
 
     reasons: list[str] = []
-    if not data_ok:
+    mitigations: list[str] = []
+    if hard_block_data:
         reasons.append("SPY data incomplete")
+    elif data_mitigated:
+        mitigations.append("SPY data incomplete — CAUTION sizing applied")
     if not regime_ok:
         reasons.append(
             f"regime '{state}' not GO/CAUTION"
@@ -424,11 +436,14 @@ def resolve_buy_policy(
         )
 
     return {
-        "buys_allowed": bool(regime_ok and data_ok),
-        "data_ok": bool(data_ok),
+        "buys_allowed": bool(regime_ok and not hard_block_data),
+        "data_ok": data_is_complete,
+        "data_mitigated": data_mitigated,
         "regime_ok": bool(regime_ok),
+        "effective_regime_tier": eff_state,
         "effective_max_open_positions": max(0, eff_max),
         "block_reason": "; ".join(reasons),
+        "mitigation_note": "; ".join(mitigations),
     }
 
 
@@ -1254,7 +1269,9 @@ async def _run_once_impl(broker: AlpacaBroker) -> int:
             # same tier the buy gate uses, so the two regime systems can't
             # disagree (legacy _classify_regime only drives the swing-disabled
             # fallback path now).
-            _tier = str(regime.get("state", "neutral")).lower()
+            _tier = str(
+                buy_policy.get("effective_regime_tier", regime.get("state", "neutral"))
+            ).lower()
             if _tier == "go":
                 tweet_regime, risk_mult = "risk_on", rs.agent_regime_risk_on_mult
             elif _tier == "no_go":
@@ -1271,7 +1288,13 @@ async def _run_once_impl(broker: AlpacaBroker) -> int:
                 f"risk_mult={risk_mult:.2f} "
                 f"max_open={buy_policy['effective_max_open_positions']}/{rs.agent_max_open_positions}"
                 + (f" | blocked: {buy_policy['block_reason']}" if buy_policy['block_reason'] else "")
+                + (f" | mitigated: {buy_policy['mitigation_note']}" if buy_policy.get('mitigation_note') else "")
             )
+            if buy_policy.get("data_mitigated"):
+                risk_mult *= rs.agent_incomplete_data_size_mult
+                log.add(
+                    f"buy gate: incomplete SPY data — risk_mult scaled to {risk_mult:.2f}"
+                )
             cross = regime.get("ma_cross")
             cross_event = regime.get("ma_cross_event")
             if cross_event:
@@ -1327,7 +1350,7 @@ async def _run_once_impl(broker: AlpacaBroker) -> int:
                 max_position_usd=rs.agent_max_position_usd,
                 max_open_positions=buy_policy["effective_max_open_positions"],
                 regime_go=bool(buy_policy["buys_allowed"]),
-                regime_tier=str(regime.get("state", "go")),
+                regime_tier=str(buy_policy.get("effective_regime_tier", regime.get("state", "go"))),
                 caution_size_mult=rs.agent_caution_size_mult,
                 caution_min_rr=rs.agent_caution_min_rr,
                 caution_require_corroboration=rs.agent_caution_require_corroboration,
@@ -1528,13 +1551,16 @@ async def _run_once_impl(broker: AlpacaBroker) -> int:
 
             # ── BUY-side execution gates (exits always proceed) ──────────
             if p["side"] == "buy":
-                # Pause auto-execution of new buys while the SPY feed is
-                # incomplete, even if a stale proposal slipped through.
-                if not buy_policy["data_ok"]:
+                # Hard-block only when buy_policy says so (regime or strict data gate).
+                if not buy_policy["buys_allowed"]:
                     at.action = "proposed"
-                    at.reason = (at.reason or "") + " | held: SPY data incomplete — auto-exec paused"
+                    at.reason = (at.reason or "") + (
+                        f" | held: {buy_policy['block_reason'] or 'buy gate'}"
+                    )
                     p["action"] = "proposed"
-                    log.add(f"HOLD {p['symbol']} buy: SPY data incomplete (auto-exec paused)")
+                    log.add(
+                        f"HOLD {p['symbol']} buy: {buy_policy['block_reason'] or 'buy gate'}"
+                    )
                     continue
                 # Per-run new-position cap.
                 if max_new_buys > 0 and new_buys_executed >= max_new_buys:
@@ -1655,7 +1681,7 @@ async def _run_once_impl(broker: AlpacaBroker) -> int:
                     max_position_usd=rs.agent_max_position_usd,
                     max_open_positions=buy_policy["effective_max_open_positions"],
                     regime_go=bool(buy_policy["buys_allowed"]),
-                    regime_tier=str(regime.get("state", "go")),
+                    regime_tier=str(buy_policy.get("effective_regime_tier", regime.get("state", "go"))),
                     caution_size_mult=rs.agent_caution_size_mult,
                     caution_min_rr=rs.agent_caution_min_rr,
                     caution_require_corroboration=rs.agent_caution_require_corroboration,
@@ -1716,9 +1742,11 @@ async def _run_once_impl(broker: AlpacaBroker) -> int:
                         second_pass_proposed += 1
                         continue
                     # Same BUY-side gates as the first pass.
-                    if not buy_policy["data_ok"]:
+                    if p["side"] == "buy" and not buy_policy["buys_allowed"]:
                         at.action = "proposed"
-                        at.reason = (at.reason or "") + " | held: SPY data incomplete — auto-exec paused"
+                        at.reason = (at.reason or "") + (
+                            f" | held: {buy_policy['block_reason'] or 'buy gate'}"
+                        )
                         p["action"] = "proposed"
                         second_pass_proposed += 1
                         continue

@@ -138,14 +138,20 @@ def evaluate_market_regime(
     bars_map = broker.fetch_daily_bars([filter_symbol], lookback_days=lookback_days)
     bars = bars_map.get(filter_symbol.upper()) or []
     if not bars:
-        log(f"swing: market-filter bars unavailable for {filter_symbol}; regime=NO-GO (data)")
+        log(
+            f"swing: market-filter bars unavailable for {filter_symbol}; "
+            "regime=CAUTION (data degraded — mitigating, not stopping)"
+        )
         return {
             "symbol": filter_symbol,
             "go": False,
-            "state": "no_go",
+            "state": "caution",
             "data_complete": False,
             "data_issues": ["bars unavailable"],
-            "reason": "data incomplete (bars unavailable)",
+            "reason": (
+                "data incomplete (bars unavailable); "
+                "regime unknown — trading with caution"
+            ),
             "ma_cross": None,
             "ma_cross_event": None,
         }

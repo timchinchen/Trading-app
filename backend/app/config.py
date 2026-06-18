@@ -132,11 +132,14 @@ class Settings(BaseSettings):
     # Hard-block new BUYs unless the market regime is GO or CAUTION (never
     # NO-GO). When False, falls back to the legacy "full GO only" gate.
     AGENT_REQUIRE_REGIME_CONFIRMATION: bool = True
-    # Hard-block new BUYs and pause auto-execution while the market-filter
-    # (SPY) feed is incomplete — missing bars/volume or a stale series. Exits
-    # are never blocked. This is the single biggest safety improvement when
-    # the data feed degrades.
-    AGENT_REQUIRE_COMPLETE_DATA_FOR_BUYS: bool = True
+    # When True, hard-block new BUYs while the market-filter (SPY) feed is
+    # incomplete. When False (default), incomplete data downgrades to CAUTION
+    # sizing (half slot, tighter book) instead of stopping. Exits are never
+    # blocked.
+    AGENT_REQUIRE_COMPLETE_DATA_FOR_BUYS: bool = False
+    # Extra slot multiplier applied on top of the regime tier when SPY data is
+    # incomplete but buys are still allowed (mitigation mode).
+    AGENT_INCOMPLETE_DATA_SIZE_MULT: float = 0.5
     # Treat the SPY series as stale (data incomplete) if the most recent bar is
     # older than this many calendar days. 4 covers a normal long weekend.
     AGENT_REGIME_STALE_BARS_DAYS: int = 4

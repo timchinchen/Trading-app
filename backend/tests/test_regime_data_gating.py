@@ -156,11 +156,11 @@ def _fresh_bars(n=80):
 
 
 class TestEvaluateMarketRegime:
-    def test_missing_bars_is_no_go_data_incomplete(self):
+    def test_missing_bars_is_caution_data_incomplete(self):
         r = swing_runner.evaluate_market_regime(
             _Broker(None), filter_symbol="SPY", ma=50, lookback_days=120,
         )
-        assert r["state"] == "no_go"
+        assert r["state"] == "caution"
         assert r["data_complete"] is False
 
     def test_fresh_uptrend_is_go_data_complete(self):
@@ -191,6 +191,8 @@ BASE = dict(
     caution_max_open_positions=3,
 )
 
+BASE_MITIGATE = {**BASE, "require_complete_data_for_buys": False}
+
 
 class TestResolveBuyPolicy:
     def test_go_complete_allows_buys(self):
@@ -208,17 +210,36 @@ class TestResolveBuyPolicy:
         assert p["buys_allowed"] is False
         assert "not GO/CAUTION" in p["block_reason"]
 
-    def test_incomplete_data_blocks_buys_even_in_go(self):
+    def test_incomplete_data_blocks_buys_when_strict_gate_on(self):
         p = resolve_buy_policy(regime_state="go", data_complete=False, **BASE)
         assert p["buys_allowed"] is False
         assert p["data_ok"] is False
+        assert p["data_mitigated"] is False
         assert "data incomplete" in p["block_reason"].lower()
+
+    def test_incomplete_data_mitigates_by_default(self):
+        p = resolve_buy_policy(regime_state="go", data_complete=False, **BASE_MITIGATE)
+        assert p["buys_allowed"] is True
+        assert p["data_ok"] is False
+        assert p["data_mitigated"] is True
+        assert p["effective_regime_tier"] == "caution"
+        assert p["effective_max_open_positions"] == 3
+        assert "CAUTION sizing" in p["mitigation_note"]
+
+    def test_incomplete_caution_stays_caution(self):
+        p = resolve_buy_policy(regime_state="caution", data_complete=False, **BASE_MITIGATE)
+        assert p["buys_allowed"] is True
+        assert p["effective_regime_tier"] == "caution"
+
+    def test_missing_bars_caution_allows_buys_when_mitigating(self):
+        p = resolve_buy_policy(regime_state="caution", data_complete=False, **BASE_MITIGATE)
+        assert p["buys_allowed"] is True
 
     def test_data_gate_can_be_disabled(self):
         kw = {**BASE, "require_complete_data_for_buys": False}
         p = resolve_buy_policy(regime_state="go", data_complete=False, **kw)
         assert p["buys_allowed"] is True
-        assert p["data_ok"] is True
+        assert p["data_mitigated"] is True
 
     def test_legacy_gate_when_confirmation_disabled(self):
         # With confirmation off, CAUTION (legacy_go=False) blocks buys.
