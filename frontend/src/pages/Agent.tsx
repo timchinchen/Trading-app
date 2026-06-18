@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import {
+  useAgentRegime,
   useAgentRunNow,
   useAgentRunSignals,
   useAgentRunTrades,
@@ -7,7 +8,7 @@ import {
   useAgentRuns,
   useAgentStatus,
 } from '../api/hooks'
-import type { AgentTweetAnalysis } from '../api/types'
+import type { AgentTweetAnalysis, RegimeHealth } from '../api/types'
 
 type Tab = 'logs' | 'tweets' | 'signals' | 'trades'
 
@@ -140,8 +141,55 @@ function TweetRow({ t }: { t: AgentTweetAnalysis }) {
   )
 }
 
+function RegimeBanner({ r }: { r: RegimeHealth }) {
+  const reg = r.regime
+  const pol = r.buy_policy
+  const tier = (reg.state || 'unknown').toUpperCase().replace('_', '-')
+  const tierTone =
+    reg.state === 'go' ? 'success' : reg.state === 'caution' ? 'secondary' : 'danger'
+  return (
+    <section className="panel p-6">
+      <div className="flex items-center gap-3 flex-wrap">
+        <h2 className="text-sm text-muted-foreground uppercase tracking-wider">
+          Regime · {r.filter_symbol}
+        </h2>
+        <Pill tone={tierTone as any}>{tier}</Pill>
+        <Pill tone={reg.data_complete ? 'success' : 'danger'}>
+          {reg.data_complete ? 'data complete' : 'DATA INCOMPLETE'}
+        </Pill>
+        <Pill tone={pol.buys_allowed ? 'success' : 'danger'}>
+          {pol.buys_allowed ? 'new buys allowed' : 'new buys blocked'}
+        </Pill>
+        {reg.ma_cross && <Pill tone="muted">20/50DMA: {reg.ma_cross}</Pill>}
+        {reg.ma_cross_event && (
+          <Pill tone="primary">{reg.ma_cross_event.replace('_', ' ')}</Pill>
+        )}
+        {r.use_intraday && reg.intraday?.available && (
+          <Pill tone={reg.intraday.weak ? 'danger' : 'success'}>
+            intraday {reg.intraday.weak ? 'weak' : 'ok'}
+          </Pill>
+        )}
+        {!r.broker_configured && <Pill tone="muted">broker not configured</Pill>}
+      </div>
+      <div className="text-xs text-muted-foreground mt-3">{reg.reason}</div>
+      {!pol.buys_allowed && pol.block_reason && (
+        <div className="text-xs text-destructive mt-1">Blocked: {pol.block_reason}</div>
+      )}
+      {reg.data_issues && reg.data_issues.length > 0 && (
+        <div className="text-xs text-destructive mt-1">
+          Data issues: {reg.data_issues.join('; ')}
+        </div>
+      )}
+      <div className="text-xs text-muted-foreground mt-1">
+        Effective max open in this regime: {pol.effective_max_open_positions}
+      </div>
+    </section>
+  )
+}
+
 export function AgentPage() {
   const { data: status } = useAgentStatus()
+  const { data: regime } = useAgentRegime()
   const { data: runs } = useAgentRuns()
   const [selected, setSelected] = useState<number | null>(null)
   const activeRunId = selected ?? runs?.[0]?.id ?? null
@@ -228,6 +276,8 @@ export function AgentPage() {
           </div>
         )}
       </section>
+
+      {regime && <RegimeBanner r={regime} />}
 
       {activeRun?.advice && (
         <section className="panel p-6 shadow-[inset_0_0_0_1px_rgba(230,106,138,0.45),0_0_24px_rgba(230,106,138,0.08)]">

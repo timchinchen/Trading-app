@@ -298,6 +298,36 @@ def _recently_bought_symbols(db: Session, mode: str, hours: int) -> dict[str, di
     return out
 
 
+def _recently_watchlisted_symbols(db: Session, hours: int) -> set[str]:
+    """Symbols the agent auto-added to the watchlist within the last `hours`,
+    read from the watchlist_delta digest entries. Used to apply an auto-add
+    cooldown so the agent doesn't re-churn the same names every run."""
+    if hours <= 0:
+        return set()
+    from ...models import DigestEntry
+    since = datetime.utcnow() - timedelta(hours=int(hours))
+    out: set[str] = set()
+    try:
+        rows = (
+            db.query(DigestEntry)
+            .filter(DigestEntry.kind == "watchlist_delta", DigestEntry.created_at >= since)
+            .all()
+        )
+    except Exception:
+        return set()
+    for r in rows:
+        data = {}
+        try:
+            data = json.loads(r.data_json) if r.data_json else {}
+        except Exception:
+            data = {}
+        for sym in (data.get("added") or []):
+            s = (sym or "").upper().strip()
+            if s:
+                out.add(s)
+    return out
+
+
 def _classify_regime(
     broker: "AlpacaBroker",
     *,
@@ -1127,6 +1157,21 @@ async def _run_once_impl(broker: AlpacaBroker) -> int:
         )
         log.add(f"open positions: {sorted(open_positions) or 'flat'}")
 
+        # ── Plan backfill: make sure every open position has an exit plan ──
+        # Covers manual/tweet/legacy positions so the adaptive-exit and
+        # invalidation engines manage them (instead of the weaker static sweep).
+        if rs.agent_plan_backfill_enabled and broker.configured:
+            try:
+                swing_runner.backfill_position_plans(
+                    broker, db,
+                    mode=settings.APP_MODE,
+                    default_stop_pct=rs.agent_plan_backfill_stop_pct,
+                    default_target_pct=rs.agent_plan_backfill_target_pct,
+                    log=log.add,
+                )
+            except Exception as e:
+                log.add(f"plan-backfill failed: {e}")
+
         # ── Regime classification ────────────────────────────────────────
         tweet_regime, risk_mult = _classify_regime(
             broker,
@@ -1191,6 +1236,8 @@ async def _run_once_impl(broker: AlpacaBroker) -> int:
                 ma=rs.swing_market_filter_ma,
                 lookback_days=rs.swing_bar_lookback_days,
                 stale_bars_days=rs.agent_regime_stale_bars_days,
+                use_intraday=rs.agent_use_intraday_confirmation,
+                intraday_lookback_minutes=rs.agent_intraday_lookback_minutes,
                 log=log.add,
             )
             # ── Hard "confirm first, then execute" buy gate ──────────────
@@ -1203,10 +1250,25 @@ async def _run_once_impl(broker: AlpacaBroker) -> int:
                 max_open_positions=rs.agent_max_open_positions,
                 caution_max_open_positions=rs.agent_caution_max_open_positions,
             )
+            # Unify regime authority: derive the slot risk-multiplier from the
+            # same tier the buy gate uses, so the two regime systems can't
+            # disagree (legacy _classify_regime only drives the swing-disabled
+            # fallback path now).
+            _tier = str(regime.get("state", "neutral")).lower()
+            if _tier == "go":
+                tweet_regime, risk_mult = "risk_on", rs.agent_regime_risk_on_mult
+            elif _tier == "no_go":
+                tweet_regime, risk_mult = "risk_off", rs.agent_regime_risk_off_mult
+            else:
+                tweet_regime, risk_mult = "neutral", rs.agent_regime_neutral_mult
+            block_buys = (
+                tweet_regime == "risk_off" and rs.agent_risk_off_block_new_buys
+            )
             log.add(
                 f"buy gate: state={regime.get('state')} "
                 f"data_complete={regime.get('data_complete')} "
                 f"buys_allowed={buy_policy['buys_allowed']} "
+                f"risk_mult={risk_mult:.2f} "
                 f"max_open={buy_policy['effective_max_open_positions']}/{rs.agent_max_open_positions}"
                 + (f" | blocked: {buy_policy['block_reason']}" if buy_policy['block_reason'] else "")
             )
@@ -1265,6 +1327,10 @@ async def _run_once_impl(broker: AlpacaBroker) -> int:
                 max_position_usd=rs.agent_max_position_usd,
                 max_open_positions=buy_policy["effective_max_open_positions"],
                 regime_go=bool(buy_policy["buys_allowed"]),
+                regime_tier=str(regime.get("state", "go")),
+                caution_size_mult=rs.agent_caution_size_mult,
+                caution_min_rr=rs.agent_caution_min_rr,
+                caution_require_corroboration=rs.agent_caution_require_corroboration,
             )
 
             # Trade-management pass: stop hits, time stops, breakeven bumps.
@@ -1273,6 +1339,7 @@ async def _run_once_impl(broker: AlpacaBroker) -> int:
                 time_stop_days=rs.swing_time_stop_days,
                 move_stop_be_pct=rs.swing_move_stop_be_pct,
                 partial_pct=rs.swing_partial_pct,
+                time_stop_min_progress_pct=rs.swing_time_stop_min_progress_pct,
                 log=log.add,
             )
 
@@ -1340,6 +1407,33 @@ async def _run_once_impl(broker: AlpacaBroker) -> int:
             )
         proposals = proposals + ae_proposals
 
+        # ── Thesis-invalidation exits ─────────────────────────────────────
+        # Cut positions when the setup breaks (lost SMA20, failed breakout),
+        # not only on a fixed % stop. Runs after the adaptive engine and is
+        # deduped against any symbol already earmarked for sale this run.
+        if rs.agent_invalidation_exits_enabled:
+            inval_in_hand = {
+                (p["symbol"] or "").upper()
+                for p in proposals
+                if p.get("side") == "sell"
+            }
+            try:
+                inval_proposals = swing_runner.invalidation_exit_proposals(
+                    broker, db,
+                    lookback_days=rs.swing_bar_lookback_days,
+                    sma_period=rs.agent_invalidation_sma_period,
+                    consec_closes=rs.agent_invalidation_consec_closes,
+                    first_close_on_confirmed=rs.agent_invalidation_first_close_on_confirmed,
+                    existing_sell_symbols=inval_in_hand,
+                    log=log.add,
+                )
+            except Exception as e:
+                log.add(f"invalidation-exit failed: {e}")
+                inval_proposals = []
+            if inval_proposals:
+                log.add(f"invalidation-exit: {len(inval_proposals)} proposals")
+            proposals = proposals + inval_proposals
+
         # ── Static TP/SL sweep (legacy fallback for positions without plans)
         # Covers anything the adaptive engine didn't handle (no plan, no bars).
         tp_in_hand = {
@@ -1394,10 +1488,11 @@ async def _run_once_impl(broker: AlpacaBroker) -> int:
 
         # 5. Decide auto-execute
         auto_execute = (
-            settings.APP_MODE == "paper"
+            (settings.APP_MODE == "paper" and rs.agent_auto_execute_paper)
             or (settings.APP_MODE == "live" and rs.agent_auto_execute_live)
         )
         log.add(f"auto_execute={auto_execute} (app_mode={settings.APP_MODE}, "
+                f"auto_exec_paper={rs.agent_auto_execute_paper}, "
                 f"auto_exec_live={rs.agent_auto_execute_live})")
 
         proposed_count = 0
@@ -1521,7 +1616,7 @@ async def _run_once_impl(broker: AlpacaBroker) -> int:
         # without re-scanning the market.
         second_pass_executed = 0
         second_pass_proposed = 0
-        if rs.agent_net_budget_accounting:
+        if rs.agent_net_budget_accounting and not rs.agent_disable_same_run_redeploy:
             sells_this_run = [
                 p for p in proposals
                 if p.get("side") == "sell" and p.get("action") == "executed"
@@ -1560,6 +1655,10 @@ async def _run_once_impl(broker: AlpacaBroker) -> int:
                     max_position_usd=rs.agent_max_position_usd,
                     max_open_positions=buy_policy["effective_max_open_positions"],
                     regime_go=bool(buy_policy["buys_allowed"]),
+                    regime_tier=str(regime.get("state", "go")),
+                    caution_size_mult=rs.agent_caution_size_mult,
+                    caution_min_rr=rs.agent_caution_min_rr,
+                    caution_require_corroboration=rs.agent_caution_require_corroboration,
                 ) if rs.swing_enabled else []
 
                 second_swing_buy_syms = {
@@ -1697,32 +1796,53 @@ async def _run_once_impl(broker: AlpacaBroker) -> int:
                         f"executed={second_pass_executed}"
                     )
 
-        # 5b. Auto-watchlist: every symbol we took an interest in this run
-        # (executed, proposed, or even skipped-due-to-budget) is added to the
-        # primary user's dashboard watchlist so they show up in "Watchlist
-        # (live)" for ongoing monitoring.
+        # 5b. Auto-watchlist hygiene. AGENT_WATCHLIST_AUTOADD_MODE controls how
+        # aggressively the agent grows the dashboard watchlist:
+        #   all      = legacy (executed/proposed buys + sells + NO-GO watches + every scan)
+        #   proposed = executed/proposed buys + exit candidates only
+        #   executed = only symbols actually traded this run
+        mode = (rs.agent_watchlist_autoadd_mode or "all").lower()
         interested_set: set[str] = set()
         for p in proposals:
             sym = (p.get("symbol") or "").upper()
             if not sym:
                 continue
-            # BUYs we are proposing or executing this run.
-            if p.get("side") == "buy" and p.get("action") in ("executed", "proposed"):
+            side = p.get("side")
+            action = p.get("action")
+            if mode == "executed":
+                if action == "executed":
+                    interested_set.add(sym)
+                continue
+            # proposed + all: BUYs we are proposing or executing this run.
+            if side == "buy" and action in ("executed", "proposed"):
                 interested_set.add(sym)
             # Anything flagged for sale (user should see those live).
-            if p.get("side") == "sell":
+            if side == "sell":
                 interested_set.add(sym)
-            # Names the swing scanner flagged as watch-only (regime no-go or
-            # blocked by caps): the user asked for them to land on the watchlist.
+            # 'all' mode also lands NO-GO watch-only setups on the watchlist.
             if (
-                p.get("action") == "skipped"
+                mode == "all"
+                and action == "skipped"
                 and p.get("setup_type")
                 and "market regime NO-GO" in (p.get("reason") or "")
             ):
                 interested_set.add(sym)
-        # Any swing plan discovered this run (even if we didn't propose it).
-        for sym in swing_plans.keys():
-            interested_set.add(sym.upper())
+        # Only 'all' mode auto-adds every scanned swing plan (churn source).
+        if mode == "all":
+            for sym in swing_plans.keys():
+                interested_set.add(sym.upper())
+        # Cooldown: optionally skip symbols auto-added within the last N hours.
+        cooldown_h = int(rs.agent_watchlist_cooldown_hours or 0)
+        if cooldown_h > 0 and interested_set:
+            recent = _recently_watchlisted_symbols(db, cooldown_h)
+            if recent:
+                skipped = interested_set & recent
+                if skipped:
+                    log.add(
+                        f"watchlist cooldown ({cooldown_h}h): skipping "
+                        + ", ".join(sorted(skipped))
+                    )
+                interested_set -= recent
         interested = sorted(interested_set)
         if interested:
             added = _ensure_watchlisted(db, interested)

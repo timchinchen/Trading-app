@@ -211,6 +211,89 @@ class AlpacaBroker:
             print(f"[broker] bar parse error: {e}")
         return out
 
+    def fetch_intraday_bars(
+        self, symbol: str, timeframe: str = "1Min", lookback_minutes: int = 390
+    ) -> list[dict]:
+        """Fetch recent intraday bars for one symbol. Returns
+        [{t, o, h, l, c, v}, ...] in chronological order, or [] on any error /
+        unconfigured broker. Used as an optional regime-confirmation layer.
+
+        Note: the Alpaca free (IEX) feed is 15-minute delayed and thin, so this
+        is best-effort and must never be a sole gate — callers treat an empty
+        result as "no intraday confirmation available", not as a hard block.
+        """
+        from datetime import datetime, timedelta, timezone
+
+        if not symbol or not self.configured:
+            return []
+        try:
+            from alpaca.data.historical import StockHistoricalDataClient
+            from alpaca.data.requests import StockBarsRequest
+            from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
+        except Exception as e:
+            print(f"[broker] intraday import error: {e}")
+            return []
+
+        key = settings.ALPACA_LIVE_KEY if self.mode == "live" else settings.ALPACA_PAPER_KEY
+        secret = settings.ALPACA_LIVE_SECRET if self.mode == "live" else settings.ALPACA_PAPER_SECRET
+        if not (key and secret):
+            return []
+
+        # Map a small set of supported timeframes; default to 1-minute.
+        tf = TimeFrame.Minute
+        try:
+            t = (timeframe or "1Min").lower()
+            if t in ("1min", "1m", "min", "minute"):
+                tf = TimeFrame.Minute
+            elif t in ("5min", "5m"):
+                tf = TimeFrame(5, TimeFrameUnit.Minute)
+            elif t in ("15min", "15m"):
+                tf = TimeFrame(15, TimeFrameUnit.Minute)
+            elif t in ("1hour", "1h", "hour"):
+                tf = TimeFrame.Hour
+        except Exception:
+            tf = TimeFrame.Minute
+
+        end = datetime.now(timezone.utc)
+        # Pad the lookback generously so weekends/holidays still yield a session.
+        start = end - timedelta(minutes=int(lookback_minutes) + 60, days=4)
+        try:
+            client = StockHistoricalDataClient(key, secret)
+            req = StockBarsRequest(
+                symbol_or_symbols=[symbol.upper()],
+                timeframe=tf,
+                start=start,
+                end=end,
+                limit=10000,
+            )
+            raw = client.get_stock_bars(req)
+        except Exception as e:
+            print(f"[broker] fetch_intraday_bars error: {e}")
+            return []
+
+        seq: list[dict] = []
+        try:
+            data = getattr(raw, "data", None) or {}
+            for b in data.get(symbol.upper(), []) or []:
+                try:
+                    seq.append({
+                        "t": b.timestamp.isoformat() if getattr(b, "timestamp", None) else None,
+                        "o": float(b.open),
+                        "h": float(b.high),
+                        "l": float(b.low),
+                        "c": float(b.close),
+                        "v": int(b.volume or 0),
+                    })
+                except Exception:
+                    continue
+        except Exception as e:
+            print(f"[broker] intraday parse error: {e}")
+            return []
+        # Keep only the most recent `lookback_minutes` worth (approx, by count).
+        if lookback_minutes and len(seq) > lookback_minutes:
+            seq = seq[-int(lookback_minutes):]
+        return seq
+
     # --- Quotes ---
     def latest_quote(self, symbol: str) -> dict:
         try:

@@ -252,6 +252,23 @@ export interface AgentSettings {
   agent_regime_stale_bars_days: number
   agent_max_new_positions_per_run: number
   agent_caution_max_open_positions: number
+  agent_caution_size_mult: number
+  agent_caution_min_rr: number
+  agent_caution_require_corroboration: boolean
+  agent_plan_backfill_enabled: boolean
+  agent_plan_backfill_stop_pct: number
+  agent_plan_backfill_target_pct: number
+  agent_invalidation_exits_enabled: boolean
+  agent_invalidation_sma_period: number
+  agent_invalidation_consec_closes: number
+  agent_invalidation_first_close_on_confirmed: boolean
+  swing_time_stop_min_progress_pct: number
+  agent_watchlist_autoadd_mode: string
+  agent_watchlist_cooldown_hours: number
+  agent_auto_execute_paper: boolean
+  agent_disable_same_run_redeploy: boolean
+  agent_use_intraday_confirmation: boolean
+  agent_intraday_lookback_minutes: number
   agent_max_hold_days: number
   agent_prompt_time_stop_days: number
   agent_recent_trade_window_hours: number
@@ -379,6 +396,23 @@ export type AgentSettingsUpdate = Partial<{
   AGENT_REGIME_STALE_BARS_DAYS: number
   AGENT_MAX_NEW_POSITIONS_PER_RUN: number
   AGENT_CAUTION_MAX_OPEN_POSITIONS: number
+  AGENT_CAUTION_SIZE_MULT: number
+  AGENT_CAUTION_MIN_RR: number
+  AGENT_CAUTION_REQUIRE_CORROBORATION: boolean
+  AGENT_PLAN_BACKFILL_ENABLED: boolean
+  AGENT_PLAN_BACKFILL_STOP_PCT: number
+  AGENT_PLAN_BACKFILL_TARGET_PCT: number
+  AGENT_INVALIDATION_EXITS_ENABLED: boolean
+  AGENT_INVALIDATION_SMA_PERIOD: number
+  AGENT_INVALIDATION_CONSEC_CLOSES: number
+  AGENT_INVALIDATION_FIRST_CLOSE_ON_CONFIRMED: boolean
+  SWING_TIME_STOP_MIN_PROGRESS_PCT: number
+  AGENT_WATCHLIST_AUTOADD_MODE: string
+  AGENT_WATCHLIST_COOLDOWN_HOURS: number
+  AGENT_AUTO_EXECUTE_PAPER: boolean
+  AGENT_DISABLE_SAME_RUN_REDEPLOY: boolean
+  AGENT_USE_INTRADAY_CONFIRMATION: boolean
+  AGENT_INTRADAY_LOOKBACK_MINUTES: number
   AGENT_MAX_HOLD_DAYS: number
   AGENT_PROMPT_TIME_STOP_DAYS: number
   AGENT_RECENT_TRADE_WINDOW_HOURS: number
@@ -419,6 +453,47 @@ export interface SetupProbe {
 }
 
 export type SetupHealth = Record<string, SetupProbe>
+
+export interface RegimeIntraday {
+  enabled: boolean
+  available: boolean
+  bar_count: number
+  last_ts?: string | null
+  volume_ok: boolean
+  ma20?: number | null
+  ma50?: number | null
+  cross?: string | null
+  weak?: boolean | null
+  issues?: string[]
+}
+
+export interface RegimeState {
+  symbol?: string
+  state: string
+  go: boolean
+  data_complete: boolean
+  data_issues?: string[]
+  reason?: string
+  ma_cross?: string | null
+  ma_cross_event?: string | null
+  intraday?: RegimeIntraday
+}
+
+export interface RegimeBuyPolicy {
+  buys_allowed: boolean
+  data_ok: boolean
+  regime_ok: boolean
+  effective_max_open_positions: number
+  block_reason: string
+}
+
+export interface RegimeHealth {
+  filter_symbol: string
+  broker_configured: boolean
+  use_intraday: boolean
+  regime: RegimeState
+  buy_policy: RegimeBuyPolicy
+}
 
 export interface AgentDiagnosticAssumption {
   name: string

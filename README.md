@@ -265,6 +265,15 @@ AGENT_RS_LOOKBACK_DAYS=120
 - **Auto-entry throttle** — `AGENT_MAX_NEW_POSITIONS_PER_RUN` caps how many new BUYs auto-execute per run; extras are surfaced as proposals.
 - **Portfolio focus in CAUTION** — `AGENT_CAUTION_MAX_OPEN_POSITIONS` tightens the open-position ceiling to keep the book on fewer, higher-conviction names.
 
+### Confirm-first follow-up (CAUTION execution, loser-cutting, intraday)
+- **Unified regime authority** — the slot risk-multiplier is now derived from the same GO/CAUTION/NO-GO tier as the buy gate, so the two regime systems can no longer disagree.
+- **CAUTION = real execution logic** — CAUTION entries are half-size (`AGENT_CAUTION_SIZE_MULT`), held to a stricter R/R floor (`AGENT_CAUTION_MIN_RR`), and can require tweet/intel corroboration (`AGENT_CAUTION_REQUIRE_CORROBORATION`).
+- **Plan backfill** — `AGENT_PLAN_BACKFILL_ENABLED` synthesizes a stop/target plan for any open position lacking one (manual/tweet/legacy), so the adaptive-exit + invalidation engine manages every position.
+- **Thesis-invalidation exits** — `AGENT_INVALIDATION_EXITS_ENABLED` cuts a position when its setup breaks: 2 consecutive daily closes below SMA20 (soft) by default, or a single close on confirmed weakness (failed breakout / decisive break) when `AGENT_INVALIDATION_FIRST_CLOSE_ON_CONFIRMED`.
+- **Auto-entry & churn controls** — `AGENT_AUTO_EXECUTE_PAPER` (paper propose-only), `AGENT_DISABLE_SAME_RUN_REDEPLOY`, and `AGENT_WATCHLIST_AUTOADD_MODE`/`AGENT_WATCHLIST_COOLDOWN_HOURS` for watchlist hygiene.
+- **Optional SPY intraday confirmation** — `AGENT_USE_INTRADAY_CONFIRMATION` fetches SPY 1-minute bars (`broker.fetch_intraday_bars`) to confirm/downgrade the daily regime (GO→CAUTION on intraday weakness) and emit intraday 20/50 MA-cross alerts. Default off; an intraday outage never hard-blocks when the daily feed is healthy.
+- **Live regime panel** — `GET /agent/regime` + an Agent-page panel show the current tier, data completeness, MA-cross, intraday status, and why buys are/aren't allowed. The Settings Optimizer is aware of the new knobs (CAUTION coherence, data-gate, backfill R/R checks).
+
 ### Incremental architecture upgrade (Phase 1, safe rollout)
 - Added a deterministic **pre-LLM scoring engine** (`backend/app/services/agent/scoring_engine.py`) with transparent factor weights:
   - `relative_strength`, `trend_quality`, `volume_expansion`, `sentiment`, `catalyst_strength`
@@ -373,6 +382,11 @@ Rolling log of agent events compressed daily at 09:30 ET by the Deep Analysis LL
 | `AGENT_REQUIRE_COMPLETE_DATA_FOR_BUYS` | Pauses new buys + auto-exec while SPY bars/volume are missing or stale (exits still run) |
 | `AGENT_MAX_NEW_POSITIONS_PER_RUN` | Throttles auto-entry: caps new BUYs auto-executed per run (extras become proposals) |
 | `AGENT_CAUTION_MAX_OPEN_POSITIONS` | Focuses the book to fewer positions when regime is CAUTION |
+| `AGENT_CAUTION_SIZE_MULT` / `AGENT_CAUTION_MIN_RR` | CAUTION-tier execution: half-size entries + stricter R/R floor |
+| `AGENT_PLAN_BACKFILL_ENABLED` | Gives every open position a stop/target plan so the exit engine manages it |
+| `AGENT_INVALIDATION_EXITS_ENABLED` | Cuts losers when the setup breaks (lost SMA20 / failed breakout), not only on % stop |
+| `AGENT_AUTO_EXECUTE_PAPER` | When false, paper mode runs propose-only (mirrors live) |
+| `AGENT_USE_INTRADAY_CONFIRMATION` | Optional SPY 1-min confirmation layer (downgrades GO→CAUTION; never hard-blocks) |
 | `AGENT_MAX_HOLD_DAYS` | Force-closes stale positions on time-stop |
 | `AGENT_STOP_LOSS_PCT` | Hard stop-loss on every position each run |
 | WAL + FK | SQLite WAL mode + `foreign_keys=ON` on every connection |
