@@ -210,6 +210,28 @@ function SettingField({
   )
 }
 
+function SettingCheckboxRow({
+  checked,
+  onChange,
+  children,
+}: {
+  checked: boolean
+  onChange: (checked: boolean) => void
+  children: React.ReactNode
+}) {
+  return (
+    <label className="flex items-start gap-2 cursor-pointer min-w-0">
+      <input
+        type="checkbox"
+        className="shrink-0 mt-0.5"
+        checked={checked}
+        onChange={(e) => onChange(e.target.checked)}
+      />
+      <span className="text-xs leading-snug text-muted-foreground">{children}</span>
+    </label>
+  )
+}
+
 function SettingNumInput({
   value,
   onChange,
@@ -1983,21 +2005,17 @@ function RegimeGatingCard({ s }: { s: AgentSettings }) {
             <span className="text-xs text-muted-foreground">stricter R/R floor in CAUTION</span>
           </div>
         </div>
-        <div className="grid grid-cols-[210px_1fr] gap-2 py-2 border-b border-border">
+        <div className="grid grid-cols-[210px_1fr] gap-2 py-2 border-b border-border md:col-span-2">
           <Lbl k="AGENT_CAUTION_REQUIRE_CORROBORATION" />
-          <label className="flex items-center gap-2 text-sm">
-            <input type="checkbox" checked={cautionCorrob}
-              onChange={(e) => setCautionCorrob(e.target.checked)} />
+          <SettingCheckboxRow checked={cautionCorrob} onChange={setCautionCorrob}>
             require tweet/intel corroboration in CAUTION
-          </label>
+          </SettingCheckboxRow>
         </div>
-        <div className="grid grid-cols-[210px_1fr] gap-2 py-2 border-b border-border">
+        <div className="grid grid-cols-[210px_1fr] gap-2 py-2 border-b border-border md:col-span-2">
           <Lbl k="AGENT_PLAN_BACKFILL_ENABLED" />
-          <label className="flex items-center gap-2 text-sm">
-            <input type="checkbox" checked={backfill}
-              onChange={(e) => setBackfill(e.target.checked)} />
+          <SettingCheckboxRow checked={backfill} onChange={setBackfill}>
             give every open position a stop/target plan
-          </label>
+          </SettingCheckboxRow>
         </div>
         <div className="grid grid-cols-[210px_1fr] gap-2 py-2 border-b border-border">
           <Lbl k="AGENT_PLAN_BACKFILL_STOP_%" />
@@ -2007,13 +2025,11 @@ function RegimeGatingCard({ s }: { s: AgentSettings }) {
           <Lbl k="AGENT_PLAN_BACKFILL_TARGET_%" />
           <Num value={backfillTarget} onChange={setBackfillTarget} step="0.5" />
         </div>
-        <div className="grid grid-cols-[210px_1fr] gap-2 py-2 border-b border-border">
+        <div className="grid grid-cols-[210px_1fr] gap-2 py-2 border-b border-border md:col-span-2">
           <Lbl k="AGENT_INVALIDATION_EXITS_ENABLED" />
-          <label className="flex items-center gap-2 text-sm">
-            <input type="checkbox" checked={invalEnabled}
-              onChange={(e) => setInvalEnabled(e.target.checked)} />
+          <SettingCheckboxRow checked={invalEnabled} onChange={setInvalEnabled}>
             exit when the setup is invalidated
-          </label>
+          </SettingCheckboxRow>
         </div>
         <div className="grid grid-cols-[210px_1fr] gap-2 py-2 border-b border-border">
           <Lbl k="AGENT_INVALIDATION_SMA_PERIOD" />
@@ -2026,13 +2042,11 @@ function RegimeGatingCard({ s }: { s: AgentSettings }) {
             <span className="text-xs text-muted-foreground">closes below SMA for soft exit</span>
           </div>
         </div>
-        <div className="grid grid-cols-[210px_1fr] gap-2 py-2 border-b border-border">
+        <div className="grid grid-cols-[210px_1fr] gap-2 py-2 border-b border-border md:col-span-2">
           <Lbl k="AGENT_INVALIDATION_FIRST_CLOSE_ON_CONFIRMED" />
-          <label className="flex items-center gap-2 text-sm">
-            <input type="checkbox" checked={invalFirstClose}
-              onChange={(e) => setInvalFirstClose(e.target.checked)} />
+          <SettingCheckboxRow checked={invalFirstClose} onChange={setInvalFirstClose}>
             single-close exit on confirmed weakness
-          </label>
+          </SettingCheckboxRow>
         </div>
         <div className="grid grid-cols-[210px_1fr] gap-2 py-2 border-b border-border">
           <Lbl k="SWING_TIME_STOP_MIN_PROGRESS_%" />
@@ -2057,29 +2071,23 @@ function RegimeGatingCard({ s }: { s: AgentSettings }) {
           <Lbl k="AGENT_WATCHLIST_COOLDOWN_HOURS" />
           <Num value={watchCooldown} onChange={setWatchCooldown} step="1" min={0} />
         </div>
-        <div className="grid grid-cols-[210px_1fr] gap-2 py-2 border-b border-border">
+        <div className="grid grid-cols-[210px_1fr] gap-2 py-2 border-b border-border md:col-span-2">
           <Lbl k="AGENT_AUTO_EXECUTE_PAPER" />
-          <label className="flex items-center gap-2 text-sm">
-            <input type="checkbox" checked={autoExecPaper}
-              onChange={(e) => setAutoExecPaper(e.target.checked)} />
+          <SettingCheckboxRow checked={autoExecPaper} onChange={setAutoExecPaper}>
             auto-execute in paper (uncheck = propose-only)
-          </label>
+          </SettingCheckboxRow>
         </div>
-        <div className="grid grid-cols-[210px_1fr] gap-2 py-2 border-b border-border">
+        <div className="grid grid-cols-[210px_1fr] gap-2 py-2 border-b border-border md:col-span-2">
           <Lbl k="AGENT_DISABLE_SAME_RUN_REDEPLOY" />
-          <label className="flex items-center gap-2 text-sm">
-            <input type="checkbox" checked={disableRedeploy}
-              onChange={(e) => setDisableRedeploy(e.target.checked)} />
-            don't redeploy freed sell proceeds same run
-          </label>
+          <SettingCheckboxRow checked={disableRedeploy} onChange={setDisableRedeploy}>
+            don&apos;t redeploy freed sell proceeds same run
+          </SettingCheckboxRow>
         </div>
-        <div className="grid grid-cols-[210px_1fr] gap-2 py-2 border-b border-border">
+        <div className="grid grid-cols-[210px_1fr] gap-2 py-2 border-b border-border md:col-span-2">
           <Lbl k="AGENT_USE_INTRADAY_CONFIRMATION" />
-          <label className="flex items-center gap-2 text-sm">
-            <input type="checkbox" checked={useIntraday}
-              onChange={(e) => setUseIntraday(e.target.checked)} />
+          <SettingCheckboxRow checked={useIntraday} onChange={setUseIntraday}>
             confirm regime with SPY 1-min bars (never hard-blocks)
-          </label>
+          </SettingCheckboxRow>
         </div>
         <div className="grid grid-cols-[210px_1fr] gap-2 py-2 border-b border-border">
           <Lbl k="AGENT_INTRADAY_LOOKBACK_MINUTES" />
