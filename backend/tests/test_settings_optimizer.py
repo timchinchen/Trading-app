@@ -62,7 +62,53 @@ def test_parse_optimizer_response():
     assert parsed.get("summary") == "ok"
 
 
-def test_detect_drift_hidden_max_hold():
-    rs = _rs(agent_max_hold_days=7, overridden=set())
+def test_detect_drift_env_default_max_hold():
+    rs = _rs(agent_max_hold_days=21, overridden=set())
     issues = detect_drift(rs)
-    assert any(i.key == "AGENT_MAX_HOLD_DAYS" for i in issues)
+    hold = next(i for i in issues if i.key == "AGENT_MAX_HOLD_DAYS")
+    assert hold.severity == "info"
+    assert "Settings" in hold.message
+    assert "Not saved in Settings UI" not in hold.message
+
+
+def test_detect_drift_env_default_prompt_time_stop():
+    rs = _rs(agent_prompt_time_stop_days=21, overridden=set())
+    issues = detect_drift(rs)
+    assert any(i.key == "AGENT_PROMPT_TIME_STOP_DAYS" for i in issues)
+
+
+def test_detect_conflicts_prompt_time_stop_exceeds_hold():
+    rs = _rs(
+        agent_prompt_time_stop_days=25,
+        agent_max_hold_days=21,
+        auto_sell_max_hold_days=28,
+    )
+    issues = detect_conflicts(rs)
+    assert any(i.key == "AGENT_PROMPT_TIME_STOP_DAYS" and i.severity == "warn" for i in issues)
+
+
+def test_detect_conflicts_prompt_time_stop_shorter_than_swing():
+    rs = _rs(
+        agent_prompt_time_stop_days=8,
+        swing_time_stop_days=12,
+        agent_max_hold_days=21,
+        auto_sell_max_hold_days=28,
+    )
+    issues = detect_conflicts(rs)
+    assert any(
+        i.key == "AGENT_PROMPT_TIME_STOP_DAYS"
+        and i.severity == "info"
+        and "shorter than swing" in i.message
+        for i in issues
+    )
+
+
+def test_detect_conflicts_regime_multipliers_step_down():
+    rs = _rs(
+        agent_regime_risk_on_mult=0.5,
+        agent_regime_neutral_mult=0.8,
+        agent_regime_risk_off_mult=1.0,
+    )
+    issues = detect_conflicts(rs)
+    assert any(i.key == "AGENT_REGIME_RISK_ON_MULT" for i in issues)
+    assert any(i.key == "AGENT_REGIME_NEUTRAL_MULT" for i in issues)

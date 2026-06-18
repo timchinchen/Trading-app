@@ -34,10 +34,25 @@ OPTIMIZER_SYSTEM = (
     "Rules:\n"
     "- Only include keys you want changed in recommended (omit unchanged keys).\n"
     "- Never include API keys, cookies, or secrets.\n"
-    "- Align SWING_TIME_STOP_DAYS, AGENT_MAX_HOLD_DAYS, and AUTO_SELL_MAX_HOLD_DAYS "
-    "for the stated horizon (calendar vs trading-day stops).\n"
-    "- Prefer AGENT_MAX_HOLD_DAYS >= SWING_TIME_STOP_DAYS and "
-    "AUTO_SELL_MAX_HOLD_DAYS >= AGENT_MAX_HOLD_DAYS for 2-3 week swings.\n"
+    "- Align the full exit stack for the stated horizon:\n"
+    "  SWING_TIME_STOP_DAYS (engine trading-day proxy) <= "
+    "AGENT_PROMPT_TIME_STOP_DAYS (LLM calendar-day guidance) <= "
+    "AGENT_MAX_HOLD_DAYS (adaptive hard hold) <= AUTO_SELL_MAX_HOLD_DAYS.\n"
+    "- For 2-3 week swings, typical targets: SWING_TIME_STOP_DAYS 12-15, "
+    "AGENT_PROMPT_TIME_STOP_DAYS 18-21, AGENT_MAX_HOLD_DAYS 21, "
+    "AUTO_SELL_MAX_HOLD_DAYS 28+.\n"
+    "- Regime / CAUTION profile: risk multipliers should step down "
+    "(AGENT_REGIME_RISK_ON_MULT >= AGENT_REGIME_NEUTRAL_MULT >= "
+    "AGENT_REGIME_RISK_OFF_MULT); AGENT_CAUTION_SIZE_MULT <= 1.0; "
+    "AGENT_CAUTION_MAX_OPEN_POSITIONS <= AGENT_MAX_OPEN_POSITIONS when set.\n"
+    "- Confirm-first gates: prefer AGENT_REQUIRE_REGIME_CONFIRMATION=true and "
+    "AGENT_REQUIRE_COMPLETE_DATA_FOR_BUYS=true for conservative goals; "
+    "when the data gate is off, incomplete SPY data is mitigated via CAUTION "
+    "sizing (AGENT_INCOMPLETE_DATA_SIZE_MULT) — do not pair a disabled gate "
+    "with CAUTION_SIZE_MULT near 1.0.\n"
+    "- AGENT_RISK_OFF_BLOCK_NEW_BUYS=true is appropriate for conservative "
+    "profiles; intraday confirmation (AGENT_USE_INTRADAY_CONFIRMATION) never "
+    "hard-blocks and is optional.\n"
     "- Fix conflicts listed in the input before cosmetic tweaks.\n"
     "- Use numeric fractions 0-1 for percent fields stored as decimals in env "
     "(e.g. 0.07 = 7%).\n"
@@ -141,6 +156,37 @@ def detect_conflicts(rs: RuntimeSettings) -> list[SettingsIssue]:
             )
         )
 
+    if rs.agent_prompt_time_stop_days > rs.agent_max_hold_days:
+        issues.append(
+            SettingsIssue(
+                "AGENT_PROMPT_TIME_STOP_DAYS",
+                "warn",
+                f"Prompt time-stop {rs.agent_prompt_time_stop_days}d exceeds hard hold "
+                f"{rs.agent_max_hold_days}d — LLM guidance outlasts the adaptive exit cap.",
+            )
+        )
+
+    if rs.agent_prompt_time_stop_days > rs.auto_sell_max_hold_days:
+        issues.append(
+            SettingsIssue(
+                "AGENT_PROMPT_TIME_STOP_DAYS",
+                "warn",
+                f"Prompt time-stop {rs.agent_prompt_time_stop_days}d exceeds auto-sell max "
+                f"hold {rs.auto_sell_max_hold_days}d.",
+            )
+        )
+
+    if rs.agent_prompt_time_stop_days < rs.swing_time_stop_days:
+        issues.append(
+            SettingsIssue(
+                "AGENT_PROMPT_TIME_STOP_DAYS",
+                "info",
+                f"Prompt time-stop {rs.agent_prompt_time_stop_days}d is shorter than swing "
+                f"engine time-stop {rs.swing_time_stop_days}d — LLM may underestimate hold "
+                "patience vs the trade-management pass.",
+            )
+        )
+
     if rs.swing_partial_pct > rs.agent_partial_take_pct + 0.02:
         issues.append(
             SettingsIssue(
@@ -225,6 +271,40 @@ def detect_conflicts(rs: RuntimeSettings) -> list[SettingsIssue]:
             )
         )
 
+    if rs.agent_regime_risk_on_mult < rs.agent_regime_neutral_mult:
+        issues.append(
+            SettingsIssue(
+                "AGENT_REGIME_RISK_ON_MULT",
+                "warn",
+                f"Risk-on multiplier {rs.agent_regime_risk_on_mult:.2f} is below neutral "
+                f"{rs.agent_regime_neutral_mult:.2f} — regime sizing should step down.",
+            )
+        )
+
+    if rs.agent_regime_neutral_mult < rs.agent_regime_risk_off_mult:
+        issues.append(
+            SettingsIssue(
+                "AGENT_REGIME_NEUTRAL_MULT",
+                "warn",
+                f"Neutral multiplier {rs.agent_regime_neutral_mult:.2f} is below risk-off "
+                f"{rs.agent_regime_risk_off_mult:.2f} — regime sizing should step down.",
+            )
+        )
+
+    if (
+        not rs.agent_require_complete_data_for_buys
+        and rs.agent_incomplete_data_size_mult > 0.8
+    ):
+        issues.append(
+            SettingsIssue(
+                "AGENT_INCOMPLETE_DATA_SIZE_MULT",
+                "info",
+                "Data-completeness gate is OFF and incomplete-data size mult is high "
+                f"({rs.agent_incomplete_data_size_mult:.2f}) — stale SPY data may still "
+                "allow near-full sizing via CAUTION mitigation.",
+            )
+        )
+
     return issues
 
 
@@ -257,9 +337,19 @@ def detect_drift(rs: RuntimeSettings) -> list[SettingsIssue]:
         issues.append(
             SettingsIssue(
                 "AGENT_MAX_HOLD_DAYS",
-                "warn",
-                f"Not saved in Settings UI (only in .env). Effective hard hold is "
-                f"{rs.agent_max_hold_days} calendar days — tune via wizard or .env.",
+                "info",
+                f"Using .env default ({rs.agent_max_hold_days} calendar days). "
+                "Save in Settings → Agent budget → Exit rules to persist an override.",
+            )
+        )
+
+    if "AGENT_PROMPT_TIME_STOP_DAYS" not in rs.overridden:
+        issues.append(
+            SettingsIssue(
+                "AGENT_PROMPT_TIME_STOP_DAYS",
+                "info",
+                f"Using .env default ({rs.agent_prompt_time_stop_days} calendar days). "
+                "Align with SWING_TIME_STOP_DAYS and Max hold days in Settings → Exit rules.",
             )
         )
 
@@ -304,7 +394,7 @@ def _clamp_recommended_value(key: str, value: Any) -> Any:
         "AGENT_PARTIAL_TAKE_FRACTION",
     ):
         return max(0.0, min(1.0, float(value)))
-    if key == "AGENT_MAX_HOLD_DAYS":
+    if key in ("AGENT_MAX_HOLD_DAYS", "AGENT_PROMPT_TIME_STOP_DAYS"):
         return max(1, int(float(value)))
     if key == "AGENT_WEEKLY_LESSON_MAX_CHARS":
         return max(200, min(4000, int(float(value))))
