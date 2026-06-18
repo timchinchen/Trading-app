@@ -1170,6 +1170,21 @@ function AgentBudgetCard({ s }: { s: AgentSettings }) {
   const [regimeNeutralMult, setRegimeNeutralMult] = useState(s.agent_regime_neutral_mult)
   const [regimeOffMult, setRegimeOffMult] = useState(s.agent_regime_risk_off_mult)
   const [riskOffBlockBuys, setRiskOffBlockBuys] = useState(s.agent_risk_off_block_new_buys)
+  const [requireRegimeConfirm, setRequireRegimeConfirm] = useState(
+    s.agent_require_regime_confirmation ?? true,
+  )
+  const [requireCompleteData, setRequireCompleteData] = useState(
+    s.agent_require_complete_data_for_buys ?? true,
+  )
+  const [regimeStaleBarsDays, setRegimeStaleBarsDays] = useState(
+    s.agent_regime_stale_bars_days ?? 4,
+  )
+  const [maxNewPerRun, setMaxNewPerRun] = useState(
+    s.agent_max_new_positions_per_run ?? 2,
+  )
+  const [cautionMaxOpen, setCautionMaxOpen] = useState(
+    s.agent_caution_max_open_positions ?? 3,
+  )
   const [agentMaxHoldDays, setAgentMaxHoldDays] = useState(
     s.agent_max_hold_days ?? 21,
   )
@@ -1203,6 +1218,11 @@ function AgentBudgetCard({ s }: { s: AgentSettings }) {
     setRegimeNeutralMult(s.agent_regime_neutral_mult)
     setRegimeOffMult(s.agent_regime_risk_off_mult)
     setRiskOffBlockBuys(s.agent_risk_off_block_new_buys)
+    setRequireRegimeConfirm(s.agent_require_regime_confirmation ?? true)
+    setRequireCompleteData(s.agent_require_complete_data_for_buys ?? true)
+    setRegimeStaleBarsDays(s.agent_regime_stale_bars_days ?? 4)
+    setMaxNewPerRun(s.agent_max_new_positions_per_run ?? 2)
+    setCautionMaxOpen(s.agent_caution_max_open_positions ?? 3)
     setAgentMaxHoldDays(s.agent_max_hold_days ?? 21)
     setRecentWindow(s.agent_recent_trade_window_hours)
     setNetBudget(s.agent_net_budget_accounting)
@@ -1231,6 +1251,11 @@ function AgentBudgetCard({ s }: { s: AgentSettings }) {
       AGENT_REGIME_NEUTRAL_MULT: Number(regimeNeutralMult),
       AGENT_REGIME_RISK_OFF_MULT: Number(regimeOffMult),
       AGENT_RISK_OFF_BLOCK_NEW_BUYS: riskOffBlockBuys,
+      AGENT_REQUIRE_REGIME_CONFIRMATION: requireRegimeConfirm,
+      AGENT_REQUIRE_COMPLETE_DATA_FOR_BUYS: requireCompleteData,
+      AGENT_REGIME_STALE_BARS_DAYS: Number(regimeStaleBarsDays),
+      AGENT_MAX_NEW_POSITIONS_PER_RUN: Number(maxNewPerRun),
+      AGENT_CAUTION_MAX_OPEN_POSITIONS: Number(cautionMaxOpen),
       AGENT_MAX_HOLD_DAYS: Number(agentMaxHoldDays),
       AGENT_RECENT_TRADE_WINDOW_HOURS: Number(recentWindow),
       AGENT_NET_BUDGET_ACCOUNTING: netBudget,
@@ -1447,6 +1472,70 @@ function AgentBudgetCard({ s }: { s: AgentSettings }) {
             />
             block all new buys when regime is NO-GO/risk-off
           </label>
+        </div>
+        <div className="grid grid-cols-[180px_1fr] gap-2 py-2 border-b border-border">
+          <div className="text-xs text-muted-foreground uppercase tracking-wider self-center">
+            REQUIRE_REGIME_CONFIRMATION
+            <OverrideBadge k="AGENT_REQUIRE_REGIME_CONFIRMATION" overridden={s.overridden} />
+          </div>
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={requireRegimeConfirm}
+              onChange={(e) => setRequireRegimeConfirm(e.target.checked)}
+            />
+            only buy when regime is GO or CAUTION (never NO-GO)
+          </label>
+        </div>
+        <div className="grid grid-cols-[180px_1fr] gap-2 py-2 border-b border-border">
+          <div className="text-xs text-muted-foreground uppercase tracking-wider self-center">
+            REQUIRE_COMPLETE_DATA
+            <OverrideBadge k="AGENT_REQUIRE_COMPLETE_DATA_FOR_BUYS" overridden={s.overridden} />
+          </div>
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={requireCompleteData}
+              onChange={(e) => setRequireCompleteData(e.target.checked)}
+            />
+            pause new buys while SPY bars/volume are missing or stale (exits still run)
+          </label>
+        </div>
+        <div className="grid grid-cols-[180px_1fr] gap-2 py-2 border-b border-border">
+          <div className="text-xs text-muted-foreground uppercase tracking-wider self-center">
+            REGIME_STALE_BARS_DAYS
+            <OverrideBadge k="AGENT_REGIME_STALE_BARS_DAYS" overridden={s.overridden} />
+          </div>
+          <div className="flex items-center gap-2">
+            <NumInput value={regimeStaleBarsDays} onChange={setRegimeStaleBarsDays} step="1" min={1} max={30} />
+            <span className="text-xs text-muted-foreground">
+              treat SPY data as incomplete if newest bar is older than this many days
+            </span>
+          </div>
+        </div>
+        <div className="grid grid-cols-[180px_1fr] gap-2 py-2 border-b border-border">
+          <div className="text-xs text-muted-foreground uppercase tracking-wider self-center">
+            MAX_NEW_POSITIONS_PER_RUN
+            <OverrideBadge k="AGENT_MAX_NEW_POSITIONS_PER_RUN" overridden={s.overridden} />
+          </div>
+          <div className="flex items-center gap-2">
+            <NumInput value={maxNewPerRun} onChange={setMaxNewPerRun} step="1" min={0} max={20} />
+            <span className="text-xs text-muted-foreground">
+              max new BUYs auto-executed per run (0 = unlimited); extras become proposals
+            </span>
+          </div>
+        </div>
+        <div className="grid grid-cols-[180px_1fr] gap-2 py-2 border-b border-border">
+          <div className="text-xs text-muted-foreground uppercase tracking-wider self-center">
+            CAUTION_MAX_OPEN_POSITIONS
+            <OverrideBadge k="AGENT_CAUTION_MAX_OPEN_POSITIONS" overridden={s.overridden} />
+          </div>
+          <div className="flex items-center gap-2">
+            <NumInput value={cautionMaxOpen} onChange={setCautionMaxOpen} step="1" min={0} max={20} />
+            <span className="text-xs text-muted-foreground">
+              open-position ceiling in CAUTION regime (0 = reuse MAX_OPEN_POSITIONS)
+            </span>
+          </div>
         </div>
         <div className="grid grid-cols-[180px_1fr] gap-2 py-2 border-b border-border">
           <div className="text-xs text-muted-foreground uppercase tracking-wider self-center">

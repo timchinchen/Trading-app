@@ -93,6 +93,12 @@ EDITABLE_KEYS: dict[str, type] = {
     "AGENT_REGIME_NEUTRAL_MULT": float,
     "AGENT_REGIME_RISK_OFF_MULT": float,
     "AGENT_RISK_OFF_BLOCK_NEW_BUYS": bool,
+    # Regime / data-completeness buy gate
+    "AGENT_REQUIRE_REGIME_CONFIRMATION": bool,
+    "AGENT_REQUIRE_COMPLETE_DATA_FOR_BUYS": bool,
+    "AGENT_REGIME_STALE_BARS_DAYS": int,
+    "AGENT_MAX_NEW_POSITIONS_PER_RUN": int,
+    "AGENT_CAUTION_MAX_OPEN_POSITIONS": int,
     # Adaptive exit engine
     "AGENT_TRAIL_ARM_PCT": float,
     "AGENT_TRAIL_RETRACE_PCT": float,
@@ -243,6 +249,12 @@ class RuntimeSettings:
     agent_regime_neutral_mult: float = 1.0
     agent_regime_risk_off_mult: float = 0.5
     agent_risk_off_block_new_buys: bool = True
+    # Regime / data-completeness buy gate
+    agent_require_regime_confirmation: bool = True
+    agent_require_complete_data_for_buys: bool = True
+    agent_regime_stale_bars_days: int = 4
+    agent_max_new_positions_per_run: int = 2
+    agent_caution_max_open_positions: int = 3
     # Adaptive exit engine
     agent_trail_arm_pct: float = 0.05
     agent_trail_retrace_pct: float = 0.35
@@ -485,6 +497,11 @@ def get_runtime_settings(db: Session | None = None) -> RuntimeSettings:
         agent_regime_neutral_mult=max(0.1, min(2.0, float(pick("AGENT_REGIME_NEUTRAL_MULT", float)))),
         agent_regime_risk_off_mult=max(0.1, min(2.0, float(pick("AGENT_REGIME_RISK_OFF_MULT", float)))),
         agent_risk_off_block_new_buys=bool(pick("AGENT_RISK_OFF_BLOCK_NEW_BUYS", bool)),
+        agent_require_regime_confirmation=bool(pick("AGENT_REQUIRE_REGIME_CONFIRMATION", bool)),
+        agent_require_complete_data_for_buys=bool(pick("AGENT_REQUIRE_COMPLETE_DATA_FOR_BUYS", bool)),
+        agent_regime_stale_bars_days=max(1, int(pick("AGENT_REGIME_STALE_BARS_DAYS", int))),
+        agent_max_new_positions_per_run=max(0, int(pick("AGENT_MAX_NEW_POSITIONS_PER_RUN", int))),
+        agent_caution_max_open_positions=max(0, int(pick("AGENT_CAUTION_MAX_OPEN_POSITIONS", int))),
         agent_trail_arm_pct=max(0.0, min(1.0, float(pick("AGENT_TRAIL_ARM_PCT", float)))),
         agent_trail_retrace_pct=max(0.0, min(1.0, float(pick("AGENT_TRAIL_RETRACE_PCT", float)))),
         agent_partial_take_pct=max(0.0, min(1.0, float(pick("AGENT_PARTIAL_TAKE_PCT", float)))),
@@ -646,6 +663,11 @@ def public_view(rs: RuntimeSettings) -> dict[str, Any]:
         "agent_regime_neutral_mult": rs.agent_regime_neutral_mult,
         "agent_regime_risk_off_mult": rs.agent_regime_risk_off_mult,
         "agent_risk_off_block_new_buys": rs.agent_risk_off_block_new_buys,
+        "agent_require_regime_confirmation": rs.agent_require_regime_confirmation,
+        "agent_require_complete_data_for_buys": rs.agent_require_complete_data_for_buys,
+        "agent_regime_stale_bars_days": rs.agent_regime_stale_bars_days,
+        "agent_max_new_positions_per_run": rs.agent_max_new_positions_per_run,
+        "agent_caution_max_open_positions": rs.agent_caution_max_open_positions,
         "agent_trail_arm_pct": rs.agent_trail_arm_pct,
         "agent_trail_retrace_pct": rs.agent_trail_retrace_pct,
         "agent_partial_take_pct": rs.agent_partial_take_pct,

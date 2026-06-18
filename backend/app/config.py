@@ -128,6 +128,27 @@ class Settings(BaseSettings):
     # When True, block ALL new BUYs in risk_off regime (exits still run).
     AGENT_RISK_OFF_BLOCK_NEW_BUYS: bool = True
 
+    # ---- Regime / data-completeness buy gate ("confirm first, then execute") ----
+    # Hard-block new BUYs unless the market regime is GO or CAUTION (never
+    # NO-GO). When False, falls back to the legacy "full GO only" gate.
+    AGENT_REQUIRE_REGIME_CONFIRMATION: bool = True
+    # Hard-block new BUYs and pause auto-execution while the market-filter
+    # (SPY) feed is incomplete — missing bars/volume or a stale series. Exits
+    # are never blocked. This is the single biggest safety improvement when
+    # the data feed degrades.
+    AGENT_REQUIRE_COMPLETE_DATA_FOR_BUYS: bool = True
+    # Treat the SPY series as stale (data incomplete) if the most recent bar is
+    # older than this many calendar days. 4 covers a normal long weekend.
+    AGENT_REGIME_STALE_BARS_DAYS: int = 4
+    # Reduce auto-entry frequency: cap how many *new* BUY positions the agent
+    # auto-executes per run. Extra qualifying setups are surfaced as proposals
+    # for the operator instead of firing. 0 = unlimited (legacy behaviour).
+    AGENT_MAX_NEW_POSITIONS_PER_RUN: int = 2
+    # Focus the portfolio in CAUTION regime: tighten the open-position ceiling
+    # so the book stays on fewer, higher-conviction names. 0 = reuse
+    # AGENT_MAX_OPEN_POSITIONS (no extra tightening).
+    AGENT_CAUTION_MAX_OPEN_POSITIONS: int = 3
+
     # ---- Adaptive exit engine ----
     # Arm trailing-retrace logic once unrealized gain reaches this level.
     # Tightened from 0.05 → 0.04: protect gains sooner.

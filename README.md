@@ -258,6 +258,13 @@ AGENT_RS_LOOKBACK_DAYS=120
 
 ## v1.4 — What's new
 
+### Confirm-first buy gate (regime data completeness)
+- **Three-state market regime** — `swing_analyzer.market_regime` now reports `go` / `caution` / `no_go` plus a `data_complete` flag and `data_issues`. Data is "incomplete" when the SPY series is too short, the recent bars carry **no volume**, or the newest bar is **stale** (older than `AGENT_REGIME_STALE_BARS_DAYS`).
+- **Live SPY 20/50 DMA cross** — regime reports `ma_cross` (bullish/bearish) and emits a fresh **golden/death-cross alert** to the run log and Trading Digest.
+- **Hard buy gate** (`runner.resolve_buy_policy`) — new buys require regime GO/CAUTION **and** complete SPY data; auto-execution of buys pauses on data gaps. Exits are never blocked. Toggle with `AGENT_REQUIRE_REGIME_CONFIRMATION` / `AGENT_REQUIRE_COMPLETE_DATA_FOR_BUYS`.
+- **Auto-entry throttle** — `AGENT_MAX_NEW_POSITIONS_PER_RUN` caps how many new BUYs auto-execute per run; extras are surfaced as proposals.
+- **Portfolio focus in CAUTION** — `AGENT_CAUTION_MAX_OPEN_POSITIONS` tightens the open-position ceiling to keep the book on fewer, higher-conviction names.
+
 ### Incremental architecture upgrade (Phase 1, safe rollout)
 - Added a deterministic **pre-LLM scoring engine** (`backend/app/services/agent/scoring_engine.py`) with transparent factor weights:
   - `relative_strength`, `trend_quality`, `volume_expansion`, `sentiment`, `catalyst_strength`
@@ -362,6 +369,10 @@ Rolling log of agent events compressed daily at 09:30 ET by the Deep Analysis LL
 | `AGENT_MAX_OPEN_POSITIONS` | Position count ceiling |
 | `AGENT_AUTO_EXECUTE_LIVE=false` | Live mode proposes only; you execute manually |
 | `AGENT_RISK_OFF_BLOCK_NEW_BUYS` | Blocks all new buys when market regime is risk_off |
+| `AGENT_REQUIRE_REGIME_CONFIRMATION` | Confirm-first: new buys only when regime is GO/CAUTION (never NO-GO) |
+| `AGENT_REQUIRE_COMPLETE_DATA_FOR_BUYS` | Pauses new buys + auto-exec while SPY bars/volume are missing or stale (exits still run) |
+| `AGENT_MAX_NEW_POSITIONS_PER_RUN` | Throttles auto-entry: caps new BUYs auto-executed per run (extras become proposals) |
+| `AGENT_CAUTION_MAX_OPEN_POSITIONS` | Focuses the book to fewer positions when regime is CAUTION |
 | `AGENT_MAX_HOLD_DAYS` | Force-closes stale positions on time-stop |
 | `AGENT_STOP_LOSS_PCT` | Hard stop-loss on every position each run |
 | WAL + FK | SQLite WAL mode + `foreign_keys=ON` on every connection |

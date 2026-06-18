@@ -42,24 +42,77 @@ def _watchlist_symbols(db: Session) -> list[str]:
     return sorted({(r.symbol or "").upper() for r in rows if r.symbol})
 
 
+def _bar_age_days(bar: dict | None) -> Optional[float]:
+    """Calendar-day age of a bar's timestamp vs now (UTC). None if unknown."""
+    if not bar:
+        return None
+    raw = bar.get("t")
+    if not raw:
+        return None
+    try:
+        ts = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+    except Exception:
+        return None
+    now = datetime.now(ts.tzinfo) if ts.tzinfo else datetime.utcnow()
+    return max(0.0, (now - ts).total_seconds() / 86400.0)
+
+
 def evaluate_market_regime(
     broker: AlpacaBroker,
     *,
     filter_symbol: str,
     ma: int,
     lookback_days: int,
+    stale_bars_days: int = 4,
     log: LogFn = _noop,
 ) -> dict[str, Any]:
-    """Decide go/no-go using the broader-market filter symbol (default SPY)."""
+    """Classify the broader-market regime (default SPY) and flag data outages.
+
+    Returns the swing_analyzer.market_regime dict plus ``symbol`` and a
+    staleness-adjusted ``data_complete``. ``state`` is one of go/caution/no_go;
+    ``data_complete`` is False when bars are missing, volume is absent, or the
+    most recent bar is older than ``stale_bars_days`` calendar days (a stalled
+    feed). The runner uses these to gate new buys.
+    """
     bars_map = broker.fetch_daily_bars([filter_symbol], lookback_days=lookback_days)
     bars = bars_map.get(filter_symbol.upper()) or []
     if not bars:
-        log(f"swing: market-filter bars unavailable for {filter_symbol}; regime=skip")
-        return {"symbol": filter_symbol, "go": False, "reason": "bars unavailable"}
+        log(f"swing: market-filter bars unavailable for {filter_symbol}; regime=NO-GO (data)")
+        return {
+            "symbol": filter_symbol,
+            "go": False,
+            "state": "no_go",
+            "data_complete": False,
+            "data_issues": ["bars unavailable"],
+            "reason": "data incomplete (bars unavailable)",
+            "ma_cross": None,
+            "ma_cross_event": None,
+        }
     regime = swing_analyzer.market_regime(bars, ma=ma)
     regime["symbol"] = filter_symbol
-    verdict = "GO" if regime["go"] else "NO-GO"
-    log(f"swing: market regime {filter_symbol} {verdict} :: {regime['reason']}")
+
+    # Staleness: a stalled feed serves old bars with no fresh prints.
+    age = _bar_age_days(bars[-1])
+    if age is not None and stale_bars_days > 0 and age > float(stale_bars_days):
+        issues = list(regime.get("data_issues") or [])
+        issues.append(f"latest SPY bar is {age:.1f}d old (>{stale_bars_days}d)")
+        regime["data_issues"] = issues
+        regime["data_complete"] = False
+        regime["reason"] = f"data incomplete (stale {age:.1f}d); " + regime.get("reason", "")
+
+    state = str(regime.get("state", "no_go")).upper().replace("_", "-")
+    data_tag = "DATA OK" if regime.get("data_complete") else "DATA INCOMPLETE"
+    cross = regime.get("ma_cross")
+    cross_event = regime.get("ma_cross_event")
+    cross_bits = ""
+    if cross:
+        cross_bits = f" | 20/50DMA={cross}"
+        if cross_event:
+            cross_bits += f" ({cross_event.upper().replace('_', ' ')})"
+    log(
+        f"swing: market regime {filter_symbol} {state} [{data_tag}] "
+        f":: {regime['reason']}{cross_bits}"
+    )
     return regime
 
 

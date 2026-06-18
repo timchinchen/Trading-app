@@ -247,6 +247,11 @@ export interface AgentSettings {
   agent_regime_neutral_mult: number
   agent_regime_risk_off_mult: number
   agent_risk_off_block_new_buys: boolean
+  agent_require_regime_confirmation: boolean
+  agent_require_complete_data_for_buys: boolean
+  agent_regime_stale_bars_days: number
+  agent_max_new_positions_per_run: number
+  agent_caution_max_open_positions: number
   agent_max_hold_days: number
   agent_prompt_time_stop_days: number
   agent_recent_trade_window_hours: number
@@ -369,6 +374,11 @@ export type AgentSettingsUpdate = Partial<{
   AGENT_REGIME_NEUTRAL_MULT: number
   AGENT_REGIME_RISK_OFF_MULT: number
   AGENT_RISK_OFF_BLOCK_NEW_BUYS: boolean
+  AGENT_REQUIRE_REGIME_CONFIRMATION: boolean
+  AGENT_REQUIRE_COMPLETE_DATA_FOR_BUYS: boolean
+  AGENT_REGIME_STALE_BARS_DAYS: number
+  AGENT_MAX_NEW_POSITIONS_PER_RUN: number
+  AGENT_CAUTION_MAX_OPEN_POSITIONS: number
   AGENT_MAX_HOLD_DAYS: number
   AGENT_PROMPT_TIME_STOP_DAYS: number
   AGENT_RECENT_TRADE_WINDOW_HOURS: number
