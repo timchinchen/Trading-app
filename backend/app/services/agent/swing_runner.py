@@ -357,11 +357,16 @@ def build_swing_proposals(
             continue
 
         if sym in recently_bought:
-            when = recently_bought[sym].get("created_at")
+            info = recently_bought[sym]
+            when = info.get("created_at")
             when_s = when.strftime("%Y-%m-%d %H:%M") if when else ""
+            side_s = info.get("side", "traded")
             proposals.append({
                 **base, "action": "skipped",
-                "reason": f"bought recently{(' on ' + when_s) if when_s else ''}",
+                "reason": (
+                    f"{side_s} recently{(' on ' + when_s) if when_s else ''} "
+                    "(re-entry cooldown)"
+                ),
             })
             continue
 
@@ -388,6 +393,9 @@ def build_swing_proposals(
                 })
                 continue
 
+        # CAUTION: trim slot to half size (or configured fraction) BEFORE the
+        # min/max clamp inside size_plan, so a trimmed slot lands on the floor
+        # instead of being clamped up and then halved below it.
         sizing = swing_analyzer.size_plan(
             plan,
             total_capital_usd=total_capital_usd,
@@ -395,6 +403,7 @@ def build_swing_proposals(
             min_position_usd=min_position_usd,
             max_position_usd=max_position_usd,
             min_rr=eff_min_rr,
+            size_mult=size_mult,
         )
         if sizing["rejected"]:
             proposals.append({
@@ -406,9 +415,7 @@ def build_swing_proposals(
             })
             continue
 
-        # CAUTION: trim slot to half size (or configured fraction).
-        desired_notional = sizing["notional"] * size_mult
-        slot = min(desired_notional, daily_budget, week_budget)
+        slot = min(sizing["notional"], daily_budget, week_budget)
         if slot < min_position_usd:
             reason_bits = []
             if daily_budget < min_position_usd:
@@ -480,6 +487,7 @@ def persist_position_plan(
     )
     if row:
         row.run_id = run_id
+        row.created_run_id = run_id
         row.setup_type = plan.setup
         row.entry_price = plan.entry
         row.stop_price = plan.stop
@@ -492,7 +500,7 @@ def persist_position_plan(
         row.notes = plan.note
     else:
         db.add(AgentPositionPlan(
-            symbol=plan.symbol, run_id=run_id,
+            symbol=plan.symbol, run_id=run_id, created_run_id=run_id,
             setup_type=plan.setup, entry_price=plan.entry,
             stop_price=plan.stop, target_price=plan.target,
             risk_reward=plan.rr, status="open",
@@ -508,6 +516,7 @@ def backfill_position_plans(
     mode: str,
     default_stop_pct: float,
     default_target_pct: float,
+    current_run_id: Optional[int] = None,
     log: LogFn = _noop,
 ) -> int:
     """Create an AgentPositionPlan for every open broker position that lacks
@@ -518,6 +527,14 @@ def backfill_position_plans(
     Entry = broker avg_entry_price; stop/target = entry shifted by the
     configured default percentages; setup_type='backfilled'. Returns the
     number of plans created.
+
+    Guards against synthesising a stop that is already below the market: for a
+    position more than ``default_stop_pct`` underwater, an entry-based stop
+    would sit above the current price and the very next trade-management pass
+    would liquidate it on the run that created the plan. When that happens we
+    anchor the stop below the *current* price instead. ``current_run_id`` is
+    stamped onto each new plan so the same-run hard-stop guard can skip it until
+    the next run.
     """
     from ...models import AgentPositionPlan
 
@@ -544,16 +561,27 @@ def backfill_position_plans(
         entry = float(pos.get("avg_entry_price") or 0.0)
         if qty <= 0 or entry <= 0:
             continue
+        current = float(pos.get("current_price") or 0.0)
         stop = round(entry * (1 - max(0.0, default_stop_pct)), 2)
         target = round(entry * (1 + max(0.0, default_target_pct)), 2)
+        note = f"backfilled plan from open position (entry ${entry:.2f})"
+        # Don't write a stop that is already at/above the market — that would
+        # trip STOP HIT on the next pass. Anchor below current price instead.
+        if current > 0 and current <= stop:
+            stop = round(current * (1 - max(0.0, default_stop_pct)), 2)
+            note += f"; entry-based stop already breached, anchored to current ${current:.2f}"
+            log(
+                f"swing: backfill {sym} entry-based stop breached "
+                f"(last ${current:.2f}); anchoring stop -> ${stop:.2f}"
+            )
         risk = max(1e-9, entry - stop)
         rr = round((target - entry) / risk, 2)
         db.add(AgentPositionPlan(
-            symbol=sym, run_id=None,
+            symbol=sym, run_id=None, created_run_id=current_run_id,
             setup_type="backfilled", entry_price=entry,
             stop_price=stop, target_price=target,
             risk_reward=rr, status="open",
-            notes=f"backfilled plan from open position (entry ${entry:.2f})",
+            notes=note,
         ))
         created += 1
     if created:
@@ -572,10 +600,13 @@ def invalidation_exit_proposals(
     db: Session,
     *,
     lookback_days: int,
+    mode: str = "",
     sma_period: int = 20,
     consec_closes: int = 2,
     first_close_on_confirmed: bool = True,
     existing_sell_symbols: Optional[set] = None,
+    min_hold_hours: int = 0,
+    current_run_id: Optional[int] = None,
     log: LogFn = _noop,
 ) -> list[dict[str, Any]]:
     """Exit positions whose *thesis* has broken, not just on a fixed % stop.
@@ -594,10 +625,13 @@ def invalidation_exit_proposals(
     earmarked for sale this run are skipped.
     """
     from ...models import AgentPositionPlan
+    from datetime import timedelta
+    from .position_age import open_lot_opened_at
 
     existing_sell_symbols = {s.upper() for s in (existing_sell_symbols or set())}
     if not broker.configured:
         return []
+    now = datetime.utcnow()
     try:
         positions = {(p.get("symbol") or "").upper(): p for p in broker.positions()}
     except Exception as e:
@@ -629,6 +663,21 @@ def invalidation_exit_proposals(
         current = float(pos.get("current_price") or cs[-1] or 0.0)
         if qty <= 0 or current <= 0:
             continue
+
+        # Same-run guard: never invalidate a plan created this run.
+        if (
+            current_run_id is not None
+            and getattr(plan, "created_run_id", None) == current_run_id
+        ):
+            continue
+
+        # Minimum-hold guard: invalidation is not a hard stop, so it waits for
+        # the position to breathe. A setup can't be "invalidated" 30 minutes
+        # after entry by daily closes that happened before we bought.
+        if min_hold_hours > 0 and mode:
+            opened = open_lot_opened_at(db, sym, mode)
+            if opened is not None and (now - opened) < timedelta(hours=min_hold_hours):
+                continue
 
         below = [c < sma for c in cs[-consec_closes:]]
         soft = len(below) >= consec_closes and all(below)
@@ -687,10 +736,14 @@ def trade_management_pass(
     broker: AlpacaBroker,
     db: Session,
     *,
+    mode: str,
     time_stop_days: int,
     move_stop_be_pct: float,
     partial_pct: float,
     time_stop_min_progress_pct: float = 0.02,
+    move_stop_be_target_frac: float = 0.5,
+    min_hold_hours: int = 0,
+    current_run_id: Optional[int] = None,
     log: LogFn = _noop,
 ) -> list[dict[str, Any]]:
     """Apply SKILL trade-management rules to every open position that has a
@@ -698,10 +751,23 @@ def trade_management_pass(
       - current price <= stop
       - elapsed trading days since open >= time_stop_days with no progress
     Also mutates plan rows:
-      - breakeven_moved=1 once +move_stop_be_pct reached (and raises stop)
+      - breakeven_moved=1 once price covers move_stop_be_target_frac of the
+        entry→target distance (and raises stop to entry)
       - partial_taken=1 once +partial_pct reached (advisor surfaces; no sell)
+
+    Guards:
+      - Only a hard stop may fire within ``min_hold_hours`` of the lot opening
+        (from the shared position-age walk); time-stop / breakeven / partial all
+        wait for the position to breathe.
+      - A plan created on the current run (``created_run_id == current_run_id``)
+        is skipped entirely, so a freshly-synthesised stop can't liquidate the
+        position on the very run that created it.
+      - Position age comes from the shared open_lot_opened_at helper, not
+        ``plan.opened_at`` (which backfill stamps with utcnow, reading age 0).
     """
     from ...models import AgentPositionPlan
+    from datetime import timedelta
+    from .position_age import open_lot_opened_at
 
     proposals: list[dict[str, Any]] = []
     if not broker.configured:
@@ -734,6 +800,22 @@ def trade_management_pass(
         if current <= 0 or qty <= 0:
             continue
 
+        # Same-run guard: never exit on a plan created this run (e.g. a stop
+        # synthesised by backfill moments ago).
+        if (
+            current_run_id is not None
+            and getattr(row, "created_run_id", None) == current_run_id
+        ):
+            continue
+
+        # Minimum-hold guard: within the window only a hard stop may fire.
+        opened = open_lot_opened_at(db, row.symbol, mode)
+        within_min_hold = (
+            min_hold_hours > 0
+            and opened is not None
+            and (now - opened) < timedelta(hours=min_hold_hours)
+        )
+
         # Stop hit.
         if current <= row.stop_price:
             proposals.append({
@@ -755,11 +837,17 @@ def trade_management_pass(
             dirty = True
             continue
 
-        # Time stop (calendar days since opened_at; good-enough proxy for
-        # trading days in a 1-2 week horizon).
-        elapsed = (now - row.opened_at).days
+        # Everything below is a soft exit / adjustment: skip while inside the
+        # minimum-hold window.
+        if within_min_hold:
+            continue
+
+        # Time stop (calendar days since the current lot opened; from the shared
+        # age walk, not plan.opened_at). If we have no local lineage, opened is
+        # None and we do NOT time-stop rather than guess.
         plpc = (current - row.entry_price) / row.entry_price if row.entry_price else 0.0
-        if elapsed >= time_stop_days and plpc < time_stop_min_progress_pct:
+        elapsed = (now - opened).days if opened is not None else None
+        if elapsed is not None and elapsed >= time_stop_days and plpc < time_stop_min_progress_pct:
             proposals.append({
                 "symbol": row.symbol, "side": "sell", "qty": qty,
                 "est_price": current, "notional": round(qty * current, 2),
@@ -779,18 +867,29 @@ def trade_management_pass(
             dirty = True
             continue
 
-        # Move stop to breakeven at +8% (or configured %).
-        if plpc >= move_stop_be_pct and not row.breakeven_moved:
+        # Move stop to breakeven once price has covered move_stop_be_target_frac
+        # of the entry->target distance (default 50%). Scaling the trigger to
+        # each setup's own target avoids the old absolute +8% bump firing two
+        # points short of a +10% target and scratching winners on any retrace.
+        # Falls back to the legacy absolute % if there's no usable target.
+        entry_price = row.entry_price or 0.0
+        target_price = row.target_price or 0.0
+        if entry_price > 0 and target_price > entry_price:
+            be_trigger_plpc = move_stop_be_target_frac * ((target_price / entry_price) - 1.0)
+        else:
+            be_trigger_plpc = move_stop_be_pct
+        if plpc >= be_trigger_plpc and not row.breakeven_moved:
             old_stop = row.stop_price
             row.stop_price = max(row.stop_price, row.entry_price)
             row.breakeven_moved = 1
             row.notes = (row.notes or "") + (
-                f" | moved stop ${old_stop:.2f}->${row.stop_price:.2f} at +{plpc*100:.1f}%"
+                f" | moved stop ${old_stop:.2f}->${row.stop_price:.2f} at +{plpc*100:.1f}% "
+                f"(be trigger +{be_trigger_plpc*100:.1f}%)"
             )
             dirty = True
             log(
                 f"swing: {row.symbol} moved stop to breakeven "
-                f"(${old_stop:.2f}->${row.stop_price:.2f})"
+                f"(${old_stop:.2f}->${row.stop_price:.2f}) at +{plpc*100:.1f}%"
             )
 
         # Flag partial at +5%.

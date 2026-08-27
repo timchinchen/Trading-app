@@ -353,11 +353,20 @@ def size_plan(
     min_position_usd: float,
     max_position_usd: float,
     min_rr: float,
+    size_mult: float = 1.0,
 ) -> dict[str, Any]:
     """Return {qty, notional, slot, risk_usd, rejected, reason}.
 
-    Shares = (risk_usd / risk_per_share), clamped to [min_slot, max_slot]
-    dollar bands. If the plan's R/R is below min_rr, reject outright.
+    Shares = (risk_usd / risk_per_share) * size_mult, clamped to
+    [min_slot, max_slot] dollar bands. If the plan's R/R is below min_rr,
+    reject outright.
+
+    ``size_mult`` (e.g. 0.5 in CAUTION regime) is applied BEFORE the min/max
+    clamp on purpose. Applying it after — as the caller used to — meant a slot
+    was first clamped UP to the floor and then halved back below it, so it got
+    discarded for being below the floor. Multiplying first lets the floor mean
+    what it says: a trimmed slot still lands on ``min_position_usd`` rather than
+    being thrown away.
     """
     if plan.rr < min_rr:
         return {
@@ -373,7 +382,7 @@ def size_plan(
         }
 
     risk_usd = total_capital_usd * risk_pct
-    raw_qty = risk_usd / plan.risk_per_share
+    raw_qty = (risk_usd / plan.risk_per_share) * max(0.0, size_mult)
     raw_notional = raw_qty * plan.entry
 
     # Clamp to the min/max position band. Note: clamping UP may inflate risk,

@@ -238,6 +238,19 @@ class TestAdaptiveExitEngine:
         existing_sell_symbols=set(),
     )
 
+    @pytest.fixture(autouse=True)
+    def _patch_position_age(self):
+        """Position age now comes from the shared open_lot_opened_at ledger walk
+        (not plan.opened_at). Patch it so these unit tests can control age
+        without a real DB. Default: 3 days old (well under max_hold_days=8), so
+        only the time-stop tests that override it will time-stop."""
+        with patch(
+            "app.services.agent.position_age.open_lot_opened_at"
+        ) as m:
+            m.return_value = datetime.utcnow() - timedelta(days=3)
+            self.age_mock = m
+            yield
+
     def _make_broker(self, positions):
         b = MagicMock()
         b.configured = True
@@ -265,6 +278,7 @@ class TestAdaptiveExitEngine:
         broker = self._make_broker([_pos("TSLA", current=100.0, plpc=0.0)])
         plan = _plan("TSLA", stop=80.0, opened_days_ago=10)  # > max_hold_days=8
         db = self._make_db([plan])
+        self.age_mock.return_value = datetime.utcnow() - timedelta(days=10)
         props = _adaptive_exit_proposals(broker, db=db, **self.BASE_KWARGS)
         assert len(props) == 1
         assert "time-stop" in props[0]["reason"]
@@ -309,6 +323,7 @@ class TestAdaptiveExitEngine:
         broker = self._make_broker([_pos("SPY", current=85.0, plpc=-0.15)])
         plan = _plan("SPY", stop=90.0, opened_days_ago=20, peak_plpc=0.0)
         db = self._make_db([plan])
+        self.age_mock.return_value = datetime.utcnow() - timedelta(days=20)
         props = _adaptive_exit_proposals(broker, db=db, **self.BASE_KWARGS)
         assert "hard-stop" in props[0]["reason"]
 
