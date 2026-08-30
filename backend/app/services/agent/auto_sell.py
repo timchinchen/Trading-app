@@ -11,11 +11,11 @@ Design notes:
 - We only sell what the broker currently reports as open. If Alpaca says
   the position is flat, the local Trade history is ignored - the broker is
   the source of truth for "is this position open?".
-- Holding duration is the timestamp of the *oldest* local BUY row for the
-  symbol (Trade table first, falling back to AgentTrade with side='buy' and
-  action='executed' if no Trade row exists). This avoids selling a position
-  that was bought 3 days ago just because a Trade from 31 days ago on the
-  same symbol has since been closed and reopened.
+- Holding duration is the timestamp of the BUY that opened the *currently
+  held* lot, computed by the shared open_lot_opened_at walk over the merged
+  Trade + executed-AgentTrade ledger. This avoids selling a position bought 3
+  days ago just because the same symbol traded 31 days ago and has since been
+  closed and reopened.
 - Paper mode auto-executes. Live mode proposes unless
   AGENT_AUTO_EXECUTE_LIVE is true (matches the agent runner's policy).
 - Idempotent inside a single trading day: if we've already filed a SELL
@@ -40,10 +40,11 @@ from sqlalchemy.orm import Session
 
 from ...config import settings
 from ...db import SessionLocal
-from ...models import AgentTrade, Order, Trade
+from ...models import AgentTrade, Order
 from ..broker import AlpacaBroker
 from ..digest_store import append_entry as digest_append
 from ..settings_store import get_runtime_settings
+from .position_age import open_lot_opened_at
 
 
 @dataclass
@@ -71,53 +72,16 @@ class AutoSellCandidate:
 
 
 def _oldest_open_buy_timestamp(db: Session, symbol: str, mode: str) -> Optional[datetime]:
-    """Timestamp of the earliest BUY that is still holding this symbol open.
+    """Timestamp of the BUY that opened the currently-held lot, or None.
 
-    We walk the local trade ledger chronologically and keep a running qty
-    balance. The 'opened_at' we return is the timestamp of the first BUY
-    that contributed to the currently-open position (i.e. once the running
-    balance last went from 0 -> positive).
+    Thin wrapper over the shared :func:`open_lot_opened_at` walk so auto-sell,
+    the adaptive-exit engine, and trade-management all agree on position age.
+    The shared helper merges the Trade and executed-AgentTrade ledgers, uses a
+    fractional-share-safe dust epsilon (1e-4), and matches sides
+    case-insensitively — fixing the 1e-6 epsilon that used to leave dust lots
+    "open" forever and treat any non-"buy" row as a sell.
     """
-    # Prefer the Trade table (records actual fills). Fall back to AgentTrade
-    # executed rows if we somehow have no Trade row (older paper rows that
-    # pre-dated the Trade insert).
-    rows = (
-        db.query(Trade)
-        .filter(Trade.symbol == symbol, Trade.mode == mode)
-        .order_by(Trade.filled_at.asc())
-        .all()
-    )
-    if not rows:
-        # AgentTrade fallback. executed rows only.
-        ag = (
-            db.query(AgentTrade)
-            .filter(
-                AgentTrade.symbol == symbol,
-                AgentTrade.mode == mode,
-                AgentTrade.action == "executed",
-            )
-            .order_by(AgentTrade.created_at.asc())
-            .all()
-        )
-        ts_rows: list[tuple[datetime, str, float]] = [
-            (r.created_at, r.side, float(r.qty or 0)) for r in ag
-        ]
-    else:
-        ts_rows = [(r.filled_at, r.side, float(r.qty or 0)) for r in rows]
-
-    balance = 0.0
-    lot_start: Optional[datetime] = None
-    for ts, side, qty in ts_rows:
-        if side == "buy":
-            if balance <= 0.000001:
-                lot_start = ts
-            balance += qty
-        else:  # sell
-            balance -= qty
-            if balance <= 0.000001:
-                lot_start = None
-                balance = 0.0
-    return lot_start if balance > 0.000001 else None
+    return open_lot_opened_at(db, symbol, mode)
 
 
 def _recent_sell_for(db: Session, symbol: str, mode: str, within_hours: int = 6) -> bool:

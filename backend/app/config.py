@@ -8,7 +8,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 # Z droid-controlled - bumped on every droid-authored edit). Reported
 # by /health/setup so the Prerequisites panel can show the same version
 # badge the Settings page does.
-APP_VERSION_BACKEND = "1.4.0"
+APP_VERSION_BACKEND = "1.4.1"
 
 
 class Settings(BaseSettings):
@@ -211,6 +211,12 @@ class Settings(BaseSettings):
     # Tightened from 0.07 → 0.06: bank first partial slightly earlier.
     AGENT_PARTIAL_TAKE_PCT: float = 0.06      # 6%
     AGENT_PARTIAL_TAKE_FRACTION: float = 0.5  # sell 50%
+    # Minimum hold before any *non-hard-stop* exit may fire. Six exit paths
+    # compete to close every position; without a floor they routinely close a
+    # position in the same 30-min cycle it was opened (buy → time/momentum/
+    # invalidation exit → re-buy). A hard stop is the only exit allowed to fire
+    # inside this window. Set 0 to disable the guard (legacy behaviour).
+    AGENT_MIN_HOLD_HOURS: int = 24
     # Hard time-stop: close any position older than this many calendar days.
     # Set to 21 days so default exits align with a 2-3 week swing horizon.
     AGENT_MAX_HOLD_DAYS: int = 21
@@ -232,7 +238,17 @@ class Settings(BaseSettings):
     # the next run emits an EXIT proposal.
     SWING_TIME_STOP_DAYS: int = 10
     # Move stop to breakeven once unrealised P/L hits this fraction.
+    # DEPRECATED as a trigger: an absolute +8% breakeven bump against setups
+    # that target entry*1.10 converts winners into scratches two points short
+    # of target on any normal retrace. The breakeven trigger now uses
+    # SWING_MOVE_STOP_BE_TARGET_FRAC (fraction of the distance to target)
+    # instead; this value is retained only for backward-compat / display.
     SWING_MOVE_STOP_BE_PCT: float = 0.08
+    # Move stop to breakeven once price has covered this fraction of the
+    # entry→target distance (0.5 = halfway to target). Scales with each setup's
+    # own target instead of a fixed percentage, so a 10%-target trade arms
+    # breakeven at +5% and a 6%-target trade at +3%.
+    SWING_MOVE_STOP_BE_TARGET_FRAC: float = 0.5
     # Flag partial profit-take at this gain (no auto-sell; advisor surface it).
     SWING_PARTIAL_PCT: float = 0.05
     # Market regime filter symbol and MA window. If price < MA or MA slope

@@ -128,6 +128,7 @@ EDITABLE_KEYS: dict[str, type] = {
     "AGENT_TRAIL_RETRACE_PCT": float,
     "AGENT_PARTIAL_TAKE_PCT": float,
     "AGENT_PARTIAL_TAKE_FRACTION": float,
+    "AGENT_MIN_HOLD_HOURS": int,
     "AGENT_MAX_HOLD_DAYS": int,
     "AGENT_PROMPT_TIME_STOP_DAYS": int,
     # Agent signal thresholds (previously hard-coded)
@@ -152,6 +153,7 @@ EDITABLE_KEYS: dict[str, type] = {
     "SWING_MIN_RR": float,
     "SWING_TIME_STOP_DAYS": int,
     "SWING_MOVE_STOP_BE_PCT": float,
+    "SWING_MOVE_STOP_BE_TARGET_FRAC": float,
     "SWING_PARTIAL_PCT": float,
     # Auto-sell (max-hold window)
     "AUTO_SELL_ENABLED": bool,
@@ -173,6 +175,24 @@ SECRET_KEYS = {
     "STOCKTWITS_COOKIES",
     "DEEP_LLM_OPENAI_API_KEY",
 }
+
+
+def _coerce_pct(value: Any) -> float:
+    """Accept both fractional (0.30) and whole-percent (30) inputs.
+
+    The Settings UI lets users type either form for percentage fields. Take-
+    profit / stop-loss already run through the runner's _coerce_pct at
+    consumption, but the trailing/partial fields did not — so typing ``30`` in
+    the retrace box became 30x (clamped to 100%) and momentum-fade silently
+    never fired. Any value > 1 is treated as a whole percent and divided by 100.
+    """
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        return 0.0
+    if v > 1.0:
+        return v / 100.0
+    return max(0.0, v)
 
 
 def _coerce(raw: str, target: type) -> Any:
@@ -304,10 +324,16 @@ class RuntimeSettings:
     agent_use_intraday_confirmation: bool = False
     agent_intraday_lookback_minutes: int = 390
     # Adaptive exit engine
-    agent_trail_arm_pct: float = 0.05
-    agent_trail_retrace_pct: float = 0.35
-    agent_partial_take_pct: float = 0.07
+    # NOTE: these dataclass defaults are a safety net only — get_runtime_settings
+    # always passes every field explicitly from config.py + DB overrides. They
+    # had drifted from config.py (arm 0.05 vs 0.04, retrace 0.35 vs 0.30,
+    # partial 0.07 vs 0.06), a live landmine for anyone constructing
+    # RuntimeSettings() directly. Kept in lockstep with config.py.
+    agent_trail_arm_pct: float = 0.04
+    agent_trail_retrace_pct: float = 0.30
+    agent_partial_take_pct: float = 0.06
     agent_partial_take_fraction: float = 0.5
+    agent_min_hold_hours: int = 24
     agent_max_hold_days: int = 21
     agent_prompt_time_stop_days: int = 21
     # Signal thresholds (allocator)
@@ -331,13 +357,14 @@ class RuntimeSettings:
     swing_min_rr: float = 2.5
     swing_time_stop_days: int = 10
     swing_move_stop_be_pct: float = 0.08
+    swing_move_stop_be_target_frac: float = 0.5
     swing_partial_pct: float = 0.05
     swing_market_filter_symbol: str = "SPY"
     swing_market_filter_ma: int = 50
     swing_bar_lookback_days: int = 120
     # Auto-sell (max-hold window)
     auto_sell_enabled: bool = True
-    auto_sell_max_hold_days: int = 30
+    auto_sell_max_hold_days: int = 14
     agent_dynamic_preamble_enabled: bool = True
     agent_weekly_lesson_max_chars: int = 800
     # Bookkeeping: which keys are overridden in the DB (vs env default)
@@ -570,10 +597,11 @@ def get_runtime_settings(db: Session | None = None) -> RuntimeSettings:
         agent_disable_same_run_redeploy=bool(pick("AGENT_DISABLE_SAME_RUN_REDEPLOY", bool)),
         agent_use_intraday_confirmation=bool(pick("AGENT_USE_INTRADAY_CONFIRMATION", bool)),
         agent_intraday_lookback_minutes=max(30, int(pick("AGENT_INTRADAY_LOOKBACK_MINUTES", int))),
-        agent_trail_arm_pct=max(0.0, min(1.0, float(pick("AGENT_TRAIL_ARM_PCT", float)))),
-        agent_trail_retrace_pct=max(0.0, min(1.0, float(pick("AGENT_TRAIL_RETRACE_PCT", float)))),
-        agent_partial_take_pct=max(0.0, min(1.0, float(pick("AGENT_PARTIAL_TAKE_PCT", float)))),
+        agent_trail_arm_pct=min(1.0, _coerce_pct(pick("AGENT_TRAIL_ARM_PCT", float))),
+        agent_trail_retrace_pct=min(1.0, _coerce_pct(pick("AGENT_TRAIL_RETRACE_PCT", float))),
+        agent_partial_take_pct=min(1.0, _coerce_pct(pick("AGENT_PARTIAL_TAKE_PCT", float))),
         agent_partial_take_fraction=max(0.0, min(1.0, float(pick("AGENT_PARTIAL_TAKE_FRACTION", float)))),
+        agent_min_hold_hours=max(0, int(pick("AGENT_MIN_HOLD_HOURS", int))),
         agent_max_hold_days=max(1, int(pick("AGENT_MAX_HOLD_DAYS", int))),
         agent_prompt_time_stop_days=max(1, int(pick("AGENT_PROMPT_TIME_STOP_DAYS", int))),
         agent_min_score=float(pick("AGENT_MIN_SCORE", float)),
@@ -592,6 +620,9 @@ def get_runtime_settings(db: Session | None = None) -> RuntimeSettings:
         swing_min_rr=float(pick("SWING_MIN_RR", float)),
         swing_time_stop_days=int(pick("SWING_TIME_STOP_DAYS", int)),
         swing_move_stop_be_pct=float(pick("SWING_MOVE_STOP_BE_PCT", float)),
+        swing_move_stop_be_target_frac=max(
+            0.0, min(1.0, float(pick("SWING_MOVE_STOP_BE_TARGET_FRAC", float)))
+        ),
         swing_partial_pct=float(pick("SWING_PARTIAL_PCT", float)),
         swing_market_filter_symbol=str(pick("SWING_MARKET_FILTER_SYMBOL", str)),
         swing_market_filter_ma=int(pick("SWING_MARKET_FILTER_MA", int)),
@@ -758,6 +789,7 @@ def public_view(rs: RuntimeSettings) -> dict[str, Any]:
         "agent_trail_retrace_pct": rs.agent_trail_retrace_pct,
         "agent_partial_take_pct": rs.agent_partial_take_pct,
         "agent_partial_take_fraction": rs.agent_partial_take_fraction,
+        "agent_min_hold_hours": rs.agent_min_hold_hours,
         "agent_max_hold_days": rs.agent_max_hold_days,
         "agent_prompt_time_stop_days": rs.agent_prompt_time_stop_days,
         "agent_min_score": rs.agent_min_score,
@@ -776,6 +808,7 @@ def public_view(rs: RuntimeSettings) -> dict[str, Any]:
         "swing_min_rr": rs.swing_min_rr,
         "swing_time_stop_days": rs.swing_time_stop_days,
         "swing_move_stop_be_pct": rs.swing_move_stop_be_pct,
+        "swing_move_stop_be_target_frac": rs.swing_move_stop_be_target_frac,
         "swing_partial_pct": rs.swing_partial_pct,
         "swing_market_filter_symbol": rs.swing_market_filter_symbol,
         "swing_market_filter_ma": rs.swing_market_filter_ma,

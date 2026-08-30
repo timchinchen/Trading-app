@@ -2887,7 +2887,7 @@ export function SettingsPage() {
         <Row
           label="MAX_ORDER_NOTIONAL"
           value={`$${mode?.max_order_notional?.toFixed?.(2) ?? '-'}`}
-          hint="Hard server-side cap applied to EVERY order (including agent + manual)."
+          hint="Server-side notional cap. Enforced on manual orders (both sides) and agent BUYs. Agent exits are never blocked, so a position that has grown past the cap can always be closed."
         />
       </Card>
 

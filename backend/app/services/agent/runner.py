@@ -272,10 +272,15 @@ def _build_advisor_context(
     return "\n".join(parts)
 
 
-def _recently_bought_symbols(db: Session, mode: str, hours: int) -> dict[str, dict[str, Any]]:
-    """Return {symbol -> {'price': float|None, 'created_at': datetime}} for any
-    symbol that the agent executed a BUY on within the last `hours`. Used to
-    stop us chasing the same ticker run-after-run."""
+def _recently_traded_symbols(db: Session, mode: str, hours: int) -> dict[str, dict[str, Any]]:
+    """Return {symbol -> {'price', 'created_at', 'side'}} for any symbol the
+    agent executed a BUY *or SELL* on within the last `hours`.
+
+    Used as a re-entry cooldown. It intentionally covers sells too: without a
+    post-sell cooldown the agent would sell a name in the morning and re-buy it
+    the same afternoon (the classic sell→buy→sell churn sequence). The most
+    recent trade wins when a symbol was both bought and sold in the window.
+    """
     if hours <= 0:
         return {}
     since = datetime.utcnow() - timedelta(hours=int(hours))
@@ -283,7 +288,7 @@ def _recently_bought_symbols(db: Session, mode: str, hours: int) -> dict[str, di
         db.query(AgentTrade)
         .filter(
             AgentTrade.mode == mode,
-            AgentTrade.side == "buy",
+            AgentTrade.side.in_(("buy", "sell")),
             AgentTrade.action == "executed",
             AgentTrade.created_at >= since,
         )
@@ -293,8 +298,8 @@ def _recently_bought_symbols(db: Session, mode: str, hours: int) -> dict[str, di
     out: dict[str, dict[str, Any]] = {}
     for r in rows:
         sym = (r.symbol or "").upper()
-        if sym and sym not in out:
-            out[sym] = {"price": r.est_price, "created_at": r.created_at}
+        if sym and sym not in out:  # rows are desc by time => first seen is newest
+            out[sym] = {"price": r.est_price, "created_at": r.created_at, "side": r.side}
     return out
 
 
@@ -458,6 +463,8 @@ def _adaptive_exit_proposals(
     partial_take_pct: float,
     partial_take_fraction: float,
     existing_sell_symbols: set[str],
+    min_hold_hours: int = 0,
+    current_run_id: Optional[int] = None,
 ) -> list[dict[str, Any]]:
     """Priority-ordered exit engine evaluated every run.
 
@@ -469,7 +476,18 @@ def _adaptive_exit_proposals(
 
     All proposals carry executable qty (> 0). Skips logged with reason.
     Also updates peak_unrealized_plpc on open plans each run.
+
+    Guards (all exits except the hard plan stop respect these):
+      - Position age comes from the shared open_lot_opened_at helper (a running
+        balance walk over the merged ledger), replacing the two broken age
+        computations that read the oldest-ever buy or backfill's utcnow stamp.
+        When age is unknown (no local lineage) we do NOT time-stop.
+      - ``min_hold_hours``: only a hard stop may fire within this window of the
+        lot opening; time-stop / momentum-fade / partial all wait.
+      - ``current_run_id``: a plan created this run is not exited this run.
     """
+    from .position_age import open_lot_opened_at
+
     if not broker.configured:
         return []
 
@@ -515,7 +533,25 @@ def _adaptive_exit_proposals(
         sell_qty = qty          # default: full close
         exit_type = ""
 
-        # ── 1. Hard plan stop ────────────────────────────────────────────
+        # Same-run guard: never exit on a plan created this run.
+        if (
+            plan is not None
+            and current_run_id is not None
+            and getattr(plan, "created_run_id", None) == current_run_id
+        ):
+            continue
+
+        # Shared position-age walk (merged ledger, dust-tolerant). None => no
+        # local lineage, so we must not time-stop. Also drives the min-hold
+        # window below.
+        opened = open_lot_opened_at(db, sym, mode)
+        within_min_hold = (
+            min_hold_hours > 0
+            and opened is not None
+            and (now - opened) < timedelta(hours=min_hold_hours)
+        )
+
+        # ── 1. Hard plan stop (always allowed, even inside min-hold) ──────
         if plan and current_price is not None and current_price <= plan.stop_price:
             reason = (
                 f"hard-stop hit: last=${current_price:.2f} <= stop=${plan.stop_price:.2f} "
@@ -523,9 +559,9 @@ def _adaptive_exit_proposals(
             )
             exit_type = "hard_stop"
 
-        # ── 2. Time stop ─────────────────────────────────────────────────
-        if reason is None and plan:
-            age_days = (now - plan.opened_at).total_seconds() / 86400.0
+        # ── 2. Time stop (from the shared age walk, not plan.opened_at) ───
+        if reason is None and not within_min_hold and opened is not None:
+            age_days = (now - opened).total_seconds() / 86400.0
             if age_days >= max_hold_days:
                 reason = (
                     f"time-stop: held {age_days:.1f}d >= {max_hold_days}d max "
@@ -533,37 +569,17 @@ def _adaptive_exit_proposals(
                 )
                 exit_type = "time_stop"
 
-        # Fallback age estimate from oldest executed BUY (no plan case)
-        if reason is None and plan is None:
-            oldest = (
-                db.query(AgentTrade)
-                .filter(
-                    AgentTrade.mode == mode,
-                    AgentTrade.symbol == sym,
-                    AgentTrade.side == "buy",
-                    AgentTrade.action == "executed",
-                )
-                .order_by(AgentTrade.created_at.asc())
-                .first()
-            )
-            if oldest:
-                age_days = (now - oldest.created_at).total_seconds() / 86400.0
-                if age_days >= max_hold_days:
-                    reason = (
-                        f"time-stop (no plan): held {age_days:.1f}d >= {max_hold_days}d "
-                        f"closing {qty} shares"
-                    )
-                    exit_type = "time_stop"
-
         # ── 3. Momentum fade (trailing retrace) ──────────────────────────
+        # Peak tracking still updates during min-hold; only the exit waits.
         if reason is None and plpc is not None and plan is not None:
-            # Update peak gain in plan row.
+            # Update peak gain in plan row every run, even inside min-hold, so
+            # the trailing baseline keeps tracking; only the exit decision waits.
             if plpc > (plan.peak_unrealized_plpc or 0.0):
                 plan.peak_unrealized_plpc = plpc
                 db.add(plan)
 
             peak = plan.peak_unrealized_plpc or 0.0
-            if peak >= trail_arm_pct and plpc < peak:
+            if not within_min_hold and peak >= trail_arm_pct and plpc < peak:
                 retrace_frac = (peak - plpc) / peak if peak > 0 else 0.0
                 if retrace_frac >= trail_retrace_pct:
                     reason = (
@@ -577,6 +593,7 @@ def _adaptive_exit_proposals(
         # ── 4. Partial TP ────────────────────────────────────────────────
         if (
             reason is None
+            and not within_min_hold
             and plpc is not None
             and partial_take_pct > 0
             and plpc >= partial_take_pct
@@ -686,6 +703,17 @@ def _take_profit_proposals(
     if tp <= 0 and sl <= 0:
         return []
 
+    # This is the legacy fallback sweep for positions the plan-based engines
+    # don't cover. Defer to a plan when one exists: its own stop/target (and
+    # the adaptive/trade-management passes) govern that position, so the global
+    # TP/SL sweep must not override it with a flat percentage.
+    planned_symbols = {
+        (p.symbol or "").upper()
+        for p in db.query(AgentPositionPlan)
+        .filter(AgentPositionPlan.status == "open")
+        .all()
+    }
+
     proposals: list[dict[str, Any]] = []
     try:
         positions = broker.positions()
@@ -695,7 +723,7 @@ def _take_profit_proposals(
 
     for p in positions:
         sym = (p.get("symbol") or "").upper()
-        if not sym or sym in already_in_proposals:
+        if not sym or sym in already_in_proposals or sym in planned_symbols:
             continue
         qty = float(p.get("qty") or 0.0)
         if qty <= 0:
@@ -1182,6 +1210,7 @@ async def _run_once_impl(broker: AlpacaBroker) -> int:
                     mode=settings.APP_MODE,
                     default_stop_pct=rs.agent_plan_backfill_stop_pct,
                     default_target_pct=rs.agent_plan_backfill_target_pct,
+                    current_run_id=run_id,
                     log=log.add,
                 )
             except Exception as e:
@@ -1209,15 +1238,18 @@ async def _run_once_impl(broker: AlpacaBroker) -> int:
             q = broker.latest_quote(sym)
             return q.get("ask") or q.get("last")
 
-        # Block names we already bought in the last N hours so we rotate into
-        # fresh ideas each run instead of stacking the same ticker.
-        recently_bought = _recently_bought_symbols(
+        # Block names we already traded (bought OR sold) in the last N hours so
+        # we rotate into fresh ideas each run instead of stacking the same
+        # ticker or re-buying something we just exited (sell→buy→sell churn).
+        recently_bought = _recently_traded_symbols(
             db, settings.APP_MODE, rs.agent_recent_trade_window_hours
         )
         if recently_bought:
             log.add(
-                f"recent BUY exclusion ({rs.agent_recent_trade_window_hours}h): "
-                + ", ".join(sorted(recently_bought.keys()))
+                f"recent trade exclusion ({rs.agent_recent_trade_window_hours}h): "
+                + ", ".join(
+                    f"{s}({d.get('side','?')})" for s, d in sorted(recently_bought.items())
+                )
             )
 
         # --- 4a. Swing-trading skill pass ---------------------------------
@@ -1359,10 +1391,14 @@ async def _run_once_impl(broker: AlpacaBroker) -> int:
             # Trade-management pass: stop hits, time stops, breakeven bumps.
             tm_proposals = swing_runner.trade_management_pass(
                 broker, db,
+                mode=settings.APP_MODE,
                 time_stop_days=rs.swing_time_stop_days,
                 move_stop_be_pct=rs.swing_move_stop_be_pct,
                 partial_pct=rs.swing_partial_pct,
                 time_stop_min_progress_pct=rs.swing_time_stop_min_progress_pct,
+                move_stop_be_target_frac=rs.swing_move_stop_be_target_frac,
+                min_hold_hours=rs.agent_min_hold_hours,
+                current_run_id=run_id,
                 log=log.add,
             )
 
@@ -1418,6 +1454,8 @@ async def _run_once_impl(broker: AlpacaBroker) -> int:
             partial_take_pct=rs.agent_partial_take_pct,
             partial_take_fraction=rs.agent_partial_take_fraction,
             existing_sell_symbols=ae_in_hand,
+            min_hold_hours=rs.agent_min_hold_hours,
+            current_run_id=run_id,
         )
         if ae_proposals:
             by_type: dict[str, int] = {}
@@ -1444,10 +1482,13 @@ async def _run_once_impl(broker: AlpacaBroker) -> int:
                 inval_proposals = swing_runner.invalidation_exit_proposals(
                     broker, db,
                     lookback_days=rs.swing_bar_lookback_days,
+                    mode=settings.APP_MODE,
                     sma_period=rs.agent_invalidation_sma_period,
                     consec_closes=rs.agent_invalidation_consec_closes,
                     first_close_on_confirmed=rs.agent_invalidation_first_close_on_confirmed,
                     existing_sell_symbols=inval_in_hand,
+                    min_hold_hours=rs.agent_min_hold_hours,
+                    current_run_id=run_id,
                     log=log.add,
                 )
             except Exception as e:
@@ -1525,6 +1566,21 @@ async def _run_once_impl(broker: AlpacaBroker) -> int:
         # capped. Buys beyond the cap stay as 'proposed' for the operator.
         max_new_buys = max(0, int(rs.agent_max_new_positions_per_run))
         new_buys_executed = 0
+        # Hard server-side notional cap. The Settings page advertises
+        # MANUAL_ORDER_MAX_NOTIONAL as applying to EVERY order incl. the agent,
+        # but only the manual order router enforced it — the agent path called
+        # broker.place_order with no ceiling. Apply it to agent BUYs here (0 =
+        # no cap). Exits are never capped: we never want a size limit to block
+        # closing a position that has grown beyond it.
+        order_notional_cap = float(rs.manual_order_max_notional or 0.0)
+
+        def _buy_exceeds_cap(p: dict[str, Any]) -> bool:
+            if order_notional_cap <= 0 or p.get("side") != "buy":
+                return False
+            notional = p.get("notional")
+            if not notional:
+                notional = float(p.get("qty") or 0.0) * float(p.get("est_price") or 0.0)
+            return bool(notional and notional > order_notional_cap)
 
         for p in proposals:
             at = AgentTrade(
@@ -1570,6 +1626,19 @@ async def _run_once_impl(broker: AlpacaBroker) -> int:
                     )
                     p["action"] = "proposed"
                     log.add(f"HOLD {p['symbol']} buy: per-run new-position cap ({max_new_buys}) reached")
+                    continue
+                # Hard notional cap (agent buys only; exits never blocked).
+                if _buy_exceeds_cap(p):
+                    at.action = "proposed"
+                    at.reason = (at.reason or "") + (
+                        f" | held: notional ${p.get('notional', 0):.2f} exceeds cap "
+                        f"${order_notional_cap:.2f} (MANUAL_ORDER_MAX_NOTIONAL)"
+                    )
+                    p["action"] = "proposed"
+                    log.add(
+                        f"HOLD {p['symbol']} buy: notional ${p.get('notional', 0):.2f} "
+                        f"> cap ${order_notional_cap:.2f}"
+                    )
                     continue
             try:
                 result = broker.place_order(
@@ -1754,6 +1823,15 @@ async def _run_once_impl(broker: AlpacaBroker) -> int:
                         at.action = "proposed"
                         at.reason = (at.reason or "") + (
                             f" | held: per-run new-position cap reached ({max_new_buys})"
+                        )
+                        p["action"] = "proposed"
+                        second_pass_proposed += 1
+                        continue
+                    if _buy_exceeds_cap(p):
+                        at.action = "proposed"
+                        at.reason = (at.reason or "") + (
+                            f" | held: notional ${p.get('notional', 0):.2f} exceeds cap "
+                            f"${order_notional_cap:.2f} (MANUAL_ORDER_MAX_NOTIONAL)"
                         )
                         p["action"] = "proposed"
                         second_pass_proposed += 1

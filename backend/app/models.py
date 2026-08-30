@@ -123,6 +123,11 @@ class AgentPositionPlan(Base):
     id = Column(Integer, primary_key=True)
     symbol = Column(String, nullable=False, index=True, unique=True)
     run_id = Column(Integer, ForeignKey("agent_runs.id"), index=True)
+    # The run that CREATED this plan row. Used to suppress a same-run hard/time
+    # stop: a plan synthesized by backfill (or a fresh entry) in run N must not
+    # be evaluated for an exit until run N+1, so a just-created stop can't
+    # liquidate the position on the very run that created it.
+    created_run_id = Column(Integer, ForeignKey("agent_runs.id"), index=True)
     setup_type = Column(String, nullable=False)
     entry_price = Column(Float, nullable=False)
     stop_price = Column(Float, nullable=False)
