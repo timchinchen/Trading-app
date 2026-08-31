@@ -205,11 +205,24 @@ def _trade(symbol, side, qty, price, offset_minutes=0):
 
 class TestDailyRealizedPL:
     def _run(self, trades):
-        """Patch the DB query and call _today_realized_pl."""
+        """Feed the FIFO engine via the fills helper and call _today_realized_pl.
+
+        _today_realized_pl now sources fills from _realized_fills_today (executed
+        AgentTrade rows joined to Order), not the never-written Trade table, so
+        we patch that helper to return (ts, symbol, side, price, qty) tuples."""
+        fills = sorted(
+            [
+                (t.filled_at, (t.symbol or "").upper(), t.side,
+                 float(t.price or 0.0), float(t.qty or 0.0))
+                for t in trades
+            ],
+            key=lambda r: r[0],
+        )
         db = MagicMock()
-        query_chain = db.query.return_value.filter.return_value.order_by.return_value
-        query_chain.all.return_value = trades
-        return _today_realized_pl(db, "paper")
+        with patch(
+            "app.services.agent.runner._realized_fills_today", return_value=fills
+        ):
+            return _today_realized_pl(db, "paper")
 
     def test_round_trip_profit(self):
         """Buy 1 @ $100, sell 1 @ $120 → realized = +$20."""

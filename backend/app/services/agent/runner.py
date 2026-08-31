@@ -17,7 +17,6 @@ from ...models import (
     AgentTrade,
     AgentTweetAnalysis,
     Order,
-    Trade,
     User,
     WatchlistItem,
 )
@@ -60,8 +59,55 @@ class RunLog:
         return "\n".join(self.lines)
 
 
+def _realized_fills_today(
+    db: Session, mode: str, start: datetime
+) -> list[tuple[datetime, str, str, float, float]]:
+    """Executed agent fills since ``start`` as ``(ts, symbol, side, price, qty)``.
+
+    Sourced from executed AgentTrade rows — written synchronously the moment
+    the agent places an order, so they exist even in a headless cron run — and
+    joined to the Order row for the *reconciled* fill price/qty when it's
+    available (Order fills are only reconciled lazily on GET /orders, so most
+    headless runs fall back to the AgentTrade proposal price/qty).
+
+    This replaces the old ``Trade``-table source. No code path ever writes
+    ``Trade`` rows, so the previous query always returned empty — silently
+    pinning realized P/L, and therefore the daily-loss circuit breaker, at $0.
+    """
+    q = (
+        db.query(AgentTrade, Order)
+        .outerjoin(Order, AgentTrade.order_id == Order.id)
+        .filter(
+            AgentTrade.mode == mode,
+            AgentTrade.action == "executed",
+            AgentTrade.created_at >= start,
+        )
+        .order_by(AgentTrade.created_at.asc())
+        .all()
+    )
+    out: list[tuple[datetime, str, str, float, float]] = []
+    for at, order in q:
+        price: Optional[float] = None
+        qty: Optional[float] = None
+        ts = at.created_at
+        if order is not None:
+            if order.filled_avg_price is not None:
+                price = float(order.filled_avg_price)
+            if order.filled_qty is not None:
+                qty = float(order.filled_qty)
+            if order.filled_at is not None:
+                ts = order.filled_at
+        if price is None:
+            price = float(at.est_price or 0.0)
+        if qty is None:
+            qty = float(at.qty or 0.0)
+        out.append((ts, (at.symbol or "").upper(), str(at.side or "").lower(), price, qty))
+    out.sort(key=lambda r: r[0])
+    return out
+
+
 def _today_realized_pl(db: Session, mode: str) -> float:
-    """Realized P/L for today using FIFO cost-basis matching on Trade rows.
+    """Realized P/L for today using FIFO cost-basis matching.
 
     Algorithm (per symbol, chronological):
       - BUYs push cost lots onto a FIFO queue (price, qty).
@@ -70,37 +116,28 @@ def _today_realized_pl(db: Session, mode: str) -> float:
         matched against a synthetic lot at price=0 — this is conservative:
         it understates profits rather than overstating them.
       - Fees are ignored (not stored); the cap is intentionally conservative.
-      - Only 'filled' orders matter; Trade rows are written on confirmed fills.
 
-    Why this beats the old approach: the old code treated every SELL as pure
-    revenue and every BUY as pure cost, producing wildly wrong P/L figures
-    when both sides of a round-trip land in the same day.
+    Fills come from _realized_fills_today (executed AgentTrade rows, preferring
+    reconciled Order fill prices). Why this beats the old approach: the old code
+    read the Trade table, which is never written, so realized P/L was always $0
+    and the daily-loss cap never engaged.
     """
     from collections import deque
     start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
-    rows = (
-        db.query(Trade)
-        .filter(Trade.mode == mode, Trade.filled_at >= start)
-        .order_by(Trade.filled_at.asc())
-        .all()
-    )
+    fills = _realized_fills_today(db, mode, start)
 
     # Per-symbol FIFO lot queues: deque of [price, qty_remaining]
     lots: dict[str, deque] = {}
     realized = 0.0
 
-    for t in rows:
-        sym = (t.symbol or "").upper()
-        price = float(t.price or 0.0)
-        qty = float(t.qty or 0.0)
+    for ts, sym, side, price, qty in fills:
         if qty <= 0:
             continue
-
-        if t.side == "buy":
+        if side == "buy":
             if sym not in lots:
                 lots[sym] = deque()
             lots[sym].append([price, qty])
-        elif t.side == "sell":
+        elif side == "sell":
             q = lots.get(sym, deque())
             remaining = qty
             while remaining > 1e-9 and q:
