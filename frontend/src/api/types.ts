@@ -269,6 +269,7 @@ export interface AgentSettings {
   agent_disable_same_run_redeploy: boolean
   agent_use_intraday_confirmation: boolean
   agent_intraday_lookback_minutes: number
+  agent_min_hold_hours?: number
   agent_max_hold_days: number
   agent_prompt_time_stop_days: number
   agent_recent_trade_window_hours: number
@@ -290,6 +291,7 @@ export interface AgentSettings {
   swing_min_rr: number
   swing_time_stop_days: number
   swing_move_stop_be_pct: number
+  swing_move_stop_be_target_frac?: number
   swing_partial_pct: number
   swing_market_filter_symbol: string
   swing_market_filter_ma: number
@@ -413,6 +415,7 @@ export type AgentSettingsUpdate = Partial<{
   AGENT_DISABLE_SAME_RUN_REDEPLOY: boolean
   AGENT_USE_INTRADAY_CONFIRMATION: boolean
   AGENT_INTRADAY_LOOKBACK_MINUTES: number
+  AGENT_MIN_HOLD_HOURS: number
   AGENT_MAX_HOLD_DAYS: number
   AGENT_PROMPT_TIME_STOP_DAYS: number
   AGENT_RECENT_TRADE_WINDOW_HOURS: number
@@ -434,6 +437,7 @@ export type AgentSettingsUpdate = Partial<{
   SWING_MIN_RR: number
   SWING_TIME_STOP_DAYS: number
   SWING_MOVE_STOP_BE_PCT: number
+  SWING_MOVE_STOP_BE_TARGET_FRAC: number
   SWING_PARTIAL_PCT: number
   SWING_MARKET_FILTER_SYMBOL: string
   SWING_MARKET_FILTER_MA: number

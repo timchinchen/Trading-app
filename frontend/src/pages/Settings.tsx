@@ -1263,6 +1263,9 @@ function AgentBudgetCard({ s }: { s: AgentSettings }) {
   const [cautionMaxOpen, setCautionMaxOpen] = useState(
     s.agent_caution_max_open_positions ?? 3,
   )
+  const [minHoldHours, setMinHoldHours] = useState(
+    s.agent_min_hold_hours ?? 24,
+  )
   const [agentMaxHoldDays, setAgentMaxHoldDays] = useState(
     s.agent_max_hold_days ?? 21,
   )
@@ -1301,6 +1304,7 @@ function AgentBudgetCard({ s }: { s: AgentSettings }) {
     setRegimeStaleBarsDays(s.agent_regime_stale_bars_days ?? 4)
     setMaxNewPerRun(s.agent_max_new_positions_per_run ?? 2)
     setCautionMaxOpen(s.agent_caution_max_open_positions ?? 3)
+    setMinHoldHours(s.agent_min_hold_hours ?? 24)
     setAgentMaxHoldDays(s.agent_max_hold_days ?? 21)
     setRecentWindow(s.agent_recent_trade_window_hours)
     setNetBudget(s.agent_net_budget_accounting)
@@ -1334,6 +1338,7 @@ function AgentBudgetCard({ s }: { s: AgentSettings }) {
       AGENT_REGIME_STALE_BARS_DAYS: Number(regimeStaleBarsDays),
       AGENT_MAX_NEW_POSITIONS_PER_RUN: Number(maxNewPerRun),
       AGENT_CAUTION_MAX_OPEN_POSITIONS: Number(cautionMaxOpen),
+      AGENT_MIN_HOLD_HOURS: Number(minHoldHours),
       AGENT_MAX_HOLD_DAYS: Number(agentMaxHoldDays),
       AGENT_RECENT_TRADE_WINDOW_HOURS: Number(recentWindow),
       AGENT_NET_BUDGET_ACCOUNTING: netBudget,
@@ -1542,6 +1547,22 @@ function AgentBudgetCard({ s }: { s: AgentSettings }) {
             hint="% gain trigger for the first adaptive partial-profit exit (whole percent)."
           >
             <SettingNumInput value={partialTakePct} onChange={setPartialTakePct} step="0.1" suffix="%" />
+          </SettingField>
+
+          <SettingField
+            label="Minimum hold"
+            envKey="AGENT_MIN_HOLD_HOURS"
+            overridden={s.overridden}
+            hint="Only a hard stop may exit a position within this many hours of opening; time-stop, momentum-fade, partial-TP and invalidation all wait. Stops the buy → same-cycle exit → re-buy churn. 0 disables the guard."
+          >
+            <SettingNumInput
+              value={minHoldHours}
+              onChange={setMinHoldHours}
+              step="1"
+              min={0}
+              max={720}
+              suffix="hours"
+            />
           </SettingField>
 
           <SettingField
@@ -2201,6 +2222,9 @@ function SwingTradingCard({ s }: { s: AgentSettings }) {
   const [minRR, setMinRR] = useState(s.swing_min_rr)
   const [timeStop, setTimeStop] = useState(s.swing_time_stop_days)
   const [moveBe, setMoveBe] = useState(s.swing_move_stop_be_pct)
+  const [moveBeTargetFrac, setMoveBeTargetFrac] = useState(
+    s.swing_move_stop_be_target_frac ?? 0.5,
+  )
   const [partial, setPartial] = useState(s.swing_partial_pct)
   const [filterSym, setFilterSym] = useState(s.swing_market_filter_symbol)
   const [filterMa, setFilterMa] = useState(s.swing_market_filter_ma)
@@ -2212,6 +2236,7 @@ function SwingTradingCard({ s }: { s: AgentSettings }) {
     setMinRR(s.swing_min_rr)
     setTimeStop(s.swing_time_stop_days)
     setMoveBe(s.swing_move_stop_be_pct)
+    setMoveBeTargetFrac(s.swing_move_stop_be_target_frac ?? 0.5)
     setPartial(s.swing_partial_pct)
     setFilterSym(s.swing_market_filter_symbol)
     setFilterMa(s.swing_market_filter_ma)
@@ -2225,6 +2250,7 @@ function SwingTradingCard({ s }: { s: AgentSettings }) {
       SWING_MIN_RR: Number(minRR),
       SWING_TIME_STOP_DAYS: Number(timeStop),
       SWING_MOVE_STOP_BE_PCT: Number(moveBe),
+      SWING_MOVE_STOP_BE_TARGET_FRAC: Number(moveBeTargetFrac),
       SWING_PARTIAL_PCT: Number(partial),
       SWING_MARKET_FILTER_SYMBOL: filterSym,
       SWING_MARKET_FILTER_MA: Number(filterMa),
@@ -2300,8 +2326,23 @@ function SwingTradingCard({ s }: { s: AgentSettings }) {
         </div>
         <div className="grid grid-cols-[180px_1fr] gap-2 py-2 border-b border-border">
           <div className="text-xs text-muted-foreground uppercase tracking-wider self-center">
+            MOVE_STOP_BE_TARGET_FRAC
+            <OverrideBadge k="SWING_MOVE_STOP_BE_TARGET_FRAC" overridden={s.overridden} />
+            <span className="block text-[10px] normal-case tracking-normal text-muted-foreground/80 mt-0.5">
+              Move stop to breakeven once price covers this fraction of the
+              entry→target distance (0.5 = halfway). Supersedes MOVE_STOP_BE_PCT.
+            </span>
+          </div>
+          <Num value={moveBeTargetFrac} onChange={setMoveBeTargetFrac} step="0.05" />
+        </div>
+        <div className="grid grid-cols-[180px_1fr] gap-2 py-2 border-b border-border">
+          <div className="text-xs text-muted-foreground uppercase tracking-wider self-center">
             MOVE_STOP_BE_PCT
             <OverrideBadge k="SWING_MOVE_STOP_BE_PCT" overridden={s.overridden} />
+            <span className="block text-[10px] normal-case tracking-normal text-muted-foreground/80 mt-0.5">
+              Legacy absolute-% breakeven trigger. Only used as a fallback when a
+              plan has no usable target.
+            </span>
           </div>
           <Num value={moveBe} onChange={setMoveBe} step="0.01" />
         </div>
